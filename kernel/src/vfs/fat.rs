@@ -10,6 +10,7 @@ extern "C" {
 
 const EOC_MIN: u32 = 0x0FFF_FFF8;
 
+#[derive(Clone, Copy)]
 pub struct Fat32 {
     pub sectors_per_cluster: u32,
     pub sectors_per_fat: u32,

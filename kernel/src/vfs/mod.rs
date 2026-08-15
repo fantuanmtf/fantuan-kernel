@@ -10,6 +10,14 @@ use crate::serial::{self, Serial};
 pub mod fat;
 pub mod part;
 
+/// The mounted world: filesystem + partition table, shared with the
+/// boot-repair diagnostics (M7).
+#[derive(Clone, Copy)]
+pub struct Vfs {
+    pub fs: fat::Fat32,
+    pub table: part::Table,
+}
+
 /// Format an 8.3 name as "NAME.EXT" into a fixed buffer.
 fn fmt_name(name: &[u8; 11], buf: &mut [u8; 13]) -> usize {
     let mut n = 0;
@@ -34,10 +42,10 @@ fn fmt_name(name: &[u8; 11], buf: &mut [u8; 13]) -> usize {
     n
 }
 
-pub fn init() -> bool {
+pub fn init() -> Option<Vfs> {
     let mut s = Serial::new(serial::COM1);
     let Some(table) = part::parse(&mut s) else {
-        return false;
+        return None;
     };
 
     // Find the first FAT32 partition (GPT type GUID or MBR type 0x0B/0x0C).
@@ -58,11 +66,11 @@ pub fn init() -> bool {
     }
     let Some(p) = target else {
         let _ = writeln!(s, "vfs: no FAT32 partition");
-        return false;
+        return None;
     };
     let Some(fs) = fat::parse(p.first_lba) else {
         let _ = writeln!(s, "vfs: FAT32 BPB parse failed");
-        return false;
+        return None;
     };
     let _ = writeln!(
         s,
@@ -112,5 +120,5 @@ pub fn init() -> bool {
         let _ = writeln!(s, "vfs: INFO.TXT not found");
     }
 
-    true
+    Some(Vfs { fs, table })
 }
