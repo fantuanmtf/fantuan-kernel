@@ -7,7 +7,12 @@ BSD diagnosis, Windows deferred.
 All repository artifacts are in English. The authoritative design lives in
 [docs/DESIGN.md](docs/DESIGN.md) — change it before changing code.
 
-## Current state: M0
+## Current state: M2
+
+M0 boot chain (self-written UEFI bootloader, handshake, serial/GOP console) and
+M1 interrupts (IDT, PIC, PIT timer, TSS/IST, TSC sleep) are in. M2 memory
+management: higher-half kernel at PHYS_OFFSET, kernel-owned page tables, and a
+bitmap frame allocator over the EFI memory map.
 
 - `boot/` — self-written UEFI bootloader in Rust (`x86_64-unknown-uefi`),
   hand-rolled against the UEFI spec: GOP, RSDP, memory map, kernel load via

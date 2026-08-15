@@ -20,6 +20,7 @@ mod font;
 mod gdt;
 mod idt;
 mod interrupts;
+mod mm;
 mod pic;
 mod pit;
 mod port;
@@ -130,6 +131,48 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         core::arch::asm!("sti", options(nomem, nostack));
     }
     let _ = writeln!(s, "interrupts: enabled");
+
+    // --- M2: memory management --------------------------------------------
+    // Guard: the kernel must actually run at its linked higher-half address.
+    if (kmain as *const () as u64) < fantuan_abi::PHYS_OFFSET {
+        let _ = writeln!(s, "fatal: kernel not running at PHYS_OFFSET (link/paging mismatch)");
+        halt_forever();
+    }
+
+    let mut alloc = mm::frame::FrameAllocator::new(bi);
+    let _ = writeln!(
+        s,
+        "mm: frame allocator ready: {} MiB usable (bitmap {} KiB)",
+        alloc.usable_mib(),
+        mm::frame::BITMAP_BYTES / 1024
+    );
+    let new_pml4 = mm::paging::init(&mut alloc);
+    let _ = writeln!(
+        s,
+        "paging: kernel tables @ phys {:#x}, kmain @ {:#x}",
+        new_pml4, kmain as *const () as usize
+    );
+
+    // The bootloader's tables are unreferenced after the switch: reclaim them.
+    for i in 0..bi.boot_tables_pages {
+        alloc.free(bi.boot_pml4 + i * mm::frame::FRAME_SIZE);
+    }
+    let _ = writeln!(s, "mm: reclaimed {} bootloader table pages", bi.boot_tables_pages);
+
+    // Self-test: a fresh frame must be readable/writable through the alias.
+    if let Some(f) = alloc.alloc() {
+        let probe = mm::paging::phys_to_virt(f) as *mut u64;
+        unsafe { probe.write_volatile(0xDEAD_BEEF_CAFE_F00D); }
+        let ok = unsafe { probe.read_volatile() } == 0xDEAD_BEEF_CAFE_F00D;
+        alloc.free(f);
+        let _ = writeln!(s, "mm: frame self-test {} (frame {:#x} via PHYS_OFFSET alias)", if ok { "ok" } else { "FAILED" }, f);
+        if !ok {
+            halt_forever();
+        }
+    } else {
+        let _ = writeln!(s, "mm: frame self-test FAILED (allocator returned no frames)");
+        halt_forever();
+    }
 
     // Exception demos: both paths (with/without error code) must work.
     unsafe {

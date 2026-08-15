@@ -2,5 +2,8 @@
 [target.x86_64-unknown-none]
 rustflags = [
     "-C", "relocation-model=static",
+    # The kernel links at PHYS_OFFSET (0xFFFF8000...): the small code model
+    # would emit 32-bit relocations that cannot reach it.
+    "-C", "code-model=large",
     "-C", "link-arg=-no-pie",
 ]

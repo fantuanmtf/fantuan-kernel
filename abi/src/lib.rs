@@ -9,6 +9,14 @@
 pub const BOOT_MAGIC: u32 = 0x4654_4E46; // "FTNF"
 pub const BOOT_VERSION: u32 = 1;
 
+/// Physical-to-virtual mapping convention (DESIGN.md §4.5): every physical
+/// address p is reachable at PHYS_OFFSET + p. Shared by the bootloader (which
+/// builds the initial page tables) and the kernel (which is linked there).
+pub const PHYS_OFFSET: u64 = 0xFFFF_8000_0000_0000; // -2 GiB, Linux-style
+
+/// Pages of initial kernel stack allocated by the bootloader.
+pub const BOOT_STACK_PAGES: u64 = 16;
+
 /// EFI memory type for free, usable RAM.
 pub const MEMORY_TYPE_CONVENTIONAL: u32 = 7;
 
@@ -53,4 +61,10 @@ pub struct BootInfo {
     pub kernel_base: u64,
     pub stack_top: u64,
     pub caps: u64,
+    // M2 additions (append-only; older fields never move):
+    /// Physical address of the bootloader-built initial PML4.
+    pub boot_pml4: u64,
+    /// Number of 4K pages the bootloader's page tables occupy (the frame
+    /// allocator must keep them used until the kernel switches away).
+    pub boot_tables_pages: u64,
 }

@@ -2,11 +2,12 @@
 
 use crate::console;
 use crate::memory::MemMapBuf;
+use crate::paging::{self, TablePages};
 use crate::serial;
 use crate::uefi::protocol::{FrameBufferInfo, MemoryDescriptor, SimpleTextOutput};
 use crate::uefi::table::BootServices;
 use crate::uefi::{Handle, EFI_SUCCESS};
-use fantuan_abi::{BootInfo, FrameBuffer, MemMap, BOOT_MAGIC};
+use fantuan_abi::{BootInfo, FrameBuffer, MemMap, BOOT_MAGIC, PHYS_OFFSET};
 
 // Lives in the EFI app's own image (.data/.bss), not on the firmware stack:
 // the app image stays in memory forever, so the kernel can read it safely
@@ -20,6 +21,8 @@ static mut BOOT_INFO: BootInfo = BootInfo {
     kernel_base: 0,
     stack_top: 0,
     caps: 0,
+    boot_pml4: 0,
+    boot_tables_pages: 0,
 };
 
 /// ExitBootServices with the classic map-key retry, fill BOOT_INFO, then jump
@@ -33,6 +36,7 @@ pub fn exit_and_jump(
     stack_top: u64,
     kernel_addr: u64,
     map: &mut MemMapBuf,
+    tables: &TablePages,
 ) -> ! {
     console::println(con, "exiting boot services...");
     let mut attempts = 0;
@@ -68,9 +72,13 @@ pub fn exit_and_jump(
     }
 
     // Firmware is gone: ConOut and Boot Services are dead from here on.
-    // Switch to our own serial output and report the handoff.
+    // Switch to our own serial output, enable paging, report the handoff.
     serial::init();
     serial::line("[boot] exit boot services: ok");
+    paging::enable(tables);
+    serial::line("[boot] paging: identity 4GiB + PHYS_OFFSET alias");
+    serial::line("[boot] pml4 @");
+    serial::hex(tables.pml4);
     serial::line("[boot] BootInfo @");
     serial::hex(&raw const BOOT_INFO as usize as u64);
     serial::line("[boot] jumping to kernel...");
@@ -96,11 +104,13 @@ pub fn exit_and_jump(
             kernel_base: kernel_addr,
             stack_top,
             caps: 0,
+            boot_pml4: tables.pml4,
+            boot_tables_pages: tables.pages,
         };
     }
 
     type KernelEntry = extern "sysv64" fn(boot_info: *const BootInfo, stack_top: u64) -> !;
-    let entry: KernelEntry = unsafe { core::mem::transmute(kernel_addr as *const ()) };
+    let entry: KernelEntry = unsafe { core::mem::transmute((PHYS_OFFSET + kernel_addr) as *const ()) };
     entry(&raw const BOOT_INFO, stack_top);
 }
 
