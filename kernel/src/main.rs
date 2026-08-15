@@ -21,6 +21,7 @@ mod console;
 mod consts;
 mod cpu;
 mod demo;
+mod diag;
 mod drivers;
 mod elf;
 mod exceptions;
@@ -214,9 +215,23 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         u2.unwrap_or(0)
     );
 
+    // --- M5: diagnostics stage 1 (pure Rust core, DESIGN.md §6) ------------
+    let stage1: [diag::Check; 3] = [
+        diag::Check { name: "cpu", run: diag::cpu::check },
+        diag::Check { name: "gpu", run: diag::gpu::check },
+        diag::Check { name: "ram", run: diag::ram::check },
+    ];
+    diag::run_stage("1 hardware", &stage1);
+
     // --- M4.5: C driver layer -----------------------------------------------
     if drivers::init() {
         let _ = writeln!(s, "drivers: C layer + AHCI read-only verified");
+
+        // --- M5: diagnostics stage 2 (needs the C storage driver) ----------
+        let stage2: [diag::Check; 1] = [
+            diag::Check { name: "storage", run: diag::storage::check },
+        ];
+        diag::run_stage("2 storage", &stage2);
     } else {
         let _ = writeln!(s, "drivers: AHCI unavailable (boot continues)");
     }

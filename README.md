@@ -7,15 +7,15 @@ BSD diagnosis, Windows deferred.
 All repository artifacts are in English. The authoritative design lives in
 [docs/DESIGN.md](docs/DESIGN.md) — change it before changing code.
 
-## Current state: M4.5
+## Current state: M5
 
-M0-M4 are in: self-written UEFI boot chain, interrupts, higher-half kernel
-with a bitmap frame allocator, kernel tasks + round-robin scheduler, syscall
-ABI v1, ring-3 user mode with per-task page tables and a static-ELF loader.
-M4.5 adds the C/Rust driver boundary: rust_core.h v1 exports, PCI
-enumeration in the Rust core, and the first C driver — AHCI read-only
-(polling, one command slot) reading a QEMU test disk and verifying its
-signature. NVMe is the next storage driver.
+M0-M4.5 are in: UEFI boot chain, interrupts, higher-half kernel with a
+bitmap frame allocator, scheduler + syscall ABI, ring-3 user mode with an
+ELF loader, and the C/Rust driver boundary with AHCI read-only. M5 adds the
+diagnostics framework v1: stage-1 hardware checks (CPU via CPUID/RDMSR
+assembly, GPU presence with beep codes, RAM pattern test) and stage-2
+storage checks (MBR/GPT boot header + IDENTIFY through the C driver) — all
+read-only, as a rescue kernel must be.
 
 - `boot/` — self-written UEFI bootloader in Rust (`x86_64-unknown-uefi`),
   hand-rolled against the UEFI spec: GOP, RSDP, memory map, kernel load via
