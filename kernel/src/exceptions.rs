@@ -31,9 +31,19 @@ pub const EXC_SECURITY: usize = 30;
 
 pub fn handle(f: &mut InterruptFrame) {
     let v = f.vector as usize;
-    let rip = cpu_frame(f).rip;
+    let cf = cpu_frame(f);
+    let rip = cf.rip;
+    let from_user = (cf.cs & 3) == 3;
     let mut s = Serial::new(serial::COM1);
-    let _ = writeln!(s, "exc {} ({}) err={:#x} rip={:#x}", v, name(v), f.error_code, rip);
+    let _ = writeln!(
+        s,
+        "exc {} ({}) err={:#x} rip={:#x}{}",
+        v,
+        name(v),
+        f.error_code,
+        rip,
+        if from_user { " [user]" } else { "" }
+    );
 
     if v == EXC_PAGE_FAULT {
         let cr2: u64;
@@ -41,6 +51,12 @@ pub fn handle(f: &mut InterruptFrame) {
             core::arch::asm!("mov {}, cr2", out(reg) cr2, options(nomem, nostack, preserves_flags));
         }
         let _ = writeln!(s, "  page fault at {:#x}", cr2);
+    }
+
+    // A fault in ring 3 kills the task, never the kernel.
+    if from_user {
+        let _ = writeln!(s, "  killing user task {}", crate::task::current_id());
+        crate::task::exit(1);
     }
 
     // Recoverable (software-triggered) exceptions return to the faulting

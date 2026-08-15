@@ -7,22 +7,18 @@
 //! ERR_NOSYS. v1 runs with kernel-mode callers only — arguments are trusted.
 
 use crate::interrupts::InterruptFrame;
-use crate::serial::{self, Serial};
+use crate::serial;
 use crate::task;
 
 pub const SYSCALL_VECTOR: u64 = 0x60;
 pub const ABI_VERSION: u64 = 1;
 
-pub const SYS_VERSION: u64 = 0;
-pub const SYS_EXIT: u64 = 1;
-pub const SYS_SLEEP_MS: u64 = 2;
-pub const SYS_WRITE: u64 = 3; // (buf, len): kernel debug channel (serial)
-pub const SYS_GET_TID: u64 = 4;
-pub const SYS_YIELD: u64 = 5;
-
-pub const OK: u64 = 0;
-pub const ERR_NOSYS: u64 = u64::MAX; // -1
-pub const ERR_INVAL: u64 = u64::MAX - 1; // -2
+// Numbers live in fantuan-abi — the ABI crate is the single source for both
+// sides of the boundary.
+pub use fantuan_abi::{
+    SYS_EXIT, SYS_GET_TID, SYS_ERR_INVAL as ERR_INVAL, SYS_ERR_NOSYS as ERR_NOSYS,
+    SYS_OK as OK, SYS_SLEEP_MS, SYS_VERSION, SYS_WRITE, SYS_YIELD,
+};
 
 extern "C" {
     fn syscall_trampoline(n: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64;
@@ -61,9 +57,9 @@ fn sys_write(ptr: u64, len: u64) -> u64 {
     if ptr == 0 {
         return ERR_INVAL;
     }
-    // M3: kernel-mode callers are trusted; no address validation yet.
+    // M4: user pointers are validated by the page tables (a bad address
+    // faults and kills the task); SMAP/SMEP hardening arrives later.
     let buf = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
-    let s = Serial::new(serial::COM1);
-    let _ = s.write(buf);
+    let _ = serial::write_locked(buf);
     OK
 }

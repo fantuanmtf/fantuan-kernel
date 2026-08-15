@@ -1,5 +1,5 @@
 [workspace]
-members = ["abi", "boot", "kernel"]
+members = ["abi", "boot", "kernel", "user"]
 resolver = "2"
 
 [profile.dev]

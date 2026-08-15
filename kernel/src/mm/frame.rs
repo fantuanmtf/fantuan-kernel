@@ -29,6 +29,20 @@ pub struct FrameAllocator {
     next: usize,
 }
 
+/// M4: the allocator is a proper global (M3 kept it as a kmain local).
+/// Single-context access via get(); interrupt-safety arrives with M5.
+static mut FRAME_ALLOCATOR: FrameAllocator = FrameAllocator { free_frames: 0, next: 0 };
+
+pub fn init(bi: &BootInfo) {
+    unsafe {
+        FRAME_ALLOCATOR = FrameAllocator::new(bi);
+    }
+}
+
+pub fn get() -> &'static mut FrameAllocator {
+    unsafe { &mut *ptr::addr_of_mut!(FRAME_ALLOCATOR) }
+}
+
 impl FrameAllocator {
     pub fn new(bi: &BootInfo) -> Self {
         unsafe {

@@ -11,12 +11,12 @@ include!(concat!(env!("OUT_DIR"), "/isr_table.rs"));
 #[derive(Clone, Copy)]
 pub struct IdtEntry {
     offset_lo: u16,
-    selector: u16,
-    ist: u8,
-    flags: u8,
+    pub selector: u16,
+    pub ist: u8,
+    pub flags: u8,
     offset_mid: u16,
     offset_hi: u32,
-    reserved: u32,
+    pub reserved: u32,
 }
 
 impl IdtEntry {
@@ -33,11 +33,17 @@ impl IdtEntry {
     }
 
     fn new(addr: u64, ist: u8) -> Self {
+        Self::with_dpl(addr, ist, 0)
+    }
+
+    /// Gate callable from the given privilege level (M4: the syscall gate is
+    /// DPL 3 so userland can issue INT 0x60).
+    fn with_dpl(addr: u64, ist: u8, dpl: u8) -> Self {
         Self {
             offset_lo: addr as u16,
             selector: KERNEL_CS,
             ist,
-            flags: IDT_FLAGS_INTERRUPT,
+            flags: IDT_FLAGS_INTERRUPT | (dpl << 5),
             offset_mid: (addr >> 16) as u16,
             offset_hi: (addr >> 32) as u32,
             reserved: 0,
@@ -62,11 +68,22 @@ pub fn init() {
         // #DF runs on its own stack (IST1) so a corrupted kernel stack cannot
         // turn a double fault into a triple fault.
         IDT[EXC_DOUBLE_FAULT] = IdtEntry::new(addrs[EXC_DOUBLE_FAULT], IST_DOUBLE_FAULT);
+        // The syscall gate is callable from ring 3 (M4).
+        IDT[crate::syscall::SYSCALL_VECTOR as usize] =
+            IdtEntry::with_dpl(addrs[crate::syscall::SYSCALL_VECTOR as usize], 0, 3);
 
         let idtr = DescriptorTablePointer {
             limit: (IDT_ENTRIES * core::mem::size_of::<IdtEntry>() - 1) as u16,
             base: core::ptr::addr_of!(IDT) as u64,
         };
         asm!("lidt [{}]", in(reg) &idtr, options(nostack));
+
+        // M4 debug: dump the syscall gate as built
+        let e = &IDT[crate::syscall::SYSCALL_VECTOR as usize];
+        crate::serial::line("idt: syscall gate addr");
+        crate::serial::hex(addrs[crate::syscall::SYSCALL_VECTOR as usize]);
+        let stored = ((e.offset_hi as u64) << 32) | ((e.offset_mid as u64) << 16) | e.offset_lo as u64;
+        crate::serial::line("idt: syscall gate stored");
+        crate::serial::hex(stored);
     }
 }

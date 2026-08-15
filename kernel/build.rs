@@ -49,7 +49,18 @@ fn main() {
     table.push_str("    ]\n}\n");
     fs::write(format!("{out}/isr_table.rs"), table).unwrap();
 
-    // 3. compile the assembly into a static archive for the kernel link
+    // 3. embed the user program (built by tools/build.sh before the kernel)
+    let user = format!("{dir}/user_program.bin");
+    println!("cargo:rerun-if-changed={user}");
+    if !std::path::Path::new(&user).exists() {
+        panic!(
+            "kernel/user_program.bin is missing — build the user crate first (tools/build.sh or tools/run.sh)"
+        );
+    }
+    let gen = format!("pub static USER_ELF: &[u8] = include_bytes!({user:?});\n");
+    fs::write(format!("{out}/user_program.rs"), gen).unwrap();
+
+    // 4. compile the assembly into a static archive for the kernel link
     cc::Build::new()
         .file(format!("{dir}/../boot/entry.S"))
         .file(format!("{dir}/src/asm/interrupts.S"))

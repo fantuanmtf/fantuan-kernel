@@ -9,11 +9,8 @@ cd "$ROOT"
 GRAPHICS=0
 if [ "${1:-}" = "--graphics" ]; then GRAPHICS=1; fi
 
-echo "[1/4] building kernel (x86_64-unknown-none)..."
-cargo build -p fantuan-kernel --target x86_64-unknown-none --release
-
-echo "[2/4] building bootloader (x86_64-unknown-uefi)..."
-cargo build -p fantuan-boot --target x86_64-unknown-uefi --release
+echo "[1/4] building user program, kernel, bootloader..."
+./tools/build.sh
 
 mkdir -p build/esp/EFI/BOOT build/esp/fantuan
 objcopy -O binary   target/x86_64-unknown-none/release/fantuan-kernel   build/esp/fantuan/kernel.bin
