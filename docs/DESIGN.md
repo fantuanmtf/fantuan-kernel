@@ -165,23 +165,29 @@ can be added or removed without breaking old components.
 
 ## 5. Rust <-> C FFI Boundary
 
-- Rust core exports a narrow C interface, **rust_core.h**:
-  `k_malloc`, `k_free`, `k_register_irq`, `k_map_dma`, `k_read_block`, ...
-- C drivers register through **ops tables**:
+- Rust core exports a narrow C interface, **rust_core.h** (v1 implemented in M4.5,
+  `kernel/src/drivers.rs`):
+  `k_log`, `k_log_hex`, `k_phys_to_virt`, `k_alloc_page` (single 4K DMA
+  page, returns virt + physical out-param), `k_delay_ms`. Grows conservatively:
+  each addition is a deliberate, documented widening of the boundary.
+- C drivers expose **ops tables** (`drivers/c/include/driver.h`); v1 is the
+  block-device read path only:
   ```c
-  struct driver_ops {
-      int  (*probe)(void);
-      int  (*read)(u64 lba, void *buf, size_t n);
-      int  (*write)(u64 lba, const void *buf, size_t n);
-      void (*irq)(void *ctx);
-  };
+  int blk_read(void *dev, uint64_t lba, void *buf, size_t sectors); // polling, ro
   ```
+  Writes, IRQ registration and the full ops table arrive when the first
+  writable filesystem needs them (M6).
 - Ownership contracts are written into the header comments (who allocates, who frees,
-  DMA buffer rules). Build integration: `build.rs` + `cc` crate; C code lives in
+  DMA buffer rules). Build integration: `build.rs` + `cc` crate with
+  `-mcmodel=large -mno-red-zone -ffreestanding`; C code lives in
   `drivers/c/`, statically linked.
+- **PCI enumeration lives in the Rust core** (`kernel/src/pci.rs`, DESIGN.md
+  §2.1: minimal hardware access) and hands the ABAR to the C probe — the C
+  layer never touches PCI config space itself.
 - **Storage device abstraction** (`open_dev / capacity / read_lba`) — never
-  SATA-specific loops. v1 implements AHCI first, NVMe second (modern laptops are
-  NVMe-only; a rescue system that misses them misses half the field).
+  SATA-specific loops. M4.5 implements AHCI read-only first (polling, one
+  command slot); NVMe second (modern laptops are NVMe-only; a rescue system
+  that misses them misses half the field).
 - Known trade-off: C drivers can corrupt the kernel. Accepted for v1; long-term
   option is moving drivers into isolated userspace processes.
 
@@ -326,7 +332,9 @@ fantuan-kernel/
 - **M4** — DONE: ring-3 user mode (GDT user segments, TSS rsp0, DPL-3
   syscall gate), per-task page tables, static-ELF loader, first userland
   program (fantuan-user) running and exiting cleanly.
-- **M4.5** — C/Rust driver boundary: rust_core.h + ops tables; AHCI/NVMe read-only.
+- **M4.5** — DONE: C/Rust driver boundary (rust_core.h v1 + driver.h), PCI
+  enumeration in the Rust core, first C driver: AHCI read-only (polling, one
+  command slot) reading a QEMU test disk. NVMe is the next storage driver.
 - **M5** — diagnostics v1 (stage 1 & 2, all read-only, beep codes, disk health).
 - **M6** — VFS + GPT/MBR + FAT32 r/w + ext4/UFS read-only (NTFS deferred).
 - **M7** — boot repair v1 (Linux full path + BSD diagnosis) + live ISO.
@@ -346,5 +354,11 @@ fantuan-kernel/
    crate. (The historical "magic number hell" — solved structurally.)
 4. **Modularity by construction** — cargo features / config for compile-time
    add/remove; the core (mm/sched/vfs/syscall) is always minimal.
+4a. **Files stay small (no shit-mountains)** — target ≤ ~300 lines per file;
+   when a file grows beyond that, split it and leave a module-map comment at
+   the top of the remaining file. Every file opens with a header comment
+   stating what it owns; logical blocks are marked with section banners
+   (`// --- ... ---` in Rust, `/* --- ... --- */` in C). Splitting early is
+   cheap; cleaning up a monolith later is technical debt.
 5. **Documentation first** — design changes land here before code.
 6. **English-only artifacts** — see header.

@@ -20,6 +20,8 @@ include!(concat!(env!("OUT_DIR"), "/user_program.rs"));
 mod console;
 mod consts;
 mod cpu;
+mod demo;
+mod drivers;
 mod elf;
 mod exceptions;
 mod font;
@@ -27,6 +29,7 @@ mod gdt;
 mod idt;
 mod interrupts;
 mod mm;
+mod pci;
 mod pic;
 mod pit;
 mod port;
@@ -195,9 +198,9 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     let abi = syscall::syscall(syscall::SYS_VERSION, 0, 0, 0, 0, 0);
     let _ = writeln!(s, "syscall: ABI v{} (int 0x60, versioned dispatch)", abi);
     task::init(bi.stack_top);
-    task::spawn(demo_1);
-    task::spawn(demo_2);
-    task::spawn(demo_3);
+    task::spawn(demo::demo_1);
+    task::spawn(demo::demo_2);
+    task::spawn(demo::demo_3);
     let _ = writeln!(s, "sched: 3 kernel demo tasks spawned (quantum 100 ms)");
 
     // --- M4: user mode ------------------------------------------------------
@@ -210,6 +213,13 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         u1.unwrap_or(0),
         u2.unwrap_or(0)
     );
+
+    // --- M4.5: C driver layer -----------------------------------------------
+    if drivers::init() {
+        let _ = writeln!(s, "drivers: C layer + AHCI read-only verified");
+    } else {
+        let _ = writeln!(s, "drivers: AHCI unavailable (boot continues)");
+    }
 
     // Boot-complete signal: one LONG beep — distinct from the short-beep
     // diagnostic codes (DESIGN.md §6.2).
@@ -224,71 +234,6 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
             core::arch::asm!("hlt", options(nomem, nostack));
         }
     }
-}
-
-// --- M3 demo tasks ---------------------------------------------------------
-
-fn push_str(buf: &mut [u8], mut off: usize, s: &str) -> usize {
-    for &b in s.as_bytes() {
-        if off < buf.len() {
-            buf[off] = b;
-            off += 1;
-        }
-    }
-    off
-}
-
-fn push_u64(buf: &mut [u8], mut off: usize, mut v: u64) -> usize {
-    if v == 0 {
-        buf[off] = b'0';
-        return off + 1;
-    }
-    let mut tmp = [0u8; 20];
-    let mut n = 0;
-    while v > 0 {
-        tmp[n] = b'0' + (v % 10) as u8;
-        n += 1;
-        v /= 10;
-    }
-    while n > 0 {
-        n -= 1;
-        buf[off] = tmp[n];
-        off += 1;
-    }
-    off
-}
-
-/// Every task: report its identity through the syscall layer, then sleep
-/// (woken by the scheduler's deadline check).
-fn demo_task(tag: u64) -> ! {
-    let mut n = 0u64;
-    loop {
-        let tid = syscall::syscall(syscall::SYS_GET_TID, 0, 0, 0, 0, 0);
-        let mut buf = [0u8; 96];
-        let mut off = 0;
-        off = push_str(&mut buf, off, "task ");
-        off = push_u64(&mut buf, off, tag);
-        off = push_str(&mut buf, off, " (tid ");
-        off = push_u64(&mut buf, off, tid);
-        off = push_str(&mut buf, off, "): hello ");
-        off = push_u64(&mut buf, off, n);
-        buf[off] = b'\n';
-        off += 1;
-        syscall::syscall(syscall::SYS_WRITE, buf.as_ptr() as u64, off as u64, 0, 0, 0);
-        n += 1;
-        // Different periods per task; the scheduler's deadline check wakes us.
-        syscall::syscall(syscall::SYS_SLEEP_MS, 250 + tag * 150, 0, 0, 0, 0);
-    }
-}
-
-fn demo_1() -> ! {
-    demo_task(1)
-}
-fn demo_2() -> ! {
-    demo_task(2)
-}
-fn demo_3() -> ! {
-    demo_task(3)
 }
 
 #[panic_handler]
