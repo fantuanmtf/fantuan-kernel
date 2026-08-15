@@ -89,4 +89,9 @@ pub struct BootInfo {
     /// Number of 4K pages the bootloader's page tables occupy (the frame
     /// allocator must keep them used until the kernel switches away).
     pub boot_tables_pages: u64,
+    // M7.5 addition:
+    /// Physical address of the UEFI Runtime Services table. Runtime services
+    /// survive ExitBootServices; the kernel calls them with physical
+    /// addresses (no SetVirtualAddressMap; the 4 GiB identity map covers it).
+    pub runtime_services: u64,
 }

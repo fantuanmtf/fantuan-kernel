@@ -23,6 +23,7 @@ static mut BOOT_INFO: BootInfo = BootInfo {
     caps: 0,
     boot_pml4: 0,
     boot_tables_pages: 0,
+    runtime_services: 0,
 };
 
 /// ExitBootServices with the classic map-key retry, fill BOOT_INFO, then jump
@@ -37,6 +38,7 @@ pub fn exit_and_jump(
     kernel_addr: u64,
     map: &mut MemMapBuf,
     tables: &TablePages,
+    runtime_services: u64,
 ) -> ! {
     console::println(con, "exiting boot services...");
     let mut attempts = 0;
@@ -106,6 +108,7 @@ pub fn exit_and_jump(
             caps: 0,
             boot_pml4: tables.pml4,
             boot_tables_pages: tables.pages,
+            runtime_services,
         };
     }
 
