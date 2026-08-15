@@ -57,7 +57,9 @@ instead of fighting each firmware:
 ```
 UEFI firmware
   -> EFI app (Rust): locate kernel, set GOP mode, capture RSDP + memory map,
-     ExitBootServices (retry on map-key change), build BootInfo, jump to kernel
+     ExitBootServices (retry on map-key change), build BootInfo
+  -> build initial page tables (identity 4 GiB + PHYS_OFFSET alias, 2 MiB pages),
+     enable paging, jump to the higher-half kernel entry
   -> assembly entry stub: reload GDT/IDT, set kernel stack, jump to kmain
   -> kmain (Rust)
 ```
@@ -97,11 +99,37 @@ pub struct BootInfo {
     pub kernel_base: u64,  // where the kernel was loaded
     pub stack_top: u64,    // bootloader-allocated initial kernel stack (added in M0)
     pub caps: u64,         // capability bits, append-only
+    pub boot_pml4: u64,        // bootloader-built initial PML4, physical (M2)
+    pub boot_tables_pages: u64, // 4K pages those tables occupy (M2)
 }
 ```
 
 Versioned, append-only; capability bits are the negotiation mechanism so features
 can be added or removed without breaking old components.
+
+## 4.5 Memory Model (v1)
+
+- **Layout convention**: every physical address `p` is reachable at
+  `PHYS_OFFSET + p` with `PHYS_OFFSET = 0xFFFF_8000_0000_0000` (-2 GiB,
+  Linux-style; defined once in the `fantuan-abi` crate). The first 4 GiB are
+  additionally identity-mapped during M2 so pre-existing physical pointers
+  (framebuffer, EFI structures) keep working; the identity map is a bootstrap
+  convenience and may be dropped once all physical pointers are migrated.
+- **Kernel image**: linked at `PHYS_OFFSET + 16 MiB`; the bootloader loads the
+  flat binary at physical 16 MiB and jumps to the higher-half entry. kmain
+  asserts its own address at boot.
+- **Initial page tables**: built by the bootloader (identity 4 GiB + PHYS_OFFSET
+  alias, 2 MiB huge pages, 11 pages, allocated below the kernel image). The
+  kernel immediately rebuilds an equivalent set from its own frame allocator,
+  switches CR3, and reclaims the bootloader's tables.
+- **Frame allocator**: bitmap over the EFI memory map; reclaims LoaderCode/Data,
+  BootServices Code/Data, Conventional, and Unaccepted (type 15) memory; punches
+  holes for the kernel image, boot stack, BootInfo, memory-map buffer and the
+  bootloader page tables. Never hands out frames below 1 MiB. Covers the first
+  4 GiB (M2 scope; extended when RAM > 4 GiB matters).
+- **Build**: the kernel uses `-C code-model=large` (higher-half addresses do
+  not fit the small model's 32-bit relocations). Page-table entries always hold
+  PHYSICAL addresses; virtual pointers are only for writing them.
 
 ## 5. Rust <-> C FFI Boundary
 
@@ -256,8 +284,10 @@ fantuan-kernel/
 - **M1** — interrupts & exceptions: IDT + 256 ISR stubs, exception handlers,
   PIC remap, PIT periodic timer + IRQ0 ticks, TSS/IST double-fault stack,
   TSC-calibrated sleep. Also lands the asm_defs.inc constant pipeline (§13.3).
-- **M2** — memory: page tables (higher-half mapping), physical frame allocator
-  from the EFI memory map.
+- **M2** — DONE: higher-half kernel (PHYS_OFFSET, bootloader-built initial
+  tables), kernel-owned page tables + CR3 switch, bitmap frame allocator over
+  the EFI memory map (505 MiB usable in the QEMU VM), frame self-test, reclaim
+  of the bootloader's tables.
 - **M3** — processes: scheduler (context switch in assembly), own syscall ABI v1
   (versioned, capability-negotiated).
 - **M4** — C/Rust driver boundary: rust_core.h + ops tables; AHCI/NVMe read-only.

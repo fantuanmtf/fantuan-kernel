@@ -18,6 +18,7 @@ mod bootinfo;
 mod console;
 mod loader;
 mod memory;
+mod paging;
 mod serial;
 mod uefi;
 
@@ -88,8 +89,24 @@ pub extern "efiapi" fn efi_main(image_handle: Handle, system_table: *mut SystemT
         return EFI_LOAD_ERROR;
     }
 
-    // 5. Exit boot services, hand over, jump — never returns
-    bootinfo::exit_and_jump(bs, con, image_handle, fb, rsdp, stack_top, loader::KERNEL_ADDR, &mut map);
+    // 4.5 Initial page tables (must be allocated BEFORE ExitBootServices,
+    // and below the kernel image like the stack)
+    let Some(tables) = paging::allocate_tables(bs, con, loader::KERNEL_ADDR) else {
+        return EFI_LOAD_ERROR;
+    };
+
+    // 5. Exit boot services, enable paging, hand over, jump — never returns
+    bootinfo::exit_and_jump(
+        bs,
+        con,
+        image_handle,
+        fb,
+        rsdp,
+        stack_top,
+        loader::KERNEL_ADDR,
+        &mut map,
+        &tables,
+    );
 }
 
 #[panic_handler]
