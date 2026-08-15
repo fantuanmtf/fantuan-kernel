@@ -167,8 +167,84 @@ pub fn run(s: &mut Serial, vfs: &Vfs, runtime_services: u64) {
         let _ = writeln!(s, "bootrepair: runtime services unavailable (rt={:#x})", runtime_services);
     }
 
-    // 6. Recommendations (become actions when FAT32 writes land).
+    // 6. Repair self-test (M7.5b): explicit repair mode, write a file to the
+    // root, read it back, verify. The test disk is regenerated each boot.
+    crate::vfs::enable_repair_mode();
+    let fixed_name = to_8_3("FIXED.TXT").unwrap();
+    let content = b"written by bootrepair v1\n";
+    if crate::vfs::write_file(&vfs.fs, vfs.fs.root_cluster, &fixed_name, content) {
+        let mut back = [0u8; 64];
+        if let Some((c, sz)) = find_path(&vfs.fs, vfs.fs.root_cluster, &[&fixed_name]) {
+            if let Some(n) = vfs.fs.read_file(c, sz, &mut back) {
+                if n == content.len() && &back[..n] == content {
+                    let _ = writeln!(s, "repair: FIXED.TXT write+readback ok");
+                } else {
+                    let _ = writeln!(s, "repair: FIXED.TXT readback MISMATCH");
+                }
+            } else {
+                let _ = writeln!(s, "repair: FIXED.TXT readback failed");
+            }
+        }
+    } else {
+        let _ = writeln!(s, "repair: FIXED.TXT write failed");
+    }
+
+    // 7. Fallback-loader repair: when EFI/BOOT/BOOTX64.EFI is missing but
+    //    EFI/ubuntu/shimx64.efi exists, copy the latter into place.
+    fix_missing_fallback(s, &vfs.fs);
+
+    // 8. Recommendations.
     let _ = writeln!(s, "bootrepair: recommendations:");
-    let _ = writeln!(s, "  - fallback loader present: system boots via EFI/BOOT/BOOTX64.EFI");
     let _ = writeln!(s, "  - filesystem UUID checks need ext4 read support (M6.5)");
+}
+
+/// EFI/BOOT/BOOTX64.EFI missing + EFI/ubuntu/shimx64.efi present -> copy
+/// the shim into place (the classic fallback-loader repair).
+fn fix_missing_fallback(s: &mut Serial, fs: &crate::vfs::fat::Fat32) {
+    let efi = to_8_3("EFI").unwrap();
+    let boot = to_8_3("BOOT").unwrap();
+    let bootx64 = to_8_3("BOOTX64.EFI").unwrap();
+    let ubuntu = to_8_3("ubuntu").unwrap();
+    let shim = to_8_3("SHIMX64.EFI").unwrap();
+
+    // Is the fallback loader already there?
+    let fallback = find_path(fs, fs.root_cluster, &[&efi, &boot, &bootx64]);
+    if fallback.is_some() {
+        return; // nothing to fix
+    }
+    let _ = writeln!(s, "bootrepair: fallback loader MISSING — checking for a shim to copy");
+    // Locate the BOOT directory cluster (for the write target).
+    let mut boot_dir: Option<u32> = None;
+    fs.walk_dir(find_dir(fs, fs.root_cluster, &efi).unwrap_or(fs.root_cluster), |name, attr, cluster, _| {
+        if boot_dir.is_none() && eq_8_3(name, &boot) && attr & 0x10 != 0 {
+            boot_dir = Some(cluster);
+        }
+    });
+    let Some(shim_entry) = find_path(fs, fs.root_cluster, &[&efi, &ubuntu, &shim]) else {
+        let _ = writeln!(s, "bootrepair: no shim on the ESP — cannot repair the fallback");
+        return;
+    };
+    let Some(boot_dir) = boot_dir else {
+        return;
+    };
+    let mut buf = [0u8; 4096];
+    let Some(n) = fs.read_file(shim_entry.0, shim_entry.1.min(buf.len() as u32), &mut buf) else {
+        return;
+    };
+    if crate::vfs::write_file(fs, boot_dir, &bootx64, &buf[..n]) {
+        let _ = writeln!(s, "repair: copied EFI/ubuntu/shimx64.efi -> EFI/BOOT/BOOTX64.EFI ({} bytes)", n);
+    } else {
+        let _ = writeln!(s, "repair: fallback copy failed");
+    }
+}
+
+/// Find a directory cluster by one component under a directory.
+fn find_dir(fs: &Fat32, start: u32, name: &[u8; 11]) -> Option<u32> {
+    let mut found = None;
+    fs.walk_dir(start, |n, attr, cluster, _| {
+        if found.is_none() && eq_8_3(n, name) && attr & 0x10 != 0 {
+            found = Some(cluster);
+        }
+    });
+    found
 }

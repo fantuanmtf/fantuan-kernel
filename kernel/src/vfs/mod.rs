@@ -4,10 +4,30 @@
 //! filesystem.
 
 use core::fmt::Write;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::serial::{self, Serial};
 
+/// Repair mode: writes are impossible until this is explicitly enabled.
+/// The rescue iron rule — the kernel never writes what the user did not ask
+/// it to fix.
+static REPAIR_MODE: AtomicBool = AtomicBool::new(false);
+
+pub fn enable_repair_mode() {
+    REPAIR_MODE.store(true, Ordering::Relaxed);
+}
+
+/// Create or overwrite an 8.3 file in the given directory — gated behind
+/// repair mode.
+pub fn write_file(fs: &fat::Fat32, dir_cluster: u32, name: &[u8; 11], data: &[u8]) -> bool {
+    if !REPAIR_MODE.load(Ordering::Relaxed) {
+        return false;
+    }
+    fs.write_file(dir_cluster, name, data)
+}
+
 pub mod fat;
+pub mod fat_write;
 pub mod part;
 
 /// The mounted world: filesystem + partition table, shared with the
