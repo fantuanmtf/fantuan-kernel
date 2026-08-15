@@ -31,6 +31,8 @@ pub enum TableKind {
 }
 
 pub struct Table {
+    /// GPT vs MBR — consumed by M6.5 boot-repair logic; parsed now.
+    #[allow(dead_code)]
     pub kind: TableKind,
     pub parts: [Partition; 8],
     pub count: usize,
