@@ -1,0 +1,5 @@
+[package]
+name = "fantuan-abi"
+version = "0.1.0"
+edition = "2021"
+description = "BootInfo ABI shared between fantuan-boot and fantuan-kernel"

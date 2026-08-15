@@ -1,0 +1,8 @@
+[package]
+name = "fantuan-boot"
+version = "0.1.0"
+edition = "2021"
+description = "fantuan-kernel self-written UEFI bootloader (M0)"
+
+[dependencies]
+fantuan-abi = { path = "../abi" }

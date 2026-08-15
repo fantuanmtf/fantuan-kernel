@@ -1,0 +1,33 @@
+//! GUID definitions (UEFI protocol identifiers).
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Guid {
+    pub a: u32,
+    pub b: u16,
+    pub c: u16,
+    pub d: [u8; 8],
+}
+
+impl Guid {
+    pub fn eq(&self, o: &Guid) -> bool {
+        self.a == o.a && self.b == o.b && self.c == o.c && self.d == o.d
+    }
+}
+
+pub const GOP_GUID: Guid = Guid {
+    a: 0x9042_a9de, b: 0x23dc, c: 0x4a38,
+    d: [0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a],
+};
+pub const SFS_GUID: Guid = Guid {
+    a: 0x964e_5b22, b: 0x6459, c: 0x11d2,
+    d: [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
+};
+pub const ACPI2_GUID: Guid = Guid {
+    a: 0x8868_e871, b: 0xe4f1, c: 0x11d3,
+    d: [0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81],
+};
+pub const FILE_INFO_GUID: Guid = Guid {
+    a: 0x0957_6e92, b: 0x6d3f, c: 0x11d2,
+    d: [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
+};

@@ -1,0 +1,11 @@
+[package]
+name = "fantuan-kernel"
+version = "0.1.0"
+edition = "2021"
+description = "fantuan-kernel core (M0)"
+
+[dependencies]
+fantuan-abi = { path = "../abi" }
+
+[build-dependencies]
+cc = "1"
