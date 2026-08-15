@@ -129,8 +129,9 @@ static int init_port(int port)
     return 0;
 }
 
-/* --- single-sector read (READ SECTORS EXT) -------------------------------- */
-static int read_one(uint64_t lba, uint8_t *dst)
+/* --- one-shot ATA command (shared issuer) --------------------------------- */
+/* Issues a 512-byte data-in command on slot 0 and copies the result out. */
+static int ata_io(uint8_t cmd, uint8_t device, uint64_t lba, uint8_t *dst)
 {
     struct ahci_port *p = &g_port;
     uint8_t *cfis = p->ct->cfis;
@@ -141,11 +142,11 @@ static int read_one(uint64_t lba, uint8_t *dst)
     }
     cfis[0] = 0x27;  /* H2D register FIS */
     cfis[1] = 0x80;  /* C bit: this is a command */
-    cfis[2] = 0x24;  /* READ SECTORS EXT */
+    cfis[2] = cmd;
     cfis[4] = (uint8_t)(lba & 0xFF);
     cfis[5] = (uint8_t)((lba >> 8) & 0xFF);
     cfis[6] = (uint8_t)((lba >> 16) & 0xFF);
-    cfis[7] = 0x40;  /* device: LBA mode */
+    cfis[7] = device;
     cfis[12] = 1;    /* sector count = 1 */
 
     /* CFL (bits 4:0) = 5: the H2D register FIS is 5 DWORDs. PRDT presence
@@ -174,6 +175,18 @@ static int read_one(uint64_t lba, uint8_t *dst)
         dst[i] = p->buf[i];
     }
     return 0;
+}
+
+/* --- single-sector read (READ SECTORS EXT) -------------------------------- */
+static int read_one(uint64_t lba, uint8_t *dst)
+{
+    return ata_io(0x24, 0x40, lba, dst);    /* device: LBA mode */
+}
+
+/* --- IDENTIFY DEVICE -------------------------------------------------------- */
+int ata_identify(uint8_t *dst)
+{
+    return ata_io(0xEC, 0xA0, 0, dst);      /* device: LBA mode, master */
 }
 
 /* --- exported probe -------------------------------------------------------- */

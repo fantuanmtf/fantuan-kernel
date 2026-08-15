@@ -200,6 +200,15 @@ can be added or removed without breaking old components.
   - **Stage 1 (pure Rust core, seconds)**: CPU -> GPU presence -> RAM quick test.
   - **Stage 2 (after C drivers load)**: storage scan -> SMART summary -> OS
     identification -> auto ro-mount.
+- **v1 implemented (M5, `kernel/src/diag/`)**: the framework (Check + Severity +
+  per-stage runner) and four checks — cpu (CPUID brand/topology/features via
+  inline assembly + RDMSR microcode), gpu (PCI presence + §6.2 beep codes),
+  ram (pattern test over allocator-borrowed frames), storage (MBR/GPT boot
+  header + IDENTIFY model/serial/capacity through the C AHCI driver).
+  Deferred to M5.5: SMBIOS parsing (slot-based "2 short" dGPU detection,
+  RAM DIMM info), SMART attributes (power-on hours, reallocated/pending,
+  TBW), surface scan, OS identification and auto ro-mount (needs filesystem
+  probing, M6).
 
 ### 6.1 Stage 1 checks
 
@@ -335,7 +344,10 @@ fantuan-kernel/
 - **M4.5** — DONE: C/Rust driver boundary (rust_core.h v1 + driver.h), PCI
   enumeration in the Rust core, first C driver: AHCI read-only (polling, one
   command slot) reading a QEMU test disk. NVMe is the next storage driver.
-- **M5** — diagnostics v1 (stage 1 & 2, all read-only, beep codes, disk health).
+- **M5** — DONE: diagnostics framework v1 (Check/Severity/stage runner) with
+  stage 1 (CPU/GPU/RAM) and stage 2 (storage via AHCI: boot header +
+  IDENTIFY); beep codes wired. M5.5 adds SMBIOS, SMART attributes, surface
+  scan, OS identification.
 - **M6** — VFS + GPT/MBR + FAT32 r/w + ext4/UFS read-only (NTFS deferred).
 - **M7** — boot repair v1 (Linux full path + BSD diagnosis) + live ISO.
 - **M8** — linuxulator compatibility layer + Secure Boot story.

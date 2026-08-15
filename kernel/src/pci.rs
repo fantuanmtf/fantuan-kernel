@@ -7,7 +7,7 @@ use crate::port::{inl, outl};
 const CONFIG_ADDR: u16 = 0xCF8;
 const CONFIG_DATA: u16 = 0xCFC;
 
-fn read32(bus: u8, dev: u8, func: u8, off: u8) -> u32 {
+pub fn read32(bus: u8, dev: u8, func: u8, off: u8) -> u32 {
     let addr = 0x8000_0000u32
         | ((bus as u32) << 16)
         | ((dev as u32) << 11)
