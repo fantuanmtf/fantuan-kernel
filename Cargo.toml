@@ -1,0 +1,10 @@
+[workspace]
+members = ["abi", "boot", "kernel"]
+resolver = "2"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+opt-level = "z"

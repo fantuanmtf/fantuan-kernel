@@ -1,0 +1,6 @@
+# rustc runs with cwd = workspace root, so paths here are root-relative.
+[target.x86_64-unknown-none]
+rustflags = [
+    "-C", "relocation-model=static",
+    "-C", "link-arg=-no-pie",
+]
