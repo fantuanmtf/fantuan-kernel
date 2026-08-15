@@ -95,6 +95,10 @@ pub extern "efiapi" fn efi_main(image_handle: Handle, system_table: *mut SystemT
         return EFI_LOAD_ERROR;
     };
 
+    // 4.6 Runtime services survive the exit; the kernel drives its own
+    // NVRAM self-test through them (M7.5).
+    let runtime_services = st.runtime_services as u64;
+
     // 5. Exit boot services, enable paging, hand over, jump — never returns
     bootinfo::exit_and_jump(
         bs,
@@ -106,6 +110,7 @@ pub extern "efiapi" fn efi_main(image_handle: Handle, system_table: *mut SystemT
         loader::KERNEL_ADDR,
         &mut map,
         &tables,
+        runtime_services,
     );
 }
 

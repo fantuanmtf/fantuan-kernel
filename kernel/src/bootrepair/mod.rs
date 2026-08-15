@@ -13,6 +13,7 @@ use crate::vfs::Vfs;
 pub mod esp;
 pub mod fstab;
 pub mod grub;
+pub mod nvram;
 
 fn ascii_upper(b: u8) -> u8 {
     if b.is_ascii_lowercase() {
@@ -115,7 +116,7 @@ fn guid_to_text(g: &[u8; 16]) -> [u8; 36] {
     t
 }
 
-pub fn run(s: &mut Serial, vfs: &Vfs) {
+pub fn run(s: &mut Serial, vfs: &Vfs, runtime_services: u64) {
     let _ = writeln!(s, "bootrepair: v1 diagnosis (read-only)");
 
     // 1. ESP scan: what bootloaders live in EFI/?
@@ -159,7 +160,14 @@ pub fn run(s: &mut Serial, vfs: &Vfs) {
         }
     }
 
-    // 5. Recommendations (become actions when FAT32 writes land).
+    // 5. NVRAM / firmware settings (M7.5, read-only GetVariable).
+    if let Some(rt) = crate::runtime::Runtime::new(runtime_services) {
+        nvram::check(s, &rt, vfs);
+    } else {
+        let _ = writeln!(s, "bootrepair: runtime services unavailable (rt={:#x})", runtime_services);
+    }
+
+    // 6. Recommendations (become actions when FAT32 writes land).
     let _ = writeln!(s, "bootrepair: recommendations:");
     let _ = writeln!(s, "  - fallback loader present: system boots via EFI/BOOT/BOOTX64.EFI");
     let _ = writeln!(s, "  - filesystem UUID checks need ext4 read support (M6.5)");

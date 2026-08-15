@@ -35,6 +35,7 @@ mod pci;
 mod pic;
 mod pit;
 mod port;
+mod runtime;
 mod serial;
 mod syscall;
 mod task;
@@ -239,7 +240,7 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         if let Some(v) = vfs::init() {
             let _ = writeln!(s, "vfs: ok");
             // --- M7: boot repair v1 (read-only diagnosis) -----------------
-            bootrepair::run(&mut s, &v);
+            bootrepair::run(&mut s, &v, bi.runtime_services);
         } else {
             let _ = writeln!(s, "vfs: unavailable (boot continues)");
         }
