@@ -130,12 +130,21 @@ static int init_port(int port)
 }
 
 /* --- one-shot ATA command (shared issuer) --------------------------------- */
-/* Issues a 512-byte data-in command on slot 0 and copies the result out. */
-static int ata_io(uint8_t cmd, uint8_t device, uint64_t lba, uint8_t *dst)
+/* Issues a 512-byte data-in (write=0) or data-out (write=1) command on
+ * slot 0. For writes the caller's data (in dst) is copied into the DMA
+ * buffer before the command is issued. */
+static int ata_io(uint8_t cmd, uint8_t device, uint64_t lba, uint8_t *dst,
+                  int write)
 {
     struct ahci_port *p = &g_port;
     uint8_t *cfis = p->ct->cfis;
     int i;
+
+    if (write) {
+        for (i = 0; i < 512; i++) {
+            p->buf[i] = dst[i];
+        }
+    }
 
     for (i = 0; i < 64; i++) {
         cfis[i] = 0;
@@ -149,9 +158,9 @@ static int ata_io(uint8_t cmd, uint8_t device, uint64_t lba, uint8_t *dst)
     cfis[7] = device;
     cfis[12] = 1;    /* sector count = 1 */
 
-    /* CFL (bits 4:0) = 5: the H2D register FIS is 5 DWORDs. PRDT presence
-     * is conveyed by prdtl, not by a flag. */
-    p->clb[0].flags = 5;
+    /* CFL (bits 4:0) = 5: the H2D register FIS is 5 DWORDs. Bit 6 = write.
+     * PRDT presence is conveyed by prdtl, not by a flag. */
+    p->clb[0].flags = 5 | (write ? (1u << 6) : 0);
     p->clb[0].prdtl = 1;
     p->clb[0].prdbc = 0;
     p->clb[0].ctba = (uint32_t)p->ct_phys;
@@ -171,8 +180,10 @@ static int ata_io(uint8_t cmd, uint8_t device, uint64_t lba, uint8_t *dst)
         return -1;
     }
 
-    for (i = 0; i < 512; i++) {
-        dst[i] = p->buf[i];
+    if (!write) {
+        for (i = 0; i < 512; i++) {
+            dst[i] = p->buf[i];
+        }
     }
     return 0;
 }
@@ -180,13 +191,29 @@ static int ata_io(uint8_t cmd, uint8_t device, uint64_t lba, uint8_t *dst)
 /* --- single-sector read (READ SECTORS EXT) -------------------------------- */
 static int read_one(uint64_t lba, uint8_t *dst)
 {
-    return ata_io(0x24, 0x40, lba, dst);    /* device: LBA mode */
+    return ata_io(0x24, 0x40, lba, dst, 0);    /* device: LBA mode */
 }
 
 /* --- IDENTIFY DEVICE -------------------------------------------------------- */
 int ata_identify(uint8_t *dst)
 {
-    return ata_io(0xEC, 0xA0, 0, dst);      /* device: LBA mode, master */
+    return ata_io(0xEC, 0xA0, 0, dst, 0);      /* device: LBA mode, master */
+}
+
+/* --- block write ops -------------------------------------------------------- */
+int blk_write(void *dev, uint64_t lba, const void *buf, size_t sectors)
+{
+    size_t s;
+    (void)dev;
+    if (!g_port.inited) {
+        return -1;
+    }
+    for (s = 0; s < sectors; s++) {
+        if (ata_io(0x35, 0x40, lba + s, (uint8_t *)buf + s * 512, 1)) {
+            return -1;
+        }
+    }
+    return 0;
 }
 
 /* --- exported probe -------------------------------------------------------- */

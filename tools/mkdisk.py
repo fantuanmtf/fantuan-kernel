@@ -16,6 +16,8 @@ PART_SECTORS = 30720  # 15 MiB
 
 out = bytearray(SECTOR * DISK_SECTORS)
 
+BROKEN = "--broken" in sys.argv
+
 
 def wsect(lba, data):
     out[lba * SECTOR:(lba + 1) * SECTOR] = data
@@ -92,6 +94,7 @@ wsect(PART_LBA, bpb)
 fat = bytearray(SPF * SECTOR)
 fat[0:4] = b"\xF8\xFF\xFF\x0F"
 fat[4:8] = b"\xFF\xFF\xFF\x0F"
+fat[2 * 4:2 * 4 + 4] = b"\xFF\xFF\xFF\x0F"      # cluster 2 = EOC (root dir)
 fat[3 * 4:3 * 4 + 4] = b"\xFF\xFF\xFF\x0F"      # cluster 3 = EOC (HELLO.TXT)
 fat[5 * 4:5 * 4 + 4] = struct.pack('<I', 6)          # 5 -> 6
 fat[6 * 4:6 * 4 + 4] = b"\xFF\xFF\xFF\x0F"      # 6 = EOC (INFO.TXT chain)
@@ -188,7 +191,10 @@ wsect(cluster_sector(7), EFI_DIR)
 BOOT_DIR = bytearray(SECTOR)
 BOOT_DIR[0:32] = self_entry(8)
 BOOT_DIR[32:64] = dotdot(7)
-BOOT_DIR[64:96] = dent("BOOTX64", "EFI", 10, len(BOOTX64))
+if BROKEN:
+    BOOT_DIR[64] = 0xE5  # deleted: simulate a missing fallback loader
+else:
+    BOOT_DIR[64:96] = dent("BOOTX64", "EFI", 10, len(BOOTX64))
 wsect(cluster_sector(8), BOOT_DIR)
 
 UBUNTU_DIR = bytearray(SECTOR)
@@ -199,13 +205,16 @@ UBUNTU_DIR[96:128] = dent("SHIMX64", "EFI", 12, len(SHIM))
 UBUNTU_DIR[128:160] = dent("GRUBX64", "EFI", 13, len(GRUBX64))
 wsect(cluster_sector(9), UBUNTU_DIR)
 
-put_file(10, BOOTX64)
+if not BROKEN:
+    put_file(10, BOOTX64)
 put_file(11, GRUBCFG)
 put_file(12, SHIM)
 put_file(13, GRUBX64)
 put_file(14, FSTAB)
 
-path = sys.argv[1] if len(sys.argv) > 1 else "build/test.img"
+args = [a for a in sys.argv[1:] if not a.startswith("--")]
+path = args[0] if args else "build/test.img"
 with open(path, "wb") as f:
     f.write(out)
-print(f"{path}: {len(out)} bytes, GPT + FAT32 ({CLUSTERS} clusters), HELLO.TXT + INFO.TXT")
+print(f"{path}: {len(out)} bytes, GPT + FAT32 ({CLUSTERS} clusters), HELLO.TXT + INFO.TXT"
+      + (" (broken ESP: no BOOTX64.EFI)" if BROKEN else ""))

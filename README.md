@@ -7,16 +7,18 @@ BSD diagnosis, Windows deferred.
 All repository artifacts are in English. The authoritative design lives in
 [docs/DESIGN.md](docs/DESIGN.md) — change it before changing code.
 
-## Current state: M7
+## Current state: M7.5b
 
 M0-M6 are in: UEFI boot chain, interrupts, higher-half kernel + frame
 allocator, scheduler + syscall ABI, ring-3 user mode with an ELF loader,
-C/Rust driver boundary (AHCI read-only), the read-only diagnostics
-framework, and the VFS (GPT/MBR + FAT32 read-only). M7 adds boot-repair
-diagnosis v1: ESP scan with bootloader identification, grub.cfg and fstab
-parsing, and UUID/PARTUUID cross-checks against the partition table — all
-read-only. tools/mkdisk.py hand-builds the GPT + FAT32 test disk including
-the ESP fixture.
+C/Rust driver boundary (AHCI), the read-only diagnostics framework, and the
+VFS (GPT/MBR + FAT32). M7 added boot-repair diagnosis v1 (ESP scan, grub.cfg
++ fstab parsing, UUID/PARTUUID cross-checks); M7.5a added NVRAM diagnosis
+via UEFI Runtime Services; M7.5b adds the first repair actions: FAT32 writes
+behind an explicit repair-mode gate and the fallback-loader repair (shim
+copied into a missing EFI/BOOT/BOOTX64.EFI — exercised by
+`tools/run.sh --broken`). tools/mkdisk.py hand-builds the GPT + FAT32 test
+disk including the ESP fixture.
 
 - `boot/` — self-written UEFI bootloader in Rust (`x86_64-unknown-uefi`),
   hand-rolled against the UEFI spec: GOP, RSDP, memory map, kernel load via

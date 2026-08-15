@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # fantuan-kernel — one-shot build & run in QEMU/OVMF (M0).
-# Usage: tools/run.sh [--graphics]   (default: headless serial console)
+# Usage: tools/run.sh [--graphics|--broken]   (default: headless serial console)
+#   --broken: build the test disk with a missing EFI/BOOT/BOOTX64.EFI so the
+#             boot-repair fallback copy can be exercised (M7.5b).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 GRAPHICS=0
+BROKEN=0
 if [ "${1:-}" = "--graphics" ]; then GRAPHICS=1; fi
+if [ "${1:-}" = "--broken" ]; then BROKEN=1; fi
 
 echo "[1/4] building user program, kernel, bootloader..."
 ./tools/build.sh
@@ -36,7 +40,11 @@ OVMF_VARS="$OVMF_DIR/OVMF_VARS.4m.fd"
 
 echo "[4/4] preparing AHCI test disk + starting QEMU..."
 # GPT + FAT32 test disk for the C AHCI driver and the VFS (tools/mkdisk.py).
-python3 tools/mkdisk.py build/test.img
+if [ "$BROKEN" = "1" ]; then
+  python3 tools/mkdisk.py --broken build/test.img
+else
+  python3 tools/mkdisk.py build/test.img
+fi
 AHCI_DEV="-device ich9-ahci,id=sata -drive file=build/test.img,format=raw,if=none,id=td0 -device ide-hd,drive=td0,bus=sata.0"
 
 if [ "$GRAPHICS" = "1" ]; then
