@@ -22,14 +22,17 @@ pub struct Partition {
     pub last_lba: u64,
     /// GPT type GUID, or MBR type byte in [0] with the rest zero.
     pub type_guid: [u8; 16],
+    /// GPT unique GUID (the PARTUUID, as stored on disk — mixed-endian).
+    pub unique_guid: [u8; 16],
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum TableKind {
     Gpt,
     Mbr,
 }
 
+#[derive(Clone, Copy)]
 pub struct Table {
     /// GPT vs MBR — consumed by M6.5 boot-repair logic; parsed now.
     #[allow(dead_code)]
@@ -65,7 +68,7 @@ fn parse_gpt(s: &mut Serial, hdr: &[u8; 512]) -> Option<Table> {
 
     let mut table = Table {
         kind: TableKind::Gpt,
-        parts: [Partition { first_lba: 0, last_lba: 0, type_guid: [0; 16] }; 8],
+        parts: [Partition { first_lba: 0, last_lba: 0, type_guid: [0; 16], unique_guid: [0; 16] }; 8],
         count: 0,
     };
     let mut sector = [0u8; 512];
@@ -81,9 +84,10 @@ fn parse_gpt(s: &mut Serial, hdr: &[u8; 512]) -> Option<Table> {
         if type_guid == [0u8; 16] {
             break; // unused entry: end of the list
         }
+        let unique_guid: [u8; 16] = e[16..32].try_into().ok()?;
         let first = u64::from_le_bytes(e[32..40].try_into().ok()?);
         let last = u64::from_le_bytes(e[40..48].try_into().ok()?);
-        table.parts[table.count] = Partition { first_lba: first, last_lba: last, type_guid };
+        table.parts[table.count] = Partition { first_lba: first, last_lba: last, type_guid, unique_guid };
         table.count += 1;
     }
     Some(table)
@@ -93,7 +97,7 @@ fn parse_mbr(s: &mut Serial, lba0: &[u8; 512]) -> Option<Table> {
     let _ = writeln!(s, "  part: MBR partition table");
     let mut table = Table {
         kind: TableKind::Mbr,
-        parts: [Partition { first_lba: 0, last_lba: 0, type_guid: [0; 16] }; 8],
+        parts: [Partition { first_lba: 0, last_lba: 0, type_guid: [0; 16], unique_guid: [0; 16] }; 8],
         count: 0,
     };
     for i in 0..4 {
@@ -106,7 +110,7 @@ fn parse_mbr(s: &mut Serial, lba0: &[u8; 512]) -> Option<Table> {
         let sectors = u32::from_le_bytes([e[12], e[13], e[14], e[15]]) as u64;
         let mut guid = [0u8; 16];
         guid[0] = type_byte;
-        table.parts[table.count] = Partition { first_lba: first, last_lba: first + sectors - 1, type_guid: guid };
+        table.parts[table.count] = Partition { first_lba: first, last_lba: first + sectors - 1, type_guid: guid, unique_guid: [0; 16] };
         table.count += 1;
     }
     Some(table)

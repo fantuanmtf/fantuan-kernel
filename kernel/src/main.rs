@@ -17,6 +17,7 @@ use fantuan_abi::{BootInfo, BOOT_MAGIC, BOOT_VERSION};
 // the user crate first; kernel/build.rs bakes the ELF in).
 include!(concat!(env!("OUT_DIR"), "/user_program.rs"));
 
+mod bootrepair;
 mod console;
 mod consts;
 mod cpu;
@@ -235,8 +236,10 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         diag::run_stage("2 storage", &stage2);
 
         // --- M6: VFS + partition table + FAT32 read-only ------------------
-        if vfs::init() {
+        if let Some(v) = vfs::init() {
             let _ = writeln!(s, "vfs: ok");
+            // --- M7: boot repair v1 (read-only diagnosis) -----------------
+            bootrepair::run(&mut s, &v);
         } else {
             let _ = writeln!(s, "vfs: unavailable (boot continues)");
         }

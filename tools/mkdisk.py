@@ -95,6 +95,8 @@ fat[4:8] = b"\xFF\xFF\xFF\x0F"
 fat[3 * 4:3 * 4 + 4] = b"\xFF\xFF\xFF\x0F"      # cluster 3 = EOC (HELLO.TXT)
 fat[5 * 4:5 * 4 + 4] = struct.pack('<I', 6)          # 5 -> 6
 fat[6 * 4:6 * 4 + 4] = b"\xFF\xFF\xFF\x0F"      # 6 = EOC (INFO.TXT chain)
+for n in range(7, 15):                                # 7..14 = ESP structure, all EOC
+    fat[n * 4:n * 4 + 4] = b"\xFF\xFF\xFF\x0F"
 wsect(PART_LBA + RESERVED, fat)
 wsect(PART_LBA + RESERVED + SPF, fat)
 
@@ -117,9 +119,34 @@ def dent(name8, ext3, cluster, size, attrs=0x20):
 HELLO = b"Hello from the fantuan-kernel VFS!\n"
 INFO = b"X" * 1000
 
+# M7 boot-repair fixture: the PARTUUID in fstab must equal the GPT unique
+# GUID of the FAT32 partition, in the text form Linux uses.
+_ug = b"FANTUANPART0001!"
+_PARTUUID = ("%08x-%04x-%04x-%s-%s") % (
+    struct.unpack('<I', _ug[0:4])[0],
+    struct.unpack('<H', _ug[4:6])[0],
+    struct.unpack('<H', _ug[6:8])[0],
+    _ug[8:12].hex(),
+    _ug[12:16].hex(),
+)
+GRUBCFG = (
+    b"search.fs_uuid 12345678-1234-1234-1234-123456789abc root\n"
+    b"set prefix=($root)'/boot/grub'\n"
+    b"set root='hd0,gpt1'\n"
+)
+FSTAB = (
+    b"UUID=12345678-1234-1234-1234-123456789abc / ext4 errors=remount-ro 0 1\n"
+    + ("PARTUUID=%s /boot/efi vfat umask=0077 0 1\n" % _PARTUUID).encode()
+)
+BOOTX64 = b"FANTUAN FALLBACK EFI APP (dummy)\n"
+SHIM = b"FANTUAN SHIM (dummy)\n"
+GRUBX64 = b"FANTUAN GRUB (dummy)\n"
+
 root = bytearray(SECTOR)
 root[0:32] = dent("HELLO", "TXT", 3, len(HELLO))
 root[32:64] = dent("INFO", "TXT", 5, len(INFO))
+root[64:96] = dent("EFI", "   ", 7, 0, attrs=0x10)
+root[96:128] = dent("FSTAB", "   ", 14, len(FSTAB))
 wsect(cluster_sector(2), root)
 
 hello = bytearray(SECTOR)
@@ -132,6 +159,51 @@ wsect(cluster_sector(5), i0)
 i1 = bytearray(SECTOR)
 i1[0:488] = INFO[512:1000]
 wsect(cluster_sector(6), i1)
+
+# --- ESP structure (M7 boot-repair fixture) -------------------------------
+# Cluster map: 7=EFI/ 8=EFI/BOOT/ 9=EFI/ubuntu/ 10=BOOTX64.EFI 11=grub.cfg
+# 12=shimx64.efi 13=grubx64.efi 14=fstab
+
+def dotdot(parent):
+    return dent(".", "   ", parent if parent else 0, 0, attrs=0x10)
+
+
+def self_entry(cluster):
+    return dent(".", "   ", cluster, 0, attrs=0x10)
+
+
+def put_file(cluster, data):
+    sec = bytearray(SECTOR)
+    sec[0:len(data)] = data
+    wsect(cluster_sector(cluster), sec)
+
+
+EFI_DIR = bytearray(SECTOR)
+EFI_DIR[0:32] = self_entry(7)
+EFI_DIR[32:64] = dotdot(0)
+EFI_DIR[64:96] = dent("BOOT", "   ", 8, 0, attrs=0x10)
+EFI_DIR[96:128] = dent("ubuntu", "   ", 9, 0, attrs=0x10)
+wsect(cluster_sector(7), EFI_DIR)
+
+BOOT_DIR = bytearray(SECTOR)
+BOOT_DIR[0:32] = self_entry(8)
+BOOT_DIR[32:64] = dotdot(7)
+BOOT_DIR[64:96] = dent("BOOTX64", "EFI", 10, len(BOOTX64))
+wsect(cluster_sector(8), BOOT_DIR)
+
+UBUNTU_DIR = bytearray(SECTOR)
+UBUNTU_DIR[0:32] = self_entry(9)
+UBUNTU_DIR[32:64] = dotdot(7)
+UBUNTU_DIR[64:96] = dent("GRUB", "CFG", 11, len(GRUBCFG))
+UBUNTU_DIR[96:128] = dent("SHIMX64", "EFI", 12, len(SHIM))
+UBUNTU_DIR[128:160] = dent("GRUBX64", "EFI", 13, len(GRUBX64))
+wsect(cluster_sector(9), UBUNTU_DIR)
+
+put_file(10, BOOTX64)
+put_file(11, GRUBCFG)
+put_file(12, SHIM)
+put_file(13, GRUBX64)
+put_file(14, FSTAB)
 
 path = sys.argv[1] if len(sys.argv) > 1 else "build/test.img"
 with open(path, "wb") as f:
