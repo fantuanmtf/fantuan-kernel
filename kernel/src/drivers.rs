@@ -72,10 +72,9 @@ pub extern "C" fn k_delay_ms(ms: u64) {
 
 // --- bring-up + verification ------------------------------------------------
 
-const TEST_SIGNATURE: &[u8] = b"FANTUAN TEST DISK";
-
-/// PCI-scan for AHCI, probe it, read LBA0 of the test disk, verify the
-/// signature. Returns true when the full C-driver path worked.
+/// PCI-scan for AHCI, probe it, read LBA0 and verify the MBR signature
+/// (0x55AA at offset 510) — the test disk is a GPT disk with a protective
+/// MBR. Returns true when the full C-driver path worked.
 pub fn init() -> bool {
     let mut s = Serial::new(serial::COM1);
     let Some((bus, dev, _func, abar)) = crate::pci::find_ahci() else {
@@ -95,8 +94,8 @@ pub fn init() -> bool {
         let _ = writeln!(s, "ahci: LBA0 read failed");
         return false;
     }
-    if &sector[..TEST_SIGNATURE.len()] == TEST_SIGNATURE {
-        let _ = writeln!(s, "ahci: LBA0 read ok: signature verified");
+    if sector[510] == 0x55 && sector[511] == 0xAA {
+        let _ = writeln!(s, "ahci: LBA0 read ok: MBR signature verified");
         true
     } else {
         let _ = write!(s, "ahci: LBA0 mismatch, first bytes:");

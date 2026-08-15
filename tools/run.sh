@@ -35,11 +35,8 @@ OVMF_VARS="$OVMF_DIR/OVMF_VARS.4m.fd"
 [ -f build/OVMF_VARS.fd ] || cp "$OVMF_VARS" build/OVMF_VARS.fd
 
 echo "[4/4] preparing AHCI test disk + starting QEMU..."
-# 1 MiB test disk with a known signature at LBA0 for the C AHCI driver.
-if [ ! -f build/test.img ]; then
-  printf 'FANTUAN TEST DISK' > build/test.img
-  dd if=/dev/zero bs=512 count=2047 >> build/test.img 2>/dev/null
-fi
+# GPT + FAT32 test disk for the C AHCI driver and the VFS (tools/mkdisk.py).
+python3 tools/mkdisk.py build/test.img
 AHCI_DEV="-device ich9-ahci,id=sata -drive file=build/test.img,format=raw,if=none,id=td0 -device ide-hd,drive=td0,bus=sata.0"
 
 if [ "$GRAPHICS" = "1" ]; then

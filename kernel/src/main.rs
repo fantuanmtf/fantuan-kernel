@@ -39,6 +39,7 @@ mod syscall;
 mod task;
 mod timer;
 mod tsc;
+mod vfs;
 
 fn serial() -> serial::Serial {
     serial::Serial::new(serial::COM1)
@@ -232,6 +233,13 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
             diag::Check { name: "storage", run: diag::storage::check },
         ];
         diag::run_stage("2 storage", &stage2);
+
+        // --- M6: VFS + partition table + FAT32 read-only ------------------
+        if vfs::init() {
+            let _ = writeln!(s, "vfs: ok");
+        } else {
+            let _ = writeln!(s, "vfs: unavailable (boot continues)");
+        }
     } else {
         let _ = writeln!(s, "drivers: AHCI unavailable (boot continues)");
     }

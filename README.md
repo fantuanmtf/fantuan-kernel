@@ -7,15 +7,15 @@ BSD diagnosis, Windows deferred.
 All repository artifacts are in English. The authoritative design lives in
 [docs/DESIGN.md](docs/DESIGN.md) — change it before changing code.
 
-## Current state: M5
+## Current state: M6
 
-M0-M4.5 are in: UEFI boot chain, interrupts, higher-half kernel with a
-bitmap frame allocator, scheduler + syscall ABI, ring-3 user mode with an
-ELF loader, and the C/Rust driver boundary with AHCI read-only. M5 adds the
-diagnostics framework v1: stage-1 hardware checks (CPU via CPUID/RDMSR
-assembly, GPU presence with beep codes, RAM pattern test) and stage-2
-storage checks (MBR/GPT boot header + IDENTIFY through the C driver) — all
-read-only, as a rescue kernel must be.
+M0-M5 are in: UEFI boot chain, interrupts, higher-half kernel + frame
+allocator, scheduler + syscall ABI, ring-3 user mode with an ELF loader,
+C/Rust driver boundary (AHCI read-only), and the read-only diagnostics
+framework. M6 adds the VFS: GPT/MBR partition parsing and a FAT32
+read-only driver (BPB, FAT chain walk, 8.3 directories, multi-cluster file
+reads) on top of the C block driver — the rescue kernel now reads real
+disks and files. tools/mkdisk.py hand-builds the GPT + FAT32 test disk.
 
 - `boot/` — self-written UEFI bootloader in Rust (`x86_64-unknown-uefi`),
   hand-rolled against the UEFI spec: GOP, RSDP, memory map, kernel load via
