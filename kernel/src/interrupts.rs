@@ -8,6 +8,7 @@ use crate::consts::{IRQ_TIMER, PIC2_OFFSET};
 use crate::exceptions;
 use crate::pic;
 use crate::serial::{self, Serial};
+use crate::syscall;
 use crate::timer;
 
 /// Saved by isr_common in exactly this order (interrupts.S).
@@ -53,7 +54,9 @@ pub extern "C" fn isr_dispatch(frame: *mut InterruptFrame) {
     let f = unsafe { &mut *frame };
     let vector = f.vector;
 
-    if vector < 32 {
+    if vector == syscall::SYSCALL_VECTOR {
+        syscall::dispatch(f);
+    } else if vector < 32 {
         exceptions::handle(f);
     } else if vector >= 32 && vector < 48 {
         pic::eoi(vector as u8);

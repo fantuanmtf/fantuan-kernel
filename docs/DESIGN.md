@@ -129,7 +129,28 @@ can be added or removed without breaking old components.
   4 GiB (M2 scope; extended when RAM > 4 GiB matters).
 - **Build**: the kernel uses `-C code-model=large` (higher-half addresses do
   not fit the small model's 32-bit relocations). Page-table entries always hold
-  PHYSICAL addresses; virtual pointers are only for writing them.
+  PHYSICAL addresses; virtual pointers are only for writing them. The large code
+  model renames sections (.ltext/.ldata/.lbss), so the linker script matches
+  both families.
+
+## 4.6 Scheduler & Syscall ABI (v1)
+
+- **Tasks (M3)**: kernel-mode tasks on frame-allocated 16 KiB kernel stacks;
+  static table (16 slots). Round-robin with a 100 ms quantum driven from the
+  IRQ0 handler; `switch_context` (assembly, DESIGN.md §2) saves/restores the
+  callee-saved registers on the task stacks, so the switch unwinds inside the
+  next task's own interrupt frame. Sleeping tasks wake by tick deadline.
+  M3 scope notes: no ring 3 yet, exited tasks leak their stacks (reaping in
+  M4), the frame allocator is reachable via a boot-time raw pointer (becomes a
+  proper global in M4).
+- **Syscall ABI v1**: INT 0x60 gate; rax = number, rdi..r8 = five arguments,
+  rax = result; 0 = OK, u64::MAX = ENOSYS, u64::MAX-1 = EINVAL. Versioned
+  dispatch table — every call carries its own version so the ABI evolves
+  per-call (capability negotiation); `SYS_VERSION` (0) probes the ABI
+  version. Calls: exit(1), sleep_ms(2), write(3) (kernel debug channel),
+  get_tid(4), yield(5). The trampoline (assembly) reserves scratch below rsp
+  so the interrupt frame never touches the caller's red zone. v1 callers are
+  kernel-mode (trusted); ring-3 entry and argument validation arrive with M4.
 
 ## 5. Rust <-> C FFI Boundary
 
@@ -288,8 +309,9 @@ fantuan-kernel/
   tables), kernel-owned page tables + CR3 switch, bitmap frame allocator over
   the EFI memory map (505 MiB usable in the QEMU VM), frame self-test, reclaim
   of the bootloader's tables.
-- **M3** — processes: scheduler (context switch in assembly), own syscall ABI v1
-  (versioned, capability-negotiated).
+- **M3** — DONE: kernel tasks + round-robin scheduler (assembly context
+  switch, 100 ms quantum, tick-deadline sleeping) + own syscall ABI v1
+  (INT 0x60, versioned dispatch table, SYS_VERSION probe).
 - **M4** — C/Rust driver boundary: rust_core.h + ops tables; AHCI/NVMe read-only.
 - **M5** — diagnostics v1 (stage 1 & 2, all read-only, beep codes, disk health).
 - **M6** — VFS + GPT/MBR + FAT32 r/w + ext4/UFS read-only (NTFS deferred).

@@ -14,6 +14,8 @@ fn main() {
     println!("cargo:rerun-if-changed={dir}/link.ld");
     println!("cargo:rerun-if-changed={dir}/src/consts.rs");
     println!("cargo:rerun-if-changed={dir}/src/asm/interrupts.S");
+    println!("cargo:rerun-if-changed={dir}/src/asm/switch.S");
+    println!("cargo:rerun-if-changed={dir}/src/asm/syscall.S");
     println!("cargo:rerun-if-changed={dir}/../boot/entry.S");
     println!("cargo:rustc-link-arg=-T{dir}/link.ld");
 
@@ -51,6 +53,8 @@ fn main() {
     cc::Build::new()
         .file(format!("{dir}/../boot/entry.S"))
         .file(format!("{dir}/src/asm/interrupts.S"))
+        .file(format!("{dir}/src/asm/switch.S"))
+        .file(format!("{dir}/src/asm/syscall.S"))
         .include(&out)
         .compile("bootasm");
 }
