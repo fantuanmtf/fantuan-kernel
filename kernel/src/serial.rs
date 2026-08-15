@@ -33,6 +33,14 @@ impl Serial {
             outb(self.port, c);
         }
     }
+
+    /// Write a byte slice to the port (debug channel; no line discipline).
+    pub fn write(&self, buf: &[u8]) -> usize {
+        for &b in buf {
+            self.putc(b);
+        }
+        buf.len()
+    }
 }
 
 impl fmt::Write for Serial {
