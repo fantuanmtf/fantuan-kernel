@@ -1,4 +1,6 @@
-//! Memory management (M2): frame allocator + page tables (DESIGN.md §4.5).
+//! Memory management (M2/M4): frame allocator, kernel and user page tables
+//! (DESIGN.md §4.5/§4.6).
 
 pub mod frame;
 pub mod paging;
+pub mod user;

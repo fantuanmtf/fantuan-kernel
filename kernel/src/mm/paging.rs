@@ -3,9 +3,18 @@
 //! the caller reclaim the bootloader's tables.
 
 use core::arch::asm;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::mm::frame::FrameAllocator;
 use fantuan_abi::PHYS_OFFSET;
+
+/// Physical address of the kernel's current PML4 (set by init; cloned into
+/// every user task's page tables).
+static KERNEL_PML4: AtomicU64 = AtomicU64::new(0);
+
+pub fn kernel_pml4() -> u64 {
+    KERNEL_PML4.load(Ordering::Relaxed)
+}
 
 const HUGE: u64 = 2 * 1024 * 1024;
 const IDENT_GIB: u64 = 4;
@@ -64,5 +73,6 @@ pub fn init(alloc: &mut FrameAllocator) -> u64 {
         asm!("mov cr3, {}", in(reg) pml4_phys, options(nostack));
     }
 
+    KERNEL_PML4.store(pml4_phys, Ordering::Relaxed);
     pml4_phys
 }

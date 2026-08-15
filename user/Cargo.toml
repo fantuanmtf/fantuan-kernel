@@ -1,0 +1,8 @@
+[package]
+name = "fantuan-user"
+version = "0.1.0"
+edition = "2021"
+description = "fantuan-kernel first userland program (M4)"
+
+[dependencies]
+fantuan-abi = { path = "../abi" }

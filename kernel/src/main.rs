@@ -13,9 +13,14 @@ use core::panic::PanicInfo;
 
 use fantuan_abi::{BootInfo, BOOT_MAGIC, BOOT_VERSION};
 
+// The first userland program, embedded at build time (tools/build.sh builds
+// the user crate first; kernel/build.rs bakes the ELF in).
+include!(concat!(env!("OUT_DIR"), "/user_program.rs"));
+
 mod console;
 mod consts;
 mod cpu;
+mod elf;
 mod exceptions;
 mod font;
 mod gdt;
@@ -140,14 +145,15 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         halt_forever();
     }
 
-    let mut alloc = mm::frame::FrameAllocator::new(bi);
+    mm::frame::init(bi);
+    let alloc = mm::frame::get();
     let _ = writeln!(
         s,
         "mm: frame allocator ready: {} MiB usable (bitmap {} KiB)",
         alloc.usable_mib(),
         mm::frame::BITMAP_BYTES / 1024
     );
-    let new_pml4 = mm::paging::init(&mut alloc);
+    let new_pml4 = mm::paging::init(alloc);
     let _ = writeln!(
         s,
         "paging: kernel tables @ phys {:#x}, kmain @ {:#x}",
@@ -188,11 +194,22 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     // --- M3: kernel tasks + syscall ABI ------------------------------------
     let abi = syscall::syscall(syscall::SYS_VERSION, 0, 0, 0, 0, 0);
     let _ = writeln!(s, "syscall: ABI v{} (int 0x60, versioned dispatch)", abi);
-    task::init(&mut alloc);
+    task::init(bi.stack_top);
     task::spawn(demo_1);
     task::spawn(demo_2);
     task::spawn(demo_3);
-    let _ = writeln!(s, "sched: 3 demo tasks spawned (quantum 100 ms)");
+    let _ = writeln!(s, "sched: 3 kernel demo tasks spawned (quantum 100 ms)");
+
+    // --- M4: user mode ------------------------------------------------------
+    let u1 = task::spawn_user(USER_ELF);
+    let u2 = task::spawn_user(USER_ELF);
+    let _ = writeln!(
+        s,
+        "user: ELF {} bytes -> tids {} {} (ring 3, per-task page tables)",
+        USER_ELF.len(),
+        u1.unwrap_or(0),
+        u2.unwrap_or(0)
+    );
 
     // Boot-complete signal: one LONG beep — distinct from the short-beep
     // diagnostic codes (DESIGN.md §6.2).

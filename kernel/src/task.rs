@@ -1,21 +1,27 @@
-//! Kernel tasks + round-robin scheduler (M3, DESIGN.md §4.6).
+//! Kernel & user tasks + round-robin scheduler (M3/M4, DESIGN.md §4.6).
 //!
-//! Each task owns a frame-allocated kernel stack; the PIT quantum calls
+//! Each task owns a frame-allocated 16 KiB kernel stack; the PIT quantum calls
 //! schedule() from the IRQ0 handler; switch_context saves/restores the
-//! callee-saved registers on the task stacks. M3 scope notes: kernel-mode
-//! tasks only (no ring 3 yet), static task table, exited tasks leak their
-//! stacks (reaping comes with M4).
+//! callee-saved registers and the page tables on the task stacks. User tasks
+//! (M4) get their own PML4 and enter ring 3 through a pre-built iretq frame.
+//! M4 scope notes: static task table, exited tasks leak stacks + page tables
+//! (reaping arrives later), no SMEP/SMAP.
 
 use core::ptr;
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use crate::cpu;
-use crate::mm::frame::FrameAllocator;
-use crate::mm::paging::phys_to_virt;
+use crate::elf;
+use crate::gdt;
+use crate::mm::frame;
+use crate::mm::paging::{self, phys_to_virt};
+use crate::mm::user;
 use crate::timer;
+use fantuan_abi::{USER_CS_SEL, USER_DS_SEL, USER_STACK_TOP};
 
 pub const MAX_TASKS: usize = 16;
 const STACK_PAGES: u64 = 4; // 16 KiB per task
+const USER_STACK_PAGES: u64 = 4;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum State {
@@ -29,6 +35,14 @@ pub struct Task {
     pub state: State,
     /// Where switch_context left the saved callee-saved registers.
     pub rsp: u64,
+    /// Physical PML4 this task runs with (kernel tasks share the kernel one).
+    pub cr3: u64,
+    /// Kernel stack top: also the TSS rsp0 while this task is current.
+    pub kernel_stack_top: u64,
+    /// Whether the task executes in ring 3 (informational; faults are
+    /// classified from the interrupt frame's CS).
+    #[allow(dead_code)]
+    pub is_user: bool,
     /// Stack frame base (physical; for future reaping).
     #[allow(dead_code)]
     pub stack_phys: u64,
@@ -46,6 +60,9 @@ fn dead_body() -> ! {
 const EMPTY_TASK: Task = Task {
     state: State::Unused,
     rsp: 0,
+    cr3: 0,
+    kernel_stack_top: 0,
+    is_user: false,
     stack_phys: 0,
     body: dead_body,
     id: 0,
@@ -57,46 +74,47 @@ static CURRENT: AtomicUsize = AtomicUsize::new(0);
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 pub static SWITCHES: AtomicU64 = AtomicU64::new(0);
 
-// Borrowed from kmain at init; kmain never returns, so the local it points at
-// lives forever (M4 will turn the allocator into a proper global).
-static mut FRAME_ALLOC: *mut FrameAllocator = ptr::null_mut();
-
 extern "C" {
-    fn switch_context(old_rsp: *mut u64, new_rsp: u64);
+    fn switch_context(old_rsp: *mut u64, new_rsp: u64, new_cr3: u64);
+    fn user_entry();
 }
 
-/// Register the allocator and make the boot context (kmain) task 0.
-pub fn init(alloc: &mut FrameAllocator) {
+/// Make the boot context (kmain) task 0.
+pub fn init(boot_stack_top: u64) {
     unsafe {
-        FRAME_ALLOC = alloc;
         TASKS[0] = Task {
             state: State::Ready,
             rsp: 0,
+            cr3: paging::kernel_pml4(),
+            kernel_stack_top: boot_stack_top,
+            is_user: false,
             stack_phys: 0,
             body: dead_body,
             id: 0,
             exit_code: 0,
         };
     }
+    gdt::set_rsp0(boot_stack_top);
 }
 
-/// Spawn a kernel task. Interrupt-safe: the slot and stack are fully set up
-/// before the task becomes visible to the scheduler.
+fn find_slot() -> Option<usize> {
+    (0..MAX_TASKS).find(|&i| unsafe { (*ptr::addr_of!(TASKS[i])).state == State::Unused })
+}
+
+/// Spawn a kernel task. Interrupt-safe: fully set up before the task becomes
+/// visible to the scheduler.
 pub fn spawn(body: fn() -> !) -> u64 {
     let flags = cpu::irq_save();
-
-    let slot = (0..MAX_TASKS)
-        .find(|&i| unsafe { (*ptr::addr_of!(TASKS[i])).state == State::Unused })
-        .expect("task table full");
+    let slot = find_slot().expect("task table full");
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed) + 1;
 
-    let stack_phys = unsafe { &mut *FRAME_ALLOC }
-        .alloc()
-        .expect("no frames for task stack");
-    // Initial stack: [r15][r14][r13][r12][rbp][rbx][task_entry] <- rsp, so the
-    // first switch_context into this task pops six zeros and returns into
-    // task_entry (the ret target sits ABOVE the six saved registers).
-    let stack_top = phys_to_virt(stack_phys + STACK_PAGES * crate::mm::frame::FRAME_SIZE);
+    let stack_phys = frame::get().alloc().expect("no frames for task stack");
+    // Claim the rest of the stack: the task owns STACK_PAGES frames.
+    for _ in 1..STACK_PAGES {
+        frame::get().alloc().expect("no frames for task stack");
+    }
+    let stack_top = phys_to_virt(stack_phys + STACK_PAGES * frame::FRAME_SIZE);
+    // [r15..rbx zeros][task_entry] <- rsp
     let sp = (stack_top - 7 * 8) as *mut u64;
     unsafe {
         for i in 0..6 {
@@ -106,6 +124,9 @@ pub fn spawn(body: fn() -> !) -> u64 {
         *ptr::addr_of_mut!(TASKS[slot]) = Task {
             state: State::Ready,
             rsp: sp as u64,
+            cr3: paging::kernel_pml4(),
+            kernel_stack_top: stack_top,
+            is_user: false,
             stack_phys,
             body,
             id,
@@ -117,7 +138,73 @@ pub fn spawn(body: fn() -> !) -> u64 {
     id
 }
 
-/// First entry into a freshly spawned task.
+/// Spawn a user task from a static ELF image (M4).
+pub fn spawn_user(elf_image: &[u8]) -> Option<u64> {
+    let flags = cpu::irq_save();
+    let Some(slot) = find_slot() else {
+        crate::serial::line("user: no free task slot");
+        cpu::irq_restore(flags);
+        return None;
+    };
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed) + 1;
+
+    let Some((entry, cr3)) = elf::load(elf_image) else {
+        cpu::irq_restore(flags);
+        return None;
+    };
+
+    // User stack: frames mapped at USER_STACK_TOP - 16 KiB.
+    let ustack_phys = frame::get().alloc()?;
+    for _ in 1..USER_STACK_PAGES {
+        frame::get().alloc()?;
+    }
+    let ustack_base = USER_STACK_TOP - USER_STACK_PAGES * frame::FRAME_SIZE;
+    for i in 0..USER_STACK_PAGES {
+        user::map_page(
+            cr3,
+            ustack_base + i * frame::FRAME_SIZE,
+            ustack_phys + i * frame::FRAME_SIZE,
+            user::P_PRESENT | user::P_WRITABLE | user::P_USER,
+        );
+    }
+
+    // Kernel stack + the initial frame: six saved-register zeros, then
+    // user_entry as the ret target, then the ring-3 iretq frame
+    // [rip][cs][rflags][rsp][ss].
+    let stack_phys = frame::get().alloc()?;
+    for _ in 1..STACK_PAGES {
+        frame::get().alloc()?;
+    }
+    let stack_top = phys_to_virt(stack_phys + STACK_PAGES * frame::FRAME_SIZE);
+    let sp = (stack_top - 12 * 8) as *mut u64;
+    unsafe {
+        for i in 0..6 {
+            *sp.add(i) = 0;
+        }
+        *sp.add(6) = user_entry as *const () as u64;
+        *sp.add(7) = entry;
+        *sp.add(8) = USER_CS_SEL as u64;
+        *sp.add(9) = 0x202; // IF set: user code runs with interrupts on
+        *sp.add(10) = USER_STACK_TOP;
+        *sp.add(11) = USER_DS_SEL as u64;
+        *ptr::addr_of_mut!(TASKS[slot]) = Task {
+            state: State::Ready,
+            rsp: sp as u64,
+            cr3,
+            kernel_stack_top: stack_top,
+            is_user: true,
+            stack_phys,
+            body: dead_body,
+            id,
+            exit_code: 0,
+        };
+    }
+
+    cpu::irq_restore(flags);
+    Some(id)
+}
+
+/// First entry into a freshly spawned kernel task.
 extern "C" fn task_entry() -> ! {
     let body = unsafe { (*ptr::addr_of!(TASKS[CURRENT.load(Ordering::Relaxed)])).body };
     body();
@@ -152,9 +239,15 @@ pub fn schedule() {
         }
         SWITCHES.fetch_add(1, Ordering::Relaxed);
         CURRENT.store(n, Ordering::Relaxed);
+        // Point the ring-0 interrupt stack at the NEXT task's kernel stack
+        // top BEFORE the switch: a fresh user task iretqs straight into ring 3
+        // (its first activation never resumes schedule), so its very first
+        // syscall needs rsp0 to already be correct.
+        gdt::set_rsp0(TASKS[n].kernel_stack_top);
         let old_rsp = &raw mut TASKS[cur].rsp;
         let new_rsp = TASKS[n].rsp;
-        switch_context(old_rsp, new_rsp);
+        let new_cr3 = TASKS[n].cr3;
+        switch_context(old_rsp, new_rsp, new_cr3);
     }
 }
 

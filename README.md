@@ -7,14 +7,13 @@ BSD diagnosis, Windows deferred.
 All repository artifacts are in English. The authoritative design lives in
 [docs/DESIGN.md](docs/DESIGN.md) — change it before changing code.
 
-## Current state: M3
+## Current state: M4
 
-M0 boot chain (self-written UEFI bootloader, handshake, serial/GOP console),
-M1 interrupts (IDT, PIC, PIT timer, TSS/IST, TSC sleep) and M2 memory
-(higher-half kernel at PHYS_OFFSET, kernel-owned page tables, bitmap frame
-allocator) are in. M3: kernel tasks with a round-robin scheduler (assembly
-context switch, 100 ms quantum) and the own syscall ABI v1 (INT 0x60,
-versioned dispatch).
+M0-M3 are in: self-written UEFI boot chain, interrupts, higher-half kernel
+with a bitmap frame allocator, kernel tasks + round-robin scheduler, syscall
+ABI v1. M4 adds ring-3 user mode: GDT user segments, TSS rsp0, per-task page
+tables, a static-ELF loader, and the first userland program (user/, embedded
+into the kernel, spawned as two processes that print, sleep and exit).
 
 - `boot/` — self-written UEFI bootloader in Rust (`x86_64-unknown-uefi`),
   hand-rolled against the UEFI spec: GOP, RSDP, memory map, kernel load via

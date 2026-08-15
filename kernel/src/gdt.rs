@@ -6,10 +6,11 @@
 
 use core::arch::asm;
 
-use crate::consts::{GDT_CODE64, GDT_DATA64, IST_DOUBLE_FAULT, TSS_SEL};
+use crate::consts::{GDT_CODE64, GDT_DATA64, GDT_USER_CODE, GDT_USER_DATA, IST_DOUBLE_FAULT, TSS_SEL};
 
 const TSS_LIMIT: u64 = 0x67; // size_of::<Tss>() - 1
-const GDT_ENTRIES: usize = 6;
+// null, code64, data64, tss_lo, tss_hi, user_data, user_code
+const GDT_ENTRIES: usize = 7;
 
 #[repr(C, packed)]
 pub struct Tss {
@@ -81,7 +82,8 @@ pub fn init() {
             GDT_DATA64,
             tss_low(tss_base),
             tss_base >> 32,
-            0,
+            GDT_USER_DATA,
+            GDT_USER_CODE,
         ];
         let gdtr = DescriptorTablePointer {
             limit: (GDT_ENTRIES * 8 - 1) as u16,
@@ -92,4 +94,12 @@ pub fn init() {
     }
 
     let _ = IST_DOUBLE_FAULT; // IST1 is wired in idt.rs; keep the const referenced here too
+}
+
+/// Update the ring-0 stack for interrupts coming from ring 3 (M4). The
+/// scheduler sets this to the current task's kernel stack top before iretq.
+pub fn set_rsp0(top: u64) {
+    unsafe {
+        TSS.rsp0 = top;
+    }
 }

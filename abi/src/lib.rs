@@ -17,6 +17,28 @@ pub const PHYS_OFFSET: u64 = 0xFFFF_8000_0000_0000; // -2 GiB, Linux-style
 /// Pages of initial kernel stack allocated by the bootloader.
 pub const BOOT_STACK_PAGES: u64 = 16;
 
+// --- Syscall ABI v1 (shared by kernel and userland) ------------------------
+
+pub const SYS_VERSION: u64 = 0;
+pub const SYS_EXIT: u64 = 1;
+pub const SYS_SLEEP_MS: u64 = 2;
+pub const SYS_WRITE: u64 = 3; // (buf, len): kernel debug channel (serial)
+pub const SYS_GET_TID: u64 = 4;
+pub const SYS_YIELD: u64 = 5;
+
+pub const SYS_OK: u64 = 0;
+pub const SYS_ERR_NOSYS: u64 = u64::MAX; // -1
+pub const SYS_ERR_INVAL: u64 = u64::MAX - 1; // -2
+
+// --- User-mode layout (M4) -------------------------------------------------
+
+/// User data segment selector (GDT index 5, RPL 3).
+pub const USER_DS_SEL: u16 = 0x2B;
+/// User code segment selector (GDT index 6, RPL 3).
+pub const USER_CS_SEL: u16 = 0x33;
+/// User stack top (4 frames mapped at this base).
+pub const USER_STACK_TOP: u64 = 0x300000 + 4 * 4096;
+
 /// EFI memory type for free, usable RAM.
 pub const MEMORY_TYPE_CONVENTIONAL: u32 = 7;
 

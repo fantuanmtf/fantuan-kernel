@@ -14,6 +14,9 @@ pub const TSS_SEL: u16 = 0x18;
 
 pub const GDT_CODE64: u64 = 0x00AF_9A00_0000_FFFF;
 pub const GDT_DATA64: u64 = 0x00AF_9200_0000_FFFF;
+/// DPL-3 segments for user mode (M4).
+pub const GDT_USER_DATA: u64 = 0x00AF_F200_0000_FFFF;
+pub const GDT_USER_CODE: u64 = 0x00AF_FA00_0000_FFFF;
 
 pub const IDT_ENTRIES: usize = 256;
 /// Present, DPL0, 64-bit interrupt gate.

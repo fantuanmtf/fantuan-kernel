@@ -143,14 +143,25 @@ can be added or removed without breaking old components.
   M3 scope notes: no ring 3 yet, exited tasks leak their stacks (reaping in
   M4), the frame allocator is reachable via a boot-time raw pointer (becomes a
   proper global in M4).
-- **Syscall ABI v1**: INT 0x60 gate; rax = number, rdi..r8 = five arguments,
-  rax = result; 0 = OK, u64::MAX = ENOSYS, u64::MAX-1 = EINVAL. Versioned
-  dispatch table — every call carries its own version so the ABI evolves
-  per-call (capability negotiation); `SYS_VERSION` (0) probes the ABI
-  version. Calls: exit(1), sleep_ms(2), write(3) (kernel debug channel),
-  get_tid(4), yield(5). The trampoline (assembly) reserves scratch below rsp
-  so the interrupt frame never touches the caller's red zone. v1 callers are
-  kernel-mode (trusted); ring-3 entry and argument validation arrive with M4.
+- **Syscall ABI v1**: INT 0x60 gate (DPL 3 since M4); rax = number,
+  rdi..r8 = five arguments, rax = result; 0 = OK, u64::MAX = ENOSYS,
+  u64::MAX-1 = EINVAL. Versioned dispatch table — every call carries its own
+  version so the ABI evolves per-call (capability negotiation);
+  `SYS_VERSION` (0) probes the ABI version. Calls: exit(1), sleep_ms(2),
+  write(3) (kernel debug channel), get_tid(4), yield(5). The trampoline
+  (assembly) reserves scratch below rsp so the interrupt frame never touches
+  the caller's red zone.
+- **User mode (M4)**: ring 3 via a pre-built iretq frame ([rip][cs=0x33]
+  [rflags=0x202][rsp][ss=0x2B]) entered through the `user_entry` assembly
+  stub. Per-task page tables: user PML4 clones ONLY the kernel half
+  (PHYS_OFFSET alias) — the identity map stays out so the user half is free
+  for 4K mappings. The scheduler sets TSS.rsp0 to the next task's kernel
+  stack top BEFORE the switch (a fresh user task iretqs immediately and never
+  resumes schedule()). ELF loader: static ET_EXEC, PT_LOAD, 4K pages, shared
+  pages between segments are reused, mid-page segment starts supported.
+  User faults kill the task (classified from the frame's CS). M4 notes:
+  user pages are RWX, no SMEP/SMAP, exited tasks leak stacks + page tables,
+  the serial lock excludes interrupt-context writers by design.
 
 ## 5. Rust <-> C FFI Boundary
 
@@ -312,7 +323,10 @@ fantuan-kernel/
 - **M3** — DONE: kernel tasks + round-robin scheduler (assembly context
   switch, 100 ms quantum, tick-deadline sleeping) + own syscall ABI v1
   (INT 0x60, versioned dispatch table, SYS_VERSION probe).
-- **M4** — C/Rust driver boundary: rust_core.h + ops tables; AHCI/NVMe read-only.
+- **M4** — DONE: ring-3 user mode (GDT user segments, TSS rsp0, DPL-3
+  syscall gate), per-task page tables, static-ELF loader, first userland
+  program (fantuan-user) running and exiting cleanly.
+- **M4.5** — C/Rust driver boundary: rust_core.h + ops tables; AHCI/NVMe read-only.
 - **M5** — diagnostics v1 (stage 1 & 2, all read-only, beep codes, disk health).
 - **M6** — VFS + GPT/MBR + FAT32 r/w + ext4/UFS read-only (NTFS deferred).
 - **M7** — boot repair v1 (Linux full path + BSD diagnosis) + live ISO.
