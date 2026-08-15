@@ -60,12 +60,24 @@ fn main() {
     let gen = format!("pub static USER_ELF: &[u8] = include_bytes!({user:?});\n");
     fs::write(format!("{out}/user_program.rs"), gen).unwrap();
 
-    // 4. compile the assembly into a static archive for the kernel link
+    // 4. compile the assembly + C drivers into a static archive for the link.
+    // The C code needs the same address-space model as the kernel: large code
+    // model (0xFFFF8000... addresses) and no red zone (interrupts may push a
+    // frame below rsp at any time).
+    println!("cargo:rerun-if-changed={dir}/../drivers/c/ahci.c");
+    println!("cargo:rerun-if-changed={dir}/../drivers/c/include/rust_core.h");
+    println!("cargo:rerun-if-changed={dir}/../drivers/c/include/driver.h");
     cc::Build::new()
         .file(format!("{dir}/../boot/entry.S"))
         .file(format!("{dir}/src/asm/interrupts.S"))
         .file(format!("{dir}/src/asm/switch.S"))
         .file(format!("{dir}/src/asm/syscall.S"))
+        .file(format!("{dir}/../drivers/c/ahci.c"))
+        .flag("-mcmodel=large")
+        .flag("-mno-red-zone")
+        .flag("-ffreestanding")
+        .flag("-fno-stack-protector") // distro gcc defaults it on; we have no libc guard
+        .include(format!("{dir}/../drivers/c/include"))
         .include(&out)
-        .compile("bootasm");
+        .compile("bootobj");
 }

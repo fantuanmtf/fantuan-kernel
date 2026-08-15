@@ -7,13 +7,15 @@ BSD diagnosis, Windows deferred.
 All repository artifacts are in English. The authoritative design lives in
 [docs/DESIGN.md](docs/DESIGN.md) — change it before changing code.
 
-## Current state: M4
+## Current state: M4.5
 
-M0-M3 are in: self-written UEFI boot chain, interrupts, higher-half kernel
+M0-M4 are in: self-written UEFI boot chain, interrupts, higher-half kernel
 with a bitmap frame allocator, kernel tasks + round-robin scheduler, syscall
-ABI v1. M4 adds ring-3 user mode: GDT user segments, TSS rsp0, per-task page
-tables, a static-ELF loader, and the first userland program (user/, embedded
-into the kernel, spawned as two processes that print, sleep and exit).
+ABI v1, ring-3 user mode with per-task page tables and a static-ELF loader.
+M4.5 adds the C/Rust driver boundary: rust_core.h v1 exports, PCI
+enumeration in the Rust core, and the first C driver — AHCI read-only
+(polling, one command slot) reading a QEMU test disk and verifying its
+signature. NVMe is the next storage driver.
 
 - `boot/` — self-written UEFI bootloader in Rust (`x86_64-unknown-uefi`),
   hand-rolled against the UEFI spec: GOP, RSDP, memory map, kernel load via
