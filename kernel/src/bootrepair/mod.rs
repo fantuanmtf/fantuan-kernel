@@ -14,6 +14,8 @@ pub mod esp;
 pub mod fstab;
 pub mod grub;
 pub mod nvram;
+pub mod nvram_repair;
+pub mod nvram_report;
 
 fn ascii_upper(b: u8) -> u8 {
     if b.is_ascii_lowercase() {
@@ -162,7 +164,7 @@ pub fn run(s: &mut Serial, vfs: &Vfs, runtime_services: u64) {
 
     // 5. NVRAM / firmware settings (M7.5, read-only GetVariable).
     if let Some(rt) = crate::runtime::Runtime::new(runtime_services) {
-        nvram::check(s, &rt, vfs);
+        nvram_report::check(s, &rt, vfs);
     } else {
         let _ = writeln!(s, "bootrepair: runtime services unavailable (rt={:#x})", runtime_services);
     }
@@ -193,7 +195,14 @@ pub fn run(s: &mut Serial, vfs: &Vfs, runtime_services: u64) {
     //    EFI/ubuntu/shimx64.efi exists, copy the latter into place.
     fix_missing_fallback(s, &vfs.fs);
 
-    // 8. Recommendations.
+    // 8. NVRAM repair (M7.6): BootOrder rebuild + stale-entry deletion +
+    //    boot-entry recreation via SetVariable. Runtime NV writes need an
+    //    SMM firmware build (tools/run.sh --smm).
+    if let Some(rt) = crate::runtime::Runtime::new(runtime_services) {
+        nvram_repair::repair(s, &rt, vfs);
+    }
+
+    // 9. Recommendations.
     let _ = writeln!(s, "bootrepair: recommendations:");
     let _ = writeln!(s, "  - filesystem UUID checks need ext4 read support (M6.5)");
 }

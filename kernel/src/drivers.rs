@@ -3,11 +3,20 @@
 
 use core::ffi::c_void;
 use core::fmt::Write;
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::mm::frame;
 use crate::mm::paging::phys_to_virt;
 use crate::serial::{self, Serial};
 use crate::tsc;
+
+/// Bus/device of the AHCI controller we actually drive — the boot-repair
+/// NVRAM layer correlates whole-disk Boot#### entries through it (M7.6).
+static AHCI_BDF: AtomicU32 = AtomicU32::new(u32::MAX);
+
+pub fn ahci_bdf() -> u32 {
+    AHCI_BDF.load(Ordering::Relaxed)
+}
 
 extern "C" {
     fn ahci_probe(abar: u64) -> i32;
@@ -81,6 +90,7 @@ pub fn init() -> bool {
         let _ = writeln!(s, "pci: no AHCI controller found");
         return false;
     };
+    AHCI_BDF.store(((bus as u32) << 8) | dev as u32, Ordering::Relaxed);
     let _ = writeln!(s, "pci: AHCI at {:02x}:{:02x}.0, ABAR {:#x}", bus, dev, abar);
 
     if unsafe { ahci_probe(abar) } != 0 {
