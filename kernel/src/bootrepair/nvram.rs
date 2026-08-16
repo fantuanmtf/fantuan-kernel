@@ -1,15 +1,16 @@
 //! NVRAM / firmware-settings diagnosis (M7.5, DESIGN.md §9): Secure Boot
-//! state, setup mode, the boot-order list with stale-entry detection against
-//! the mounted ESP, and the firmware clock. Read-only GetVariable usage.
+//! state, setup mode, BootOrder + Boot#### with stale-entry detection against
+//! the mounted ESP, and the firmware clock — all read-only. This module also
+//! owns the shared Boot#### model (collect/parse) consumed by the M7.6
+//! repair actions in nvram_repair.rs.
 //!
-//! Known firmware quirk (OVMF, non-SMM build): runtime SetVariable rejects
-//! NV-variable CREATES with EFI_INVALID_PARAMETER — repair-by-SetVariable
-//! needs per-firmware validation (M7.6). The read path works reliably.
-
-use core::fmt::Write;
+//! Firmware behavior note (verified against OVMF): once the variable policy
+//! locks at ReadyToBoot, SetVariable accepts only the boot variables
+//! (BootOrder / Boot#### / ...) — arbitrary new names get
+//! EFI_INVALID_PARAMETER. Runtime NV writes need an SMM firmware build
+//! (tools/run.sh --smm); the non-SMM build rejects them at the platform layer.
 
 use crate::runtime::{Runtime, GLOBAL_GUID};
-use crate::serial::Serial;
 use crate::vfs::Vfs;
 
 use super::{find_path, to_8_3};
@@ -28,7 +29,7 @@ fn utf16_to_ascii(src: &[u16], dst: &mut [u8]) -> usize {
 }
 
 /// ASCII (no-alloc) into a UTF-16 buffer with NUL terminator.
-fn ascii_to_utf16(src: &[u8], dst: &mut [u16]) {
+pub(super) fn ascii_to_utf16(src: &[u8], dst: &mut [u16]) {
     for (i, b) in src.iter().enumerate() {
         if i + 1 < dst.len() {
             dst[i] = *b as u16;
@@ -36,194 +37,52 @@ fn ascii_to_utf16(src: &[u8], dst: &mut [u16]) {
     }
 }
 
-pub fn check(s: &mut Serial, rt: &Runtime, vfs: &Vfs) {
-    // Self-test on REAL firmware data: BootCurrent must be one of the boot
-    // entries we just booted from (OVMF reports 0x0002 = our disk).
-    let mut name = [0u16; 32];
-    ascii_to_utf16(b"BootCurrent", &mut name);
-    let mut buf = [0u8; 16];
-    match rt.get_variable(&name, &GLOBAL_GUID, &mut buf) {
-        Some(n) if n >= 2 => {
-            let cur = u16::from_le_bytes([buf[0], buf[1]]);
-            let _ = writeln!(s, "nvram: BootCurrent = {:#06x} (RT read verified)", cur);
-        }
-        _ => {
-            let _ = writeln!(s, "nvram: BootCurrent read failed — RT handover broken");
-        }
-    }
-
-    // Secure Boot + setup mode (absent when the firmware never enabled SB).
-    ascii_to_utf16(b"SecureBoot", &mut name);
-    let mut sb = [0u8; 4];
-    match rt.get_variable(&name, &GLOBAL_GUID, &mut sb) {
-        Some(n) if n >= 1 => {
-            let _ = writeln!(s, "nvram: Secure Boot {}", if sb[0] != 0 { "ENABLED — unsigned kernels will fail" } else { "disabled" });
-        }
-        _ => {
-            let _ = writeln!(s, "nvram: Secure Boot variable absent (firmware has it disabled)");
-        }
-    }
-    ascii_to_utf16(b"SetupMode", &mut name);
-    let mut sm = [0u8; 4];
-    if let Some(n) = rt.get_variable(&name, &GLOBAL_GUID, &mut sm) {
-        if n >= 1 && sm[0] != 0 {
-            let _ = writeln!(s, "nvram: SetupMode active — Secure Boot enrolled but not enforced");
-        }
-    }
-
-    // SetVariable probe: honest report of the firmware's runtime behavior.
-    ascii_to_utf16(b"FantuanTest", &mut name);
-    let sts = rt.set_variable(&name, &GLOBAL_GUID, &42u64.to_le_bytes());
-    if sts == 0 {
-        let _ = writeln!(s, "nvram: SetVariable works at runtime (repair-ready firmware)");
-    } else {
-        let _ = writeln!(s, "nvram: SetVariable sts={:#x} — runtime NV writes need per-firmware validation (M7.6)", sts);
-    }
-
-    // Boot order + entries: walk the variable namespace with the firmware's
-    // own names and vendors (the direct-name path is unreliable on some
-    // firmware; the enumeration path is authoritative).
-    // Pass 1: collect BootOrder + the Boot#### names (order-agnostic).
-    let mut order = [0u8; 64];
-    let mut order_n = 0usize;
-    let mut boot_names: [[u8; 8]; 16] = [[0; 8]; 16];
-    let mut boot_count = 0usize;
-    let mut other_count = 0usize;
-    let mut name_buf = [0u16; 32];
-    let mut vendor = GLOBAL_GUID;
-    while boot_count < 16 && rt.next_variable(&mut name_buf, &mut vendor) {
-        let mut ascii = [0u8; 16];
-        let alen = utf16_to_ascii(&name_buf, &mut ascii);
-        if alen == 9 && &ascii[..9] == b"BootOrder" {
-            order_n = rt.get_variable(&name_buf, &vendor, &mut order).unwrap_or(0);
-        } else if alen == 8 && &ascii[..4] == b"Boot" {
-            boot_names[boot_count].copy_from_slice(&ascii[..8]);
-            boot_count += 1;
-        } else {
-            other_count += 1;
-        }
-    }
-    let _ = write!(s, "nvram: BootOrder {} entries [", order_n / 2);
-    for o in order[..order_n].chunks(2) {
-        if o.len() == 2 {
-            let _ = write!(s, "{:04x} ", u16::from_le_bytes([o[0], o[1]]));
-        }
-    }
-    let _ = writeln!(s, "], {} other variables", other_count);
-
-    // Pass 2: read each Boot#### with the name as it was enumerated.
-    for i in 0..boot_count {
-        let mut name_buf = [0u16; 32];
-        for (j, b) in boot_names[i].iter().enumerate() {
-            name_buf[j] = *b as u16;
-        }
-        let mut data = [0u8; 512];
-        if let Some(dlen) = rt.get_variable(&name_buf, &GLOBAL_GUID, &mut data) {
-            report_entry(s, &boot_names[i], &data[..dlen], &order[..order_n], vfs);
-        }
-    }
-
-    // Firmware clock.
-    if let Some(t) = rt.get_time() {
-        let _ = writeln!(
-            s,
-            "nvram: firmware time {}-{:02}-{:02} {:02}:{:02}:{:02}",
-            t.year, t.month, t.day, t.hour, t.minute, t.second
-        );
-    }
+/// One Boot#### option as parsed from NVRAM.
+#[derive(Clone, Copy)]
+pub(super) struct BootEntry {
+    pub name: [u8; 8],
+    pub num: u16,
+    pub data: [u8; 512],
+    pub dlen: usize,
+    pub desc: [u8; 64],
+    pub desc_len: usize,
+    pub path: [u8; 96],
+    pub path_len: usize,
+    /// The entry boots the mounted ESP: either its HD node's GPT signature
+    /// matches the partition's unique GUID, or it is a whole-disk entry
+    /// (no HD node) on the AHCI controller that carries the ESP.
+    pub covers_esp: bool,
+    /// Partition-level entry: HD node with the ESP's GPT signature. The
+    /// explicit entry the repair creates/maintains.
+    pub has_partition_match: bool,
+    /// The file the entry points at (FilePath node, or the default
+    /// \EFI\BOOT\BOOTX64.EFI) exists on the mounted ESP. Only meaningful
+    /// when covers_esp.
+    pub file_ok: bool,
+    pub has_hd_node: bool,
 }
 
-fn report_entry(s: &mut Serial, name: &[u8], data: &[u8], order: &[u8], vfs: &Vfs) {
-    if data.len() < 6 {
-        return;
-    }
-    let attrs = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
-    let path_len = u16::from_le_bytes([data[4], data[5]]) as usize;
-    let active = attrs & 0x1 != 0;
-
-    // Description: UTF-16 from offset 6 until NUL.
-    let mut desc = [0u8; 64];
-    let mut dlen = 0;
-    let mut i = 6;
-    while i + 1 < data.len() && dlen < desc.len() {
-        let c = u16::from_le_bytes([data[i], data[i + 1]]);
-        i += 2;
-        if c == 0 {
-            break;
-        }
-        desc[dlen] = if c < 0x80 { c as u8 } else { b'?' };
-        dlen += 1;
-    }
-
-    // Device path: find the FilePath node (type 4, subtype 4).
-    let mut path = [0u8; 96];
-    let mut plen = 0;
-    let mut p = 6 + dlen * 2 + 2;
-    if core::str::from_utf8(name).unwrap_or("?") == "Boot0002" {
-        let _ = write!(s, "  [dbg path_len={} dlen={} bytes:", path_len, dlen);
-        for k in 0..24 {
-            if p + k < data.len() {
-                let _ = write!(s, " {:02x}", data[p + k]);
-            }
-        }
-        let _ = writeln!(s, "]");
-    }
-    while p + 4 <= data.len() && p < 6 + path_len {
-        let ntype = data[p];
-        let nlen = u16::from_le_bytes([data[p + 2], data[p + 3]]) as usize;
-        if nlen < 4 {
-            break;
-        }
-        if ntype == 0x04 && data[p + 1] == 0x04 {
-            for c in data[p + 4..(p + nlen).min(data.len())].chunks(2) {
-                if c.len() == 2 && plen < path.len() {
-                    let ch = u16::from_le_bytes([c[0], c[1]]);
-                    if ch == 0 {
-                        break;
-                    }
-                    path[plen] = if ch < 0x80 { ch as u8 } else { b'?' };
-                    plen += 1;
-                }
-            }
-        }
-        if ntype == 0x7F {
-            break;
-        }
-        p += nlen;
-    }
-
-    let mut in_order = false;
-    for o in order.chunks(2) {
-        if o.len() == 2 && u16::from_le_bytes([o[0], o[1]]) == boot_num(name) {
-            in_order = true;
-        }
-    }
-
-    let _ = write!(s, "nvram: {} ({}): ", core::str::from_utf8(name).unwrap_or("?"), core::str::from_utf8(&desc[..dlen]).unwrap_or("?"));
-    let _ = writeln!(s, "{}{}", if active { "active" } else { "inactive" }, if in_order { " [in BootOrder]" } else { "" });
-
-    if plen > 0 {
-        if path_exists(vfs, &path[..plen]) {
-            let _ = write!(s, "  -> file ");
-            let _ = s.write(&path[..plen]);
-            let _ = writeln!(s, " present on ESP");
-        } else {
-            let _ = write!(s, "  -> STALE: file ");
-            let _ = s.write(&path[..plen]);
-            let _ = writeln!(s, " missing on ESP — entry will fail");
-        }
-    } else {
-        // No FilePath node: the firmware appends the default fallback path.
-        if path_exists(vfs, b"\\EFI\\BOOT\\BOOTX64.EFI") {
-            let _ = writeln!(s, "  -> default fallback EFI/BOOT/BOOTX64.EFI present on ESP");
-        } else {
-            let _ = writeln!(s, "  -> STALE: default fallback EFI/BOOT/BOOTX64.EFI missing — entry will fail");
+impl BootEntry {
+    pub(super) const fn none() -> BootEntry {
+        BootEntry {
+            name: [0; 8],
+            num: u16::MAX,
+            data: [0; 512],
+            dlen: 0,
+            desc: [0; 64],
+            desc_len: 0,
+            path: [0; 96],
+            path_len: 0,
+            covers_esp: false,
+            has_partition_match: false,
+            file_ok: false,
+            has_hd_node: false,
         }
     }
 }
 
 /// The 4 hex digits of a "Boot####" name as a u16.
-fn boot_num(s: &[u8]) -> u16 {
+pub(super) fn boot_num(s: &[u8]) -> u16 {
     if s.len() < 8 {
         return u16::MAX;
     }
@@ -240,7 +99,7 @@ fn boot_num(s: &[u8]) -> u16 {
 
 /// Does a Windows-style file path (\EFI\ubuntu\shimx64.efi) exist on the
 /// mounted FAT32?
-fn path_exists(vfs: &Vfs, path: &[u8]) -> bool {
+pub(super) fn path_exists(vfs: &Vfs, path: &[u8]) -> bool {
     let bytes: &[u8] = if path.first() == Some(&b'\\') { &path[1..] } else { path };
     let mut comps: [&[u8]; 4] = [&[]; 4];
     let mut n = 0;
@@ -274,3 +133,148 @@ fn path_exists(vfs: &Vfs, path: &[u8]) -> bool {
     }
     find_path(&vfs.fs, vfs.fs.root_cluster, &refs[..n]).is_some()
 }
+
+/// Parse a Boot#### payload: description, FilePath text, and whether the HD
+/// node's GPT signature matches a mounted partition.
+fn parse_entry(e: &mut BootEntry, vfs: &Vfs) {
+    let data = &e.data[..e.dlen];
+    if data.len() < 6 {
+        return;
+    }
+    let path_len = u16::from_le_bytes([data[4], data[5]]) as usize;
+
+    // Description: UTF-16 from offset 6 until NUL.
+    let mut i = 6;
+    while i + 1 < data.len() && e.desc_len < e.desc.len() {
+        let c = u16::from_le_bytes([data[i], data[i + 1]]);
+        i += 2;
+        if c == 0 {
+            break;
+        }
+        e.desc[e.desc_len] = if c < 0x80 { c as u8 } else { b'?' };
+        e.desc_len += 1;
+    }
+
+    // Device path nodes until End (0x7F) or path_len is consumed. The
+    // length is measured from the start of the device path, right after
+    // the description.
+    let path_start = 6 + e.desc_len * 2 + 2;
+    let mut p = path_start;
+    let mut pci_match = false;
+    while p + 4 <= data.len() && p < path_start + path_len {
+        let ntype = data[p];
+        let subtype = data[p + 1];
+        let nlen = u16::from_le_bytes([data[p + 2], data[p + 3]]) as usize;
+        if nlen < 4 {
+            break;
+        }
+        if ntype == 0x01 && subtype == 0x01 && nlen >= 6 {
+            // PCI node: payload = function, device. Direct PciRoot children
+            // sit on bus 0, matching the ahci_bdf() (bus<<8|dev) encoding.
+            let bdf = data[p + 5] as u32;
+            pci_match = bdf == (crate::drivers::ahci_bdf() & 0xFF);
+        }
+        if ntype == 0x04 && subtype == 0x01 && nlen >= 42 {
+            // HD node: partition signature at +24 (16 bytes), signature type
+            // at +40. Signature type 2 = GPT partition GUID.
+            e.has_hd_node = true;
+            if data[p + 40] == 0x02 {
+                for part in &vfs.table.parts[..vfs.table.count] {
+                    if data[p + 24..p + 40] == part.unique_guid {
+                        e.covers_esp = true;
+                        e.has_partition_match = true;
+                    }
+                }
+            }
+        }
+        if ntype == 0x04 && subtype == 0x04 {
+            for c in data[p + 4..(p + nlen).min(data.len())].chunks(2) {
+                if c.len() == 2 && e.path_len < e.path.len() {
+                    let ch = u16::from_le_bytes([c[0], c[1]]);
+                    if ch == 0 {
+                        break;
+                    }
+                    e.path[e.path_len] = if ch < 0x80 { ch as u8 } else { b'?' };
+                    e.path_len += 1;
+                }
+            }
+        }
+        if ntype == 0x7F {
+            break;
+        }
+        p += nlen;
+    }
+    // Whole-disk entry (no HD node) on the AHCI controller that carries the
+    // ESP: the firmware loads the default fallback from that disk, so the
+    // entry covers our ESP.
+    if pci_match && !e.has_hd_node {
+        e.covers_esp = true;
+    }
+
+    // The entry's target file must exist on the ESP (FilePath node, else the
+    // default fallback).
+    e.file_ok = if e.path_len > 0 {
+        path_exists(vfs, &e.path[..e.path_len])
+    } else {
+        path_exists(vfs, b"\\EFI\\BOOT\\BOOTX64.EFI")
+    };
+}
+
+/// Collect BootOrder + every Boot#### from the variable namespace (the
+/// firmware-issued names/vendors are authoritative — direct-name reads are
+/// unreliable on some firmware). Returns (entries filled, BootOrder bytes,
+/// BootOrder length).
+pub(super) fn collect(rt: &Runtime, vfs: &Vfs, entries: &mut [BootEntry; 8]) -> (usize, [u8; 64], usize) {
+    let mut order = [0u8; 64];
+    let mut order_n = 0usize;
+    let mut names: [[u8; 8]; 8] = [[0; 8]; 8];
+    let mut found = 0usize;
+    let mut name_buf = [0u16; 32];
+    let mut vendor = GLOBAL_GUID;
+    while found < 8 && rt.next_variable(&mut name_buf, &mut vendor) {
+        let mut ascii = [0u8; 16];
+        let alen = utf16_to_ascii(&name_buf, &mut ascii);
+        if alen == 9 && &ascii[..9] == b"BootOrder" {
+            order_n = rt.get_variable(&name_buf, &vendor, &mut order).unwrap_or(0);
+        } else if alen == 8 && &ascii[..4] == b"Boot" {
+            names[found].copy_from_slice(&ascii[..8]);
+            found += 1;
+        }
+    }
+
+    let mut count = 0usize;
+    for i in 0..found {
+        let mut name_buf = [0u16; 32];
+        for (j, b) in names[i].iter().enumerate() {
+            name_buf[j] = *b as u16;
+        }
+        let mut e = BootEntry::none();
+        e.name = names[i];
+        e.num = boot_num(&names[i]);
+        if let Some(dlen) = rt.get_variable(&name_buf, &GLOBAL_GUID, &mut e.data) {
+            e.dlen = dlen;
+            parse_entry(&mut e, vfs);
+        }
+        entries[count] = e;
+        count += 1;
+    }
+    (count, order, order_n.min(order.len()))
+}
+
+/// Read a variable by enumerating the namespace and matching the name —
+/// the reliable read path (direct-name GetVariable fails on some firmware).
+pub(super) fn read_by_name(rt: &Runtime, want: &[u8], buf: &mut [u8]) -> Option<usize> {
+    let mut name_buf = [0u16; 32];
+    let mut vendor = GLOBAL_GUID;
+    while rt.next_variable(&mut name_buf, &mut vendor) {
+        let mut ascii = [0u8; 16];
+        let alen = utf16_to_ascii(&name_buf, &mut ascii);
+        if alen == want.len() && &ascii[..alen] == want {
+            return rt.get_variable(&name_buf, &vendor, buf);
+        }
+    }
+    None
+}
+
+// The diagnosis report (check) lives in nvram_report.rs — this module owns
+// the shared Boot#### model only.

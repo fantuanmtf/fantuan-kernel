@@ -36,6 +36,8 @@ pub mod part;
 pub struct Vfs {
     pub fs: fat::Fat32,
     pub table: part::Table,
+    /// Index of the mounted FAT32 partition (for NVRAM device paths, M7.6).
+    pub fat_part: usize,
 }
 
 /// Format an 8.3 name as "NAME.EXT" into a fixed buffer.
@@ -70,7 +72,8 @@ pub fn init() -> Option<Vfs> {
 
     // Find the first FAT32 partition (GPT type GUID or MBR type 0x0B/0x0C).
     let mut target = None;
-    for p in &table.parts[..table.count] {
+    let mut target_index = 0;
+    for (pi, p) in table.parts[..table.count].iter().enumerate() {
         let is_fat32 = p.type_guid == part::FAT32_GPT_GUID || p.type_guid[0] == 0x0B || p.type_guid[0] == 0x0C;
         let _ = writeln!(
             s,
@@ -82,6 +85,7 @@ pub fn init() -> Option<Vfs> {
         );
         if is_fat32 && target.is_none() {
             target = Some(*p);
+            target_index = pi;
         }
     }
     let Some(p) = target else {
@@ -140,5 +144,5 @@ pub fn init() -> Option<Vfs> {
         let _ = writeln!(s, "vfs: INFO.TXT not found");
     }
 
-    Some(Vfs { fs, table })
+    Some(Vfs { fs, table, fat_part: target_index })
 }

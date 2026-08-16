@@ -299,9 +299,19 @@ nvme0n1p4   unknown   Windows data (by GPT GUID)    -> not mounted
   firmware clock (M7.5a). FAT32 repair writes (M7.5b): explicit repair mode
   gates every write, data-before-FAT-before-dir-entry ordering, and the first
   real repair action — copying EFI/ubuntu/shimx64.efi into a missing
-  EFI/BOOT/BOOTX64.EFI (verified with a --broken test disk). Known quirk:
-  OVMF non-SMM rejects runtime NV creates through SetVariable (edk2 requires
-  NV|RT at runtime) — SetVariable-based repair is deferred to M7.6.
+  EFI/BOOT/BOOTX64.EFI (verified with a --broken test disk). NVRAM repair
+  (M7.6): SetVariable-based repair — BootOrder rebuild, stale-entry deletion
+  and boot-entry recreation (an entry "targets the ESP" iff its HD
+  device-path node's GPT signature equals the mounted partition's unique
+  GUID). Firmware behavior (verified against edk2 + OVMF): once the
+  variable policy locks at ReadyToBoot, SetVariable accepts only the boot
+  variables (BootOrder / Boot#### / ...) — arbitrary new names get
+  EFI_INVALID_PARAMETER, so repair is deliberately scoped to boot entries.
+  QEMU's writable pflash allows runtime NV writes on both the SMM and
+  non-SMM OVMF builds; the test environment still uses QEMU q35 + SMM OVMF
+  (tools/run.sh --smm) because real firmware locks the flash at runtime
+  without SMM. The SMM build is SB-enabled and is paired with the plain
+  (keyless) vars template to keep Secure Boot off.
 - **Architecture note**: classic boot repair uses `chroot` into the target system —
   impossible without a Linux ABI. v1 covers ~80% with native repair; a long-term
   **linuxulator compatibility layer** (FreeBSD-style) is kept as an open option to
@@ -383,6 +393,20 @@ fantuan-kernel/
   recommendations until FAT32 writes (M6.5). Deferred: NVRAM/Secure Boot
   checks (need UEFI Runtime Services via BootInfo), BSD UFS diagnosis,
   actual repair actions.
+- **M7.6** — DONE (NVRAM repair via SetVariable): explicit-attrs SetVariable
+  (NV|BS|RT for creates, attrs=0 for deletes), Boot#### device-path parsing
+  (HD node GPT signatures, FilePath nodes, PCI nodes correlated with the
+  driven AHCI controller so whole-disk firmware entries count as covering
+  the ESP), and the repair actions behind repair mode — drop stale ESP
+  entries from BootOrder and delete them, ensure an explicit partition-level
+  entry (HD + FilePath + End device path built from the partition table,
+  created only when the ESP fallback exists and verified by re-reading;
+  idempotent via GPT-signature matching). Key firmware discovery: the
+  variable policy locks the namespace at ReadyToBoot — only boot variables
+  are writable, which matches the repair scope exactly. Tested with QEMU
+  q35 + SMM OVMF (tools/run.sh --smm; smoke boots the broken-ESP fixture
+  three times — delete, create, keep — against one persistent vars store).
+  Deferred: Secure Boot key enrollment (M7.7), per-vendor firmware quirks.
 - **M8** — linuxulator compatibility layer + Secure Boot story.
 - **M9** — RISC-V port behind the arch/ HAL.
 

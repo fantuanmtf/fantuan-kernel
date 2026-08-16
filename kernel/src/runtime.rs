@@ -141,8 +141,9 @@ impl Runtime {
         sts == RT_SUCCESS
     }
 
-    /// Write a variable (attributes NV|BS|RT). Used by the NVRAM self-test.
-    pub fn set_variable(&self, name: &[u16], guid: &Guid, data: &[u8]) -> Status {
+    /// Write a variable with explicit attributes (creates need NV|BS|RT at
+    /// runtime; attrs=0 with empty data deletes). Returns the EFI status.
+    pub fn set_variable(&self, name: &[u16], guid: &Guid, attrs: u32, data: &[u8]) -> Status {
         let mut name_buf = [0u16; 64];
         for (i, c) in name.iter().enumerate() {
             if i + 1 < name_buf.len() {
@@ -154,11 +155,16 @@ impl Runtime {
             ((*self.table).set_variable)(
                 name_buf.as_mut_ptr(),
                 &mut vendor,
-                0x7, // NV | BS | RT — the runtime-create requirement
+                attrs,
                 data.len(),
                 data.as_ptr() as *mut c_void,
             )
         }
+    }
+
+    /// Delete a variable (SetVariable with zero attributes and zero data).
+    pub fn delete_variable(&self, name: &[u16], guid: &Guid) -> Status {
+        self.set_variable(name, guid, 0, &[])
     }
 
     pub fn get_time(&self) -> Option<Time> {

@@ -16,7 +16,10 @@ PART_SECTORS = 30720  # 15 MiB
 
 out = bytearray(SECTOR * DISK_SECTORS)
 
-BROKEN = "--broken" in sys.argv
+BROKEN = "--broken" in sys.argv or "--broken-shim" in sys.argv
+# --broken-shim: the fallback loader AND the shim are gone, so the fallback
+# copy repair has nothing to copy from (exercises the NVRAM delete path).
+NOSHIM = "--broken-shim" in sys.argv
 
 
 def wsect(lba, data):
@@ -201,14 +204,18 @@ UBUNTU_DIR = bytearray(SECTOR)
 UBUNTU_DIR[0:32] = self_entry(9)
 UBUNTU_DIR[32:64] = dotdot(7)
 UBUNTU_DIR[64:96] = dent("GRUB", "CFG", 11, len(GRUBCFG))
-UBUNTU_DIR[96:128] = dent("SHIMX64", "EFI", 12, len(SHIM))
+if NOSHIM:
+    UBUNTU_DIR[96] = 0xE5  # deleted: simulate a missing shim
+else:
+    UBUNTU_DIR[96:128] = dent("SHIMX64", "EFI", 12, len(SHIM))
 UBUNTU_DIR[128:160] = dent("GRUBX64", "EFI", 13, len(GRUBX64))
 wsect(cluster_sector(9), UBUNTU_DIR)
 
 if not BROKEN:
     put_file(10, BOOTX64)
 put_file(11, GRUBCFG)
-put_file(12, SHIM)
+if not NOSHIM:
+    put_file(12, SHIM)
 put_file(13, GRUBX64)
 put_file(14, FSTAB)
 
@@ -217,4 +224,5 @@ path = args[0] if args else "build/test.img"
 with open(path, "wb") as f:
     f.write(out)
 print(f"{path}: {len(out)} bytes, GPT + FAT32 ({CLUSTERS} clusters), HELLO.TXT + INFO.TXT"
-      + (" (broken ESP: no BOOTX64.EFI)" if BROKEN else ""))
+      + (" (broken ESP: no BOOTX64.EFI)" if BROKEN else "")
+      + (" + no shim" if NOSHIM else ""))
