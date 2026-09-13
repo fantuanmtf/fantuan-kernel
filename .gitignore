@@ -1,3 +1,6 @@
 /target
 /build
 /kernel/user_program.bin
+
+# IDE agent scaffolding (Trae) — not project artifacts
+.trae/
