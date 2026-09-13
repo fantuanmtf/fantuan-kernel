@@ -261,6 +261,26 @@ pub(super) fn collect(rt: &Runtime, vfs: &Vfs, entries: &mut [BootEntry; 8]) -> 
     (count, order, order_n.min(order.len()))
 }
 
+/// Presence/size of a variable through the enumeration path. A too-small
+/// buffer still proves existence: the firmware then returns
+/// EFI_BUFFER_TOO_SMALL with the required size.
+pub(super) fn read_by_name_status(rt: &Runtime, want: &[u8], buf: &mut [u8]) -> Option<usize> {
+    let mut name_buf = [0u16; 32];
+    let mut vendor = GLOBAL_GUID;
+    while rt.next_variable(&mut name_buf, &mut vendor) {
+        let mut ascii = [0u8; 16];
+        let alen = utf16_to_ascii(&name_buf, &mut ascii);
+        if alen == want.len() && &ascii[..alen] == want {
+            let (sts, size) = rt.get_variable_status(&name_buf, &vendor, buf);
+            if sts == crate::runtime::RT_SUCCESS || sts == crate::runtime::RT_BUFFER_TOO_SMALL {
+                return Some(size);
+            }
+            return None;
+        }
+    }
+    None
+}
+
 /// Read a variable by enumerating the namespace and matching the name —
 /// the reliable read path (direct-name GetVariable fails on some firmware).
 pub(super) fn read_by_name(rt: &Runtime, want: &[u8], buf: &mut [u8]) -> Option<usize> {

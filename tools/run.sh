@@ -19,6 +19,7 @@ NOSHIM=0
 SMM=0
 SMBIOS=1
 TWO_FS=0
+KEYS=0
 for a in "$@"; do
   case "$a" in
     --graphics)    GRAPHICS=1 ;;
@@ -27,6 +28,7 @@ for a in "$@"; do
     --smm)         SMM=1 ;;
     --no-smbios)   SMBIOS=0 ;;
     --two-fs)      TWO_FS=1 ;;
+    --keys)        KEYS=1 ;;
   esac
 done
 
@@ -98,6 +100,9 @@ elif [ "$BROKEN" = "1" ]; then
 fi
 if [ "$TWO_FS" = "1" ]; then
   MKDISK_ARGS="$MKDISK_ARGS --two-fs"
+fi
+if [ "$KEYS" = "1" ]; then
+  MKDISK_ARGS="$MKDISK_ARGS --keys"
 fi
 python3 tools/mkdisk.py $MKDISK_ARGS build/test.img
 AHCI_DEV="-device ich9-ahci,id=sata -drive file=build/test.img,format=raw,if=none,id=td0 -device ide-hd,drive=td0,bus=sata.0"

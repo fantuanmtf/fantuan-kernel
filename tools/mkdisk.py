@@ -20,6 +20,7 @@ PART2_SECTORS = 8192  # 4 MiB (ext4-magic only, probe fixture)
 out = bytearray(SECTOR * DISK_SECTORS)
 
 BROKEN = "--broken" in sys.argv or "--broken-shim" in sys.argv
+KEYS = "--keys" in sys.argv
 # --broken-shim: the fallback loader AND the shim are gone, so the fallback
 # copy repair has nothing to copy from (exercises the NVRAM delete path).
 NOSHIM = "--broken-shim" in sys.argv
@@ -117,7 +118,7 @@ fat[2 * 4:2 * 4 + 4] = b"\xFF\xFF\xFF\x0F"      # cluster 2 = EOC (root dir)
 fat[3 * 4:3 * 4 + 4] = b"\xFF\xFF\xFF\x0F"      # cluster 3 = EOC (HELLO.TXT)
 fat[5 * 4:5 * 4 + 4] = struct.pack('<I', 6)          # 5 -> 6
 fat[6 * 4:6 * 4 + 4] = b"\xFF\xFF\xFF\x0F"      # 6 = EOC (INFO.TXT chain)
-for n in range(7, 15):                                # 7..14 = ESP structure, all EOC
+for n in range(7, 19):                                # 7..18 = ESP structure, all EOC
     fat[n * 4:n * 4 + 4] = b"\xFF\xFF\xFF\x0F"
 wsect(PART_LBA + RESERVED, fat)
 wsect(PART_LBA + RESERVED + SPF, fat)
@@ -185,6 +186,7 @@ wsect(cluster_sector(6), i1)
 # --- ESP structure (M7 boot-repair fixture) -------------------------------
 # Cluster map: 7=EFI/ 8=EFI/BOOT/ 9=EFI/ubuntu/ 10=BOOTX64.EFI 11=grub.cfg
 # 12=shimx64.efi 13=grubx64.efi 14=fstab
+# --keys adds 15=EFI/fantuan/ 16=PK.cer 17=KEK.cer 18=db.cer (M7.7)
 
 def dotdot(parent):
     return dent(".", "   ", parent if parent else 0, 0, attrs=0x10)
@@ -205,6 +207,8 @@ EFI_DIR[0:32] = self_entry(7)
 EFI_DIR[32:64] = dotdot(0)
 EFI_DIR[64:96] = dent("BOOT", "   ", 8, 0, attrs=0x10)
 EFI_DIR[96:128] = dent("ubuntu", "   ", 9, 0, attrs=0x10)
+if KEYS:
+    EFI_DIR[128:160] = dent("fantuan", "   ", 15, 0, attrs=0x10)
 wsect(cluster_sector(7), EFI_DIR)
 
 BOOT_DIR = bytearray(SECTOR)
@@ -226,6 +230,21 @@ else:
     UBUNTU_DIR[96:128] = dent("SHIMX64", "EFI", 12, len(SHIM))
 UBUNTU_DIR[128:160] = dent("GRUBX64", "EFI", 13, len(GRUBX64))
 wsect(cluster_sector(9), UBUNTU_DIR)
+
+# M7.7: platform-key fixtures for the Setup-Mode enrollment path. The blob is
+# a dummy DER-ish certificate — Setup Mode accepts it unauthenticated.
+CERT = b"\x30\x82\x00\x40" + (b"FANTUAN TEST CERTIFICATE " * 4)
+if KEYS:
+    FANTUAN_DIR = bytearray(SECTOR)
+    FANTUAN_DIR[0:32] = self_entry(15)
+    FANTUAN_DIR[32:64] = dotdot(7)
+    FANTUAN_DIR[64:96] = dent("PK", "CER", 16, len(CERT))
+    FANTUAN_DIR[96:128] = dent("KEK", "CER", 17, len(CERT))
+    FANTUAN_DIR[128:160] = dent("DB", "CER", 18, len(CERT))
+    wsect(cluster_sector(15), FANTUAN_DIR)
+    put_file(16, CERT)
+    put_file(17, CERT)
+    put_file(18, CERT)
 
 if not BROKEN:
     put_file(10, BOOTX64)
