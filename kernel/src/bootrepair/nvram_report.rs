@@ -10,7 +10,7 @@ use crate::runtime::{Runtime, GLOBAL_GUID};
 use crate::serial::Serial;
 use crate::vfs::Vfs;
 
-use super::nvram::{ascii_to_utf16, collect, BootEntry};
+use super::nvram::{ascii_to_utf16, collect, read_by_name, BootEntry};
 
 pub fn check(s: &mut Serial, rt: &Runtime, vfs: &Vfs) {
     // Self-test on REAL firmware data: BootCurrent must be one of the boot
@@ -28,10 +28,10 @@ pub fn check(s: &mut Serial, rt: &Runtime, vfs: &Vfs) {
         }
     }
 
-    // Secure Boot + setup mode (absent when the firmware never enabled SB).
-    ascii_to_utf16(b"SecureBoot", &mut name);
+    // Secure Boot + setup mode. Read through the enumeration path: some
+    // firmware answers direct-name GetVariable for these unreliably.
     let mut sb = [0u8; 4];
-    match rt.get_variable(&name, &GLOBAL_GUID, &mut sb) {
+    match read_by_name(rt, b"SecureBoot", &mut sb) {
         Some(n) if n >= 1 => {
             let _ = writeln!(s, "nvram: Secure Boot {}", if sb[0] != 0 { "ENABLED — unsigned kernels will fail" } else { "disabled" });
         }
@@ -39,12 +39,15 @@ pub fn check(s: &mut Serial, rt: &Runtime, vfs: &Vfs) {
             let _ = writeln!(s, "nvram: Secure Boot variable absent (firmware has it disabled)");
         }
     }
-    ascii_to_utf16(b"SetupMode", &mut name);
     let mut sm = [0u8; 4];
-    if let Some(n) = rt.get_variable(&name, &GLOBAL_GUID, &mut sm) {
-        if n >= 1 && sm[0] != 0 {
-            let _ = writeln!(s, "nvram: SetupMode active — Secure Boot enrolled but not enforced");
+    match read_by_name(rt, b"SetupMode", &mut sm) {
+        Some(n) if n >= 1 && sm[0] != 0 => {
+            let _ = writeln!(s, "nvram: SetupMode ACTIVE — no platform key; key enrollment possible");
         }
+        Some(_) => {
+            let _ = writeln!(s, "nvram: SetupMode off (platform key enrolled)");
+        }
+        None => {}
     }
 
     // Boot order + entries (shared model, M7.6 repair reuses it).
