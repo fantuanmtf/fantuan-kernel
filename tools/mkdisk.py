@@ -10,9 +10,12 @@ import sys
 import zlib
 
 SECTOR = 512
-DISK_SECTORS = 32768  # 16 MiB
+TWO_FS = "--two-fs" in sys.argv
+DISK_SECTORS = 40960 if TWO_FS else 32768  # 20 / 16 MiB
 PART_LBA = 2048
 PART_SECTORS = 30720  # 15 MiB
+PART2_LBA = 32768
+PART2_SECTORS = 8192  # 4 MiB (ext4-magic only, probe fixture)
 
 out = bytearray(SECTOR * DISK_SECTORS)
 
@@ -59,6 +62,18 @@ ent[56:56 + len(name)] = name
 
 entries = bytearray(32 * 128)
 entries[0:128] = ent
+
+if TWO_FS:
+    # Second partition: ext4-magic only — the probe must identify it and
+    # must NOT mount it (v1 mount contract).
+    ent2 = bytearray(128)
+    ent2[0:16] = bytes.fromhex("af3dc60f838472478e793d69d8477de4")  # Linux FS
+    ent2[16:32] = b"FANTUANPART0002!"
+    ent2[32:40] = struct.pack('<Q', PART2_LBA)
+    ent2[40:48] = struct.pack('<Q', PART2_LBA + PART2_SECTORS - 1)
+    name2 = "FANTUAN ext4".encode("utf-16-le")
+    ent2[56:56 + len(name2)] = name2
+    entries[128:256] = ent2
 hdr[88:92] = struct.pack('<I', zlib.crc32(entries) & 0xFFFFFFFF)
 hdr[16:20] = struct.pack('<I', zlib.crc32(hdr) & 0xFFFFFFFF)
 
@@ -86,6 +101,7 @@ bpb[28:32] = struct.pack('<I', 0)          # hidden sectors
 bpb[32:36] = struct.pack('<I', PART_SECTORS)
 bpb[36:40] = struct.pack('<I', SPF)
 bpb[44:48] = struct.pack('<I', 2)          # root cluster
+bpb[0x52:0x5A] = b"FAT32   "               # filesystem type string
 bpb[48:50] = struct.pack('<H', 1)          # FSInfo sector
 bpb[50:52] = struct.pack('<H', 6)          # backup boot sector
 bpb[64] = 0x80
@@ -219,10 +235,18 @@ if not NOSHIM:
 put_file(13, GRUBX64)
 put_file(14, FSTAB)
 
+if TWO_FS:
+    # ext2/3/4 superblock magic 0xEF53 at 1024 + 0x38 of the second partition.
+    sb = bytearray(SECTOR)
+    sb[0x38] = 0x53
+    sb[0x39] = 0xEF
+    wsect(PART2_LBA + 2, sb)
+
 args = [a for a in sys.argv[1:] if not a.startswith("--")]
 path = args[0] if args else "build/test.img"
 with open(path, "wb") as f:
     f.write(out)
 print(f"{path}: {len(out)} bytes, GPT + FAT32 ({CLUSTERS} clusters), HELLO.TXT + INFO.TXT"
       + (" (broken ESP: no BOOTX64.EFI)" if BROKEN else "")
-      + (" + no shim" if NOSHIM else ""))
+      + (" + no shim" if NOSHIM else "")
+      + (" + ext4 probe partition" if TWO_FS else ""))

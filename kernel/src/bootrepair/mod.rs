@@ -17,66 +17,9 @@ pub mod nvram;
 pub mod nvram_repair;
 pub mod nvram_report;
 
-fn ascii_upper(b: u8) -> u8 {
-    if b.is_ascii_lowercase() {
-        b - 32
-    } else {
-        b
-    }
-}
-
-/// Convert a fixed string to an 8.3 directory name (no allocation).
-pub fn to_8_3(s: &str) -> Option<[u8; 11]> {
-    let mut n = [b' '; 11];
-    let (base, ext) = match s.find('.') {
-        Some(i) => (&s[..i], Some(&s[i + 1..])),
-        None => (s, None),
-    };
-    if base.is_empty() || base.len() > 8 {
-        return None;
-    }
-    for (i, c) in base.bytes().enumerate() {
-        n[i] = ascii_upper(c);
-    }
-    if let Some(ext) = ext {
-        if ext.len() > 3 {
-            return None;
-        }
-        for (i, c) in ext.bytes().enumerate() {
-            n[8 + i] = ascii_upper(c);
-        }
-    }
-    Some(n)
-}
-
-/// FAT names are case-insensitive: compare 8.3 names accordingly.
-pub fn eq_8_3(a: &[u8; 11], b: &[u8; 11]) -> bool {
-    a.iter().zip(b.iter()).all(|(x, y)| x.eq_ignore_ascii_case(y))
-}
-
-/// Find a file by 8.3 path components under a directory cluster.
-/// Returns (cluster, size).
-pub fn find_path(fs: &Fat32, start: u32, components: &[&[u8; 11]]) -> Option<(u32, u32)> {
-    let mut dir = start;
-    for (i, comp) in components.iter().enumerate() {
-        let last = i == components.len() - 1;
-        let mut found: Option<(u32, u32)> = None;
-        fs.walk_dir(dir, |name, attr, cluster, size| {
-            if found.is_none() && eq_8_3(name, comp) {
-                let is_dir = attr & 0x10 != 0;
-                if (last && !is_dir) || (!last && is_dir) {
-                    found = Some((cluster, size));
-                }
-            }
-        });
-        let (cluster, size) = found?;
-        if last {
-            return Some((cluster, size));
-        }
-        dir = cluster;
-    }
-    None
-}
+// The FAT 8.3 name helpers are FAT-domain logic and live in vfs (M5.5 probe
+// reuses them); re-exported here so the bootrepair submodules keep working.
+pub use crate::vfs::{eq_8_3, find_path, to_8_3};
 
 fn put_hex(t: &mut [u8; 36], off: &mut usize, v: u32, n: usize) {
     const HEX: &[u8] = b"0123456789abcdef";

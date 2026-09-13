@@ -1,71 +1,83 @@
-//! Stage-2 storage diagnostics (DESIGN.md §8.1/§7): boot-header scan (MBR /
-//! GPT) and IDENTIFY through the C AHCI driver. Read-only — nothing here ever
-//! writes to the disk.
+//! Stage-2 storage diagnostics (DESIGN.md §7/§8.1), in report order:
+//!   ① drive identity (IDENTIFY strings)   ② SMART health line
+//!   ③ per-partition filesystem types      ④ ESP bootloaders
+//! Read-only — nothing here ever writes to a disk.
 
 use core::ffi::c_void;
 use core::fmt::Write;
 
+use super::diskhealth;
 use super::Severity;
 use crate::serial::Serial;
+use crate::vfs::probe;
 
 extern "C" {
-    fn ata_identify(dst: *mut c_void) -> i32;
     fn blk_read(dev: *mut c_void, lba: u64, buf: *mut c_void, sectors: usize) -> i32;
 }
 
-/// ATA words in memory are byte-swapped: word N lives at bytes [2N+1, 2N].
-fn ata_word(id: &[u8; 512], n: usize) -> u16 {
-    u16::from_le_bytes([id[n * 2], id[n * 2 + 1]])
-}
-
 pub fn check(s: &mut Serial) -> Severity {
-    // Boot-header scan: LBA0 carries either the MBR signature (0x55AA at
-    // offset 510) or a GPT header ("EFI PART").
+    let dev = crate::drivers::drive_handle();
+
+    // --- ① Boot-header scan + IDENTIFY strings ---
     let mut lba0 = [0u8; 512];
-    if unsafe { blk_read(core::ptr::null_mut(), 0, lba0.as_mut_ptr() as *mut c_void, 1) } != 0 {
+    if unsafe { blk_read(dev, 0, lba0.as_mut_ptr() as *mut c_void, 1) } != 0 {
         let _ = writeln!(s, "  storage: LBA0 read failed");
         return Severity::Critical;
     }
     let is_mbr = lba0[510] == 0x55 && lba0[511] == 0xAA;
     let is_gpt = &lba0[..8] == b"EFI PART";
 
-    // IDENTIFY DEVICE: model, serial, LBA48 capacity.
-    let mut id = [0u8; 512];
-    if unsafe { ata_identify(id.as_mut_ptr() as *mut c_void) } != 0 {
+    let Some(id) = diskhealth::identify_strings(dev) else {
         let _ = writeln!(s, "  storage: IDENTIFY failed");
         return Severity::Warning;
-    }
-    let mut model = [0u8; 40];
-    for i in 0..20 {
-        model[i * 2] = id[54 + i * 2 + 1];
-        model[i * 2 + 1] = id[54 + i * 2];
-    }
-    let mut mlen = 40;
-    while mlen > 0 && model[mlen - 1] == b' ' {
-        mlen -= 1;
-    }
-    let mut serial = [0u8; 20];
-    for i in 0..10 {
-        serial[i * 2] = id[20 + i * 2 + 1];
-        serial[i * 2 + 1] = id[20 + i * 2];
-    }
-    let mut slen = 20;
-    while slen > 0 && serial[slen - 1] == b' ' {
-        slen -= 1;
-    }
-    let mut capacity: u64 = 0;
-    for i in 0..4 {
-        capacity |= (ata_word(&id, 100 + i) as u64) << (16 * i);
-    }
-
+    };
     let _ = writeln!(
         s,
         "  storage: {} (sn {}) — {} sectors, {} MiB",
-        core::str::from_utf8(&model[..mlen]).unwrap_or("?"),
-        core::str::from_utf8(&serial[..slen]).unwrap_or("?"),
-        capacity,
-        capacity / 2048
+        core::str::from_utf8(&id.model[..id.model_len]).unwrap_or("?"),
+        core::str::from_utf8(&id.serial[..id.serial_len]).unwrap_or("?"),
+        id.capacity_sectors,
+        id.capacity_sectors / 2048
     );
     let _ = writeln!(s, "  storage: LBA0 boot header: mbr {} gpt {}", is_mbr, is_gpt);
-    Severity::Ok
+
+    // --- ② SMART health ---
+    let smart = diskhealth::ata_smart(dev);
+    let _ = write!(s, "  diskhealth: ");
+    diskhealth::format_line(s, &id, smart.as_ref(), None);
+    if smart.is_none() {
+        let _ = writeln!(s, "  diskhealth: SMART unavailable on this drive");
+    }
+
+    // --- ③ per-partition filesystem types ---
+    let table = probe::probe_table();
+    let mut probe_only = 0usize;
+    if !table.is_empty() {
+        let _ = write!(s, "  fs:");
+        for e in table {
+            let _ = write!(s, " part {} {}", e.part_index + 1, e.label);
+            if e.mounted && !e.label.contains("mounted") {
+                let _ = write!(s, " (mounted ro)");
+            }
+            if !e.mounted && e.fstype != probe::FsType::Unknown {
+                probe_only += 1;
+            }
+        }
+        let _ = writeln!(s);
+
+        // --- ④ bootloaders found on FAT partitions ---
+        let _ = write!(s, "  bootloaders:");
+        for e in table {
+            for b in e.bootloaders.iter().filter(|b| !b.is_empty()) {
+                let _ = write!(s, " {}", b);
+            }
+        }
+        let _ = writeln!(s);
+    }
+
+    if probe_only > 0 {
+        Severity::Warning
+    } else {
+        Severity::Ok
+    }
 }

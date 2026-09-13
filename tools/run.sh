@@ -17,14 +17,22 @@ GRAPHICS=0
 BROKEN=0
 NOSHIM=0
 SMM=0
+SMBIOS=1
+TWO_FS=0
 for a in "$@"; do
   case "$a" in
     --graphics)    GRAPHICS=1 ;;
     --broken)      BROKEN=1 ;;
     --broken-shim) BROKEN=1; NOSHIM=1 ;;
     --smm)         SMM=1 ;;
+    --no-smbios)   SMBIOS=0 ;;
+    --two-fs)      TWO_FS=1 ;;
   esac
 done
+
+# SMBIOS test payload (M5.5): QEMU injects it via fw_cfg, OVMF publishes the
+# table, the kernel parses it — the smoke greps for these exact strings.
+# (Flags are appended to QEMU_ARGS below.)
 
 echo "[1/4] building user program, kernel, bootloader..."
 ./tools/build.sh
@@ -82,20 +90,47 @@ fi
 
 echo "[4/4] preparing AHCI test disk + starting QEMU..."
 # GPT + FAT32 test disk for the C AHCI driver and the VFS (tools/mkdisk.py).
+MKDISK_ARGS=""
 if [ "$NOSHIM" = "1" ]; then
-  python3 tools/mkdisk.py --broken-shim build/test.img
+  MKDISK_ARGS="--broken-shim"
 elif [ "$BROKEN" = "1" ]; then
-  python3 tools/mkdisk.py --broken build/test.img
-else
-  python3 tools/mkdisk.py build/test.img
+  MKDISK_ARGS="--broken"
 fi
+if [ "$TWO_FS" = "1" ]; then
+  MKDISK_ARGS="$MKDISK_ARGS --two-fs"
+fi
+python3 tools/mkdisk.py $MKDISK_ARGS build/test.img
 AHCI_DEV="-device ich9-ahci,id=sata -drive file=build/test.img,format=raw,if=none,id=td0 -device ide-hd,drive=td0,bus=sata.0"
 
 SERIAL_OPT="-nographic"
 if [ "$GRAPHICS" = "1" ]; then SERIAL_OPT="-serial stdio"; fi
 
-if [ "$SMM" = "1" ]; then
-  exec qemu-system-x86_64 -machine q35,smm=on,accel=kvm -m 512M     -global driver=cfi.pflash01,property=secure,value=on     -global ICH9-LPC.disable_s3=1     -global ICH9-LPC.disable_s4=1     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE"     -drive if=pflash,format=raw,file="$OVMF_VARS"     -drive format=raw,file=fat:rw:build/esp     $AHCI_DEV     $SERIAL_OPT -no-reboot -no-shutdown
-else
-  exec qemu-system-x86_64 -m 512M     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE"     -drive if=pflash,format=raw,file="$OVMF_VARS"     -drive format=raw,file=fat:rw:build/esp     $AHCI_DEV     $SERIAL_OPT -no-reboot -no-shutdown
+# Argument arrays (no line-continuation gymnastics).
+QEMU_ARGS=(
+  -m 512M
+  -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"
+  -drive "if=pflash,format=raw,file=$OVMF_VARS"
+  -drive format=raw,file=fat:rw:build/esp
+  -device ich9-ahci,id=sata
+  -drive file=build/test.img,format=raw,if=none,id=td0
+  -device ide-hd,drive=td0,bus=sata.0
+  -no-reboot -no-shutdown
+)
+if [ "$SMBIOS" = "1" ]; then
+  QEMU_ARGS+=(
+    -smbios type=0,vendor=TESTCORP,version=1.2.3
+    -smbios type=1,manufacturer=TESTVENDOR,product=TESTBOX
+    -smbios type=4,manufacturer=TESTCPU
+  )
 fi
+if [ "$SMM" = "1" ]; then
+  QEMU_ARGS=(
+    -machine q35,smm=on,accel=kvm
+    -global driver=cfi.pflash01,property=secure,value=on
+    -global ICH9-LPC.disable_s3=1
+    -global ICH9-LPC.disable_s4=1
+    "${QEMU_ARGS[@]}"
+  )
+fi
+
+exec qemu-system-x86_64 "${QEMU_ARGS[@]}" $SERIAL_OPT

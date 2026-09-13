@@ -11,6 +11,7 @@ use core::fmt::Write;
 use crate::serial::{self, Serial};
 
 pub mod cpu;
+pub mod diskhealth;
 pub mod gpu;
 pub mod ram;
 pub mod storage;

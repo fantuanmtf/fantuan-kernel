@@ -99,6 +99,10 @@ pub extern "efiapi" fn efi_main(image_handle: Handle, system_table: *mut SystemT
     // NVRAM self-test through them (M7.5).
     let runtime_services = st.runtime_services as u64;
 
+    // 4.7 SMBIOS entry point from the configuration table (M5.5).
+    let smbios_table = table::locate_smbios(st);
+    console::println_hex(con, "smbios: entry point at ", smbios_table);
+
     // 5. Exit boot services, enable paging, hand over, jump — never returns
     bootinfo::exit_and_jump(
         bs,
@@ -111,6 +115,7 @@ pub extern "efiapi" fn efi_main(image_handle: Handle, system_table: *mut SystemT
         &mut map,
         &tables,
         runtime_services,
+        smbios_table,
     );
 }
 

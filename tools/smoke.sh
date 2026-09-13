@@ -15,7 +15,7 @@ done
 
 rm -f build/smoke.log
 timeout --signal=KILL 60 ./tools/run.sh > build/smoke.log 2>&1 || true
-if grep -q "handshake ok" build/smoke.log && grep -q "beep: boot ok" build/smoke.log && grep -q "frame self-test ok" build/smoke.log && grep -q "demo tasks spawned" build/smoke.log && grep -q "task 3" build/smoke.log && grep -q "userland: hello" build/smoke.log && grep -q "userland: tid 5 exiting" build/smoke.log && grep -q "ahci: LBA0 read ok" build/smoke.log && grep -q "vfs: HELLO.TXT" build/smoke.log && grep -q "vfs: INFO.TXT => 1000" build/smoke.log && grep -q "esp: EFI/BOOT/BOOTX64.EFI" build/smoke.log && grep -q "fstab PARTUUID matches partition 1" build/smoke.log && grep -q "UUID matches grub.cfg" build/smoke.log && grep -q "nvram: BootCurrent" build/smoke.log && grep -q "BootOrder 5 entries" build/smoke.log && grep -q "repair: FIXED.TXT write+readback ok" build/smoke.log; then
+if grep -q "handshake ok" build/smoke.log && grep -q "beep: boot ok" build/smoke.log && grep -q "frame self-test ok" build/smoke.log && grep -q "demo tasks spawned" build/smoke.log && grep -q "task 3" build/smoke.log && grep -q "userland: hello" build/smoke.log && grep -q "userland: tid 5 exiting" build/smoke.log && grep -q "ahci: LBA0 read ok" build/smoke.log && grep -q "vfs: HELLO.TXT" build/smoke.log && grep -q "vfs: INFO.TXT => 1000" build/smoke.log && grep -q "esp: EFI/BOOT/BOOTX64.EFI" build/smoke.log && grep -q "fstab PARTUUID matches partition 1" build/smoke.log && grep -q "UUID matches grub.cfg" build/smoke.log && grep -q "nvram: BootCurrent" build/smoke.log && grep -q "BootOrder 5 entries" build/smoke.log && grep -q "repair: FIXED.TXT write+readback ok" build/smoke.log && grep -q "smbios: BIOS TESTCORP 1.2.3" build/smoke.log && grep -q "smbios: System TESTVENDOR TESTBOX" build/smoke.log && grep -q "smbios: DIMMs" build/smoke.log && grep -q "diskhealth: .*power-on" build/smoke.log && grep -q "fs: part 1 EFI System Partition" build/smoke.log && grep -q "bootloaders: EFI/BOOT/BOOTX64.EFI" build/smoke.log; then
   echo "SMOKE PASS"
   grep -E "handshake ok|frame allocator|frame self-test|syscall:|sched:|user: ELF|userland: hello|userland: tid 5|beep: boot ok" build/smoke.log | head -10
 else
@@ -34,6 +34,30 @@ if grep -q "repair: FIXED.TXT write+readback ok" build/smoke-broken.log && grep 
 else
   echo "SMOKE FAIL (broken-ESP repair) — log tail:"
   tail -30 build/smoke-broken.log
+  exit 1
+fi
+
+# M5.5 phase: the second partition carries ext4 magic only — the probe must
+# identify it and must not mount it (mount contract), and the SMBIOS-free
+# boot path must still come up.
+rm -f build/smoke-probe.log build/smoke-nosmbios.log
+timeout --signal=KILL 60 ./tools/run.sh --two-fs > build/smoke-probe.log 2>&1 || true
+if grep -q "probe: part 2 ext4 identified, not mounted (v1 read-only probe-only)" build/smoke-probe.log \
+   && grep -q "fs: part 1 EFI System Partition (mounted ro) part 2 ext4 (probe-only, v1 no read)" build/smoke-probe.log \
+   && grep -q "bootloaders: EFI/BOOT/BOOTX64.EFI" build/smoke-probe.log; then
+  echo "SMOKE PASS (fs probe: FAT32 mounted / ext4 probe-only)"
+  grep -E "probe:|fs:|bootloaders:" build/smoke-probe.log | head -4
+else
+  echo "SMOKE FAIL (fs probe) — log tail:"
+  tail -20 build/smoke-probe.log
+  exit 1
+fi
+timeout --signal=KILL 60 ./tools/run.sh --no-smbios > build/smoke-nosmbios.log 2>&1 || true
+if grep -q "handshake ok" build/smoke-nosmbios.log && grep -q "smbios:" build/smoke-nosmbios.log; then
+  echo "SMOKE PASS (no -smbios overrides: firmware defaults parsed)"
+else
+  echo "SMOKE FAIL (no -smbios) — log tail:"
+  tail -20 build/smoke-nosmbios.log
   exit 1
 fi
 

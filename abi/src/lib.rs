@@ -94,4 +94,9 @@ pub struct BootInfo {
     /// survive ExitBootServices; the kernel calls them with physical
     /// addresses (no SetVirtualAddressMap; the 4 GiB identity map covers it).
     pub runtime_services: u64,
+    // M5.5 addition:
+    /// Physical address of the SMBIOS entry point structure found in the UEFI
+    /// configuration table (SMBIOS3 preferred), or 0 when the firmware
+    /// publishes none. The kernel parses the structure table from here.
+    pub smbios_table: u64,
 }
