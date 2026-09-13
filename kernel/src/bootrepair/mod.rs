@@ -16,6 +16,7 @@ pub mod grub;
 pub mod nvram;
 pub mod nvram_repair;
 pub mod nvram_report;
+pub mod secureboot;
 
 // The FAT 8.3 name helpers are FAT-domain logic and live in vfs (M5.5 probe
 // reuses them); re-exported here so the bootrepair submodules keep working.
@@ -143,6 +144,11 @@ pub fn run(s: &mut Serial, vfs: &Vfs, runtime_services: u64) {
     //    SMM firmware build (tools/run.sh --smm).
     if let Some(rt) = crate::runtime::Runtime::new(runtime_services) {
         nvram_repair::repair(s, &rt, vfs);
+
+        // 9. Secure Boot keys (M7.7): inventory, then — only in Setup Mode and
+        //    only in repair mode — enroll the platform key from the ESP.
+        secureboot::report(s, &rt);
+        secureboot::enroll(s, &rt, vfs);
     }
 
     // 9. Recommendations.

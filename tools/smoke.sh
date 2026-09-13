@@ -61,6 +61,28 @@ else
   exit 1
 fi
 
+# M7.7 phase: Secure Boot key inventory + the Setup-Mode enrollment path.
+# The keyless OVMF vars template is a plain (non-auth) store, so the firmware
+# refuses the write — the phase accepts either outcome and checks the report.
+rm -f build/smoke-sb.log
+timeout --signal=KILL 90 ./tools/run.sh --smm --keys > build/smoke-sb.log 2>&1 || true
+if grep -q "nvram: SetupMode" build/smoke-sb.log \
+   && grep -q "secureboot: PK absent" build/smoke-sb.log \
+   && grep -q "secureboot: SetupMode ACTIVE" build/smoke-sb.log \
+   && grep -q "enrolling PK from EFI/fantuan/PK.cer" build/smoke-sb.log; then
+  if grep -q "secureboot: PK write sts=0x0" build/smoke-sb.log; then
+    echo "SMOKE PASS (Secure Boot: platform key enrolled)"
+    grep -E "secureboot: (PK write|WARNING)" build/smoke-sb.log
+  else
+    echo "SMOKE PASS (Secure Boot: enrollment attempted; firmware store rejects authenticated variables)"
+    grep -E "secureboot: (PK write|enrollment refused)" build/smoke-sb.log
+  fi
+else
+  echo "SMOKE FAIL (Secure Boot keys) — log tail:"
+  tail -20 build/smoke-sb.log
+  exit 1
+fi
+
 # Third phase (M7.6): NVRAM repair via SetVariable — three boots on the
 # persistent SMM vars store (template entry Boot0002 is a whole-disk entry
 # on the ESP's AHCI controller):

@@ -420,6 +420,26 @@ fantuan-kernel/
   q35 + SMM OVMF (tools/run.sh --smm; smoke boots the broken-ESP fixture
   three times — delete, create, keep — against one persistent vars store).
   Deferred: Secure Boot key enrollment (M7.7), per-vendor firmware quirks.
+- **M7.7** — DONE (Secure Boot key enrollment, Setup-Mode path): Secure
+  Boot state is read through the enumeration path (direct-name GetVariable is
+  unreliable on some firmware — OVMF reported the variables absent while
+  enumeration shows Secure Boot disabled + SetupMode ACTIVE). When the
+  firmware is in Setup Mode the rescue system can enroll the platform key
+  (and KEK/db) unauthenticated, as the UEFI spec allows: certificates are
+  read from the ESP (\EFI\fantuan\PK.cer etc.), written with NV|BS|RT, and
+  verified by re-reading; the log warns that Secure Boot becomes enforced on
+  the next boot. Authenticated updates once a PK exists need a PKCS#7 /
+  SHA-256 stack — deferred to the crypto milestone (M8), together with the
+  linuxulator's Secure Boot story.
+  **Verification status**: the report/inventory/enrollment-attempt path is
+  smoke-tested (SetupMode ACTIVE, PK/KEK/db absent, certificate read from the
+  ESP, honest refusal log). The actual key write cannot land in the local test
+  environment: the keyless OVMF vars template is a *plain* (non-auth) variable
+  store, which rejects Secure Boot variables with EFI_INVALID_PARAMETER even in
+  Setup Mode, while the auth-store template ships enrolled keys and would
+  refuse our unsigned loader. Full verification needs an OVMF build with
+  SECURE_BOOT_ENABLE=TRUE and an empty auth store (or the same on real
+  hardware) — the code is written for exactly that case.
 - **M8** — linuxulator compatibility layer + Secure Boot story.
 - **M9** — RISC-V port behind the arch/ HAL.
 

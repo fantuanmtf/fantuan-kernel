@@ -8,6 +8,9 @@ use core::ffi::c_void;
 pub type Status = usize;
 
 pub const RT_SUCCESS: Status = 0;
+/// The buffer was too small; the firmware wrote the required size into
+/// *data_size — for a presence check this still proves the variable exists.
+pub const RT_BUFFER_TOO_SMALL: Status = 0x8000_0000_0000_0005;
 
 pub const RT_SIGNATURE: u64 = 0x5652_4553_544e_5552; // "RUNT SERV"
 
@@ -103,8 +106,9 @@ impl Runtime {
         Some(Runtime { table })
     }
 
-    /// Read a variable; returns the number of bytes copied (≤ buf.len()).
-    pub fn get_variable(&self, name: &[u16], guid: &Guid, buf: &mut [u8]) -> Option<usize> {
+    /// Read a variable; returns (status, size). On EFI_BUFFER_TOO_SMALL the
+    /// size is the required length, which is all a presence check needs.
+    pub fn get_variable_status(&self, name: &[u16], guid: &Guid, buf: &mut [u8]) -> (Status, usize) {
         let mut name_buf = [0u16; 64];
         for (i, c) in name.iter().enumerate() {
             if i + 1 < name_buf.len() {
@@ -123,6 +127,12 @@ impl Runtime {
                 buf.as_mut_ptr() as *mut c_void,
             )
         };
+        (sts, size)
+    }
+
+    /// Read a variable; returns the number of bytes copied (≤ buf.len()).
+    pub fn get_variable(&self, name: &[u16], guid: &Guid, buf: &mut [u8]) -> Option<usize> {
+        let (sts, size) = self.get_variable_status(name, guid, buf);
         if sts == RT_SUCCESS {
             Some(size)
         } else {
