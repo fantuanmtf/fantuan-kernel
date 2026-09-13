@@ -37,6 +37,7 @@ mod pit;
 mod port;
 mod runtime;
 mod serial;
+mod smbios;
 mod syscall;
 mod task;
 mod timer;
@@ -219,6 +220,14 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     );
 
     // --- M5: diagnostics stage 1 (pure Rust core, DESIGN.md §6) ------------
+    // M5.5: SMBIOS tables feed the CPU/GPU diagnostics (BIOS/system identity,
+    // memory devices, slot list). The entry point lives in the F-segment on
+    // legacy firmware; a missing anchor degrades gracefully.
+    unsafe {
+        smbios::init_from_entry(bi.smbios_table);
+        smbios::init(0xF_0000, 0x1_0000);
+    }
+
     let stage1: [diag::Check; 3] = [
         diag::Check { name: "cpu", run: diag::cpu::check },
         diag::Check { name: "gpu", run: diag::gpu::check },
@@ -230,19 +239,25 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     if drivers::init() {
         let _ = writeln!(s, "drivers: C layer + AHCI read-only verified");
 
+        // --- M6: VFS + partition table + FAT32 read-only ------------------
+        // Mount first: stage 2 reports per-partition filesystem types from
+        // the probe table (M5.5) and the ESP bootloaders it found.
+        let mounted = vfs::init();
+        if mounted.is_some() {
+            let _ = writeln!(s, "vfs: ok");
+        } else {
+            let _ = writeln!(s, "vfs: unavailable (boot continues)");
+        }
+
         // --- M5: diagnostics stage 2 (needs the C storage driver) ----------
         let stage2: [diag::Check; 1] = [
             diag::Check { name: "storage", run: diag::storage::check },
         ];
         diag::run_stage("2 storage", &stage2);
 
-        // --- M6: VFS + partition table + FAT32 read-only ------------------
-        if let Some(v) = vfs::init() {
-            let _ = writeln!(s, "vfs: ok");
-            // --- M7: boot repair v1 (read-only diagnosis) -----------------
+        // --- M7: boot repair v1 (read-only diagnosis + repair actions) ----
+        if let Some(v) = mounted {
             bootrepair::run(&mut s, &v, bi.runtime_services);
-        } else {
-            let _ = writeln!(s, "vfs: unavailable (boot continues)");
         }
     } else {
         let _ = writeln!(s, "drivers: AHCI unavailable (boot continues)");

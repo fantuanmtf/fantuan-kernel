@@ -58,14 +58,17 @@ struct cmd_table {
     } prdt[1];
 };
 
+#define AHCI_PORT_TAG 0x41484349u   /* "AHCI" */
+
 /* --- per-port driver state ---------------------------------------------- */
 struct ahci_port {
+    uint32_t tag;            /* magic: AHCI_PORT_TAG for validation */
     volatile uint32_t *px;   /* port register block */
     struct cmd_header *clb;
     uint64_t clb_phys;
     struct cmd_table *ct;
     uint64_t ct_phys;
-    uint8_t *buf;            /* one-sector DMA buffer */
+    uint8_t *buf;            /* one-page (4K) DMA buffer */
     uint64_t buf_phys;
     int inited;
 };
@@ -123,6 +126,7 @@ static int init_port(int port)
     }
 
     p->inited = 1;
+    p->tag = AHCI_PORT_TAG;
     k_log("ahci: port ");
     k_log_hex((uint64_t)port);
     k_log(" started\n");
@@ -130,18 +134,25 @@ static int init_port(int port)
 }
 
 /* --- one-shot ATA command (shared issuer) --------------------------------- */
-/* Issues a 512-byte data-in (write=0) or data-out (write=1) command on
- * slot 0. For writes the caller's data (in dst) is copied into the DMA
- * buffer before the command is issued. */
-static int ata_io(uint8_t cmd, uint8_t device, uint64_t lba, uint8_t *dst,
-                  int write)
+/* Issues a SECTOR_COUNT * 512-byte data-in (write=0) or data-out (write=1)
+ * command on slot 0. FEATURES is placed in the Features register.
+ * For writes the caller's data (in DST) is copied into the DMA buffer
+ * before the command is issued.  SECTOR_COUNT must be <= 8 (fits in the
+ * 4K single-page DMA buffer). */
+static int ata_io_ex(uint8_t cmd, uint8_t device, uint64_t lba, uint8_t *dst,
+                     int write, uint8_t features, uint16_t sector_count)
 {
     struct ahci_port *p = &g_port;
     uint8_t *cfis = p->ct->cfis;
+    uint32_t byte_count = (uint32_t)sector_count * 512u;
     int i;
 
+    if (sector_count == 0 || sector_count > 8) {
+        return -1;
+    }
+
     if (write) {
-        for (i = 0; i < 512; i++) {
+        for (i = 0; i < (int)byte_count; i++) {
             p->buf[i] = dst[i];
         }
     }
@@ -152,11 +163,13 @@ static int ata_io(uint8_t cmd, uint8_t device, uint64_t lba, uint8_t *dst,
     cfis[0] = 0x27;  /* H2D register FIS */
     cfis[1] = 0x80;  /* C bit: this is a command */
     cfis[2] = cmd;
+    cfis[3] = features;
     cfis[4] = (uint8_t)(lba & 0xFF);
     cfis[5] = (uint8_t)((lba >> 8) & 0xFF);
     cfis[6] = (uint8_t)((lba >> 16) & 0xFF);
     cfis[7] = device;
-    cfis[12] = 1;    /* sector count = 1 */
+    cfis[12] = (uint8_t)(sector_count & 0xFF);
+    cfis[13] = (uint8_t)((sector_count >> 8) & 0xFF);
 
     /* CFL (bits 4:0) = 5: the H2D register FIS is 5 DWORDs. Bit 6 = write.
      * PRDT presence is conveyed by prdtl, not by a flag. */
@@ -168,7 +181,7 @@ static int ata_io(uint8_t cmd, uint8_t device, uint64_t lba, uint8_t *dst,
 
     p->ct->prdt[0].dba = (uint32_t)p->buf_phys;
     p->ct->prdt[0].dbau = (uint32_t)(p->buf_phys >> 32);
-    p->ct->prdt[0].dbc = 511;               /* 512 bytes, no IRQ on complete */
+    p->ct->prdt[0].dbc = byte_count - 1;   /* N*512 bytes, no IRQ on complete */
 
     p->px[PX_CI / 4] = 1;                   /* issue slot 0 */
     if (wait_until(&p->px[PX_CI / 4], 1, 0, 2000)) {
@@ -181,11 +194,18 @@ static int ata_io(uint8_t cmd, uint8_t device, uint64_t lba, uint8_t *dst,
     }
 
     if (!write) {
-        for (i = 0; i < 512; i++) {
+        for (i = 0; i < (int)byte_count; i++) {
             dst[i] = p->buf[i];
         }
     }
     return 0;
+}
+
+/* Back-compat wrapper: 1 sector, features = 0. */
+static int ata_io(uint8_t cmd, uint8_t device, uint64_t lba, uint8_t *dst,
+                  int write)
+{
+    return ata_io_ex(cmd, device, lba, dst, write, 0, 1);
 }
 
 /* --- single-sector read (READ SECTORS EXT) -------------------------------- */
@@ -194,10 +214,57 @@ static int read_one(uint64_t lba, uint8_t *dst)
     return ata_io(0x24, 0x40, lba, dst, 0);    /* device: LBA mode */
 }
 
-/* --- IDENTIFY DEVICE -------------------------------------------------------- */
-int ata_identify(uint8_t *dst)
+/* --- drive handles (M5.5, driver ops extension) --------------------------- */
+
+/* Validate a handle returned by blk_open(); NULL when it is not ours. */
+static struct ahci_port *check_handle(void *dev)
 {
-    return ata_io(0xEC, 0xA0, 0, dst, 0);      /* device: LBA mode, master */
+    struct ahci_port *p = (struct ahci_port *)dev;
+    if (p == NULL || p != &g_port || p->tag != AHCI_PORT_TAG || !p->inited) {
+        return NULL;
+    }
+    return p;
+}
+
+/* Open a drive by 0-based index. Only index 0 exists in v1. */
+void *blk_open(size_t index)
+{
+    if (index != 0 || !g_port.inited || g_port.tag != AHCI_PORT_TAG) {
+        return NULL;
+    }
+    return &g_port;
+}
+
+/* IDENTIFY DEVICE into a 512-byte buffer. */
+int blk_identify(void *dev, void *out_512)
+{
+    if (check_handle(dev) == NULL || out_512 == NULL) {
+        return -1;
+    }
+    return ata_io(0xEC, 0xA0, 0, (uint8_t *)out_512, 0);
+}
+
+/* SMART READ DATA: 512-byte attribute page. The ATA signature lives in the
+ * LBA registers (mid = 0x4F, high = 0xC2) with features = 0xD0. */
+int blk_smart_read_data(void *dev, void *out_512)
+{
+    uint64_t sig;
+    if (check_handle(dev) == NULL || out_512 == NULL) {
+        return -1;
+    }
+    sig = ((uint64_t)0xC2 << 16) | ((uint64_t)0x4F << 8);
+    return ata_io_ex(0xB0, 0x40, sig, (uint8_t *)out_512, 0, 0xD0, 1);
+}
+
+/* SMART READ LOG for LOG_PAGE: the page number goes in LBA low. */
+int blk_smart_read_log(void *dev, uint8_t log_page, void *buf, size_t sectors)
+{
+    uint64_t sig;
+    if (check_handle(dev) == NULL || buf == NULL || sectors == 0 || sectors > 8) {
+        return -1;
+    }
+    sig = ((uint64_t)0xC2 << 16) | ((uint64_t)0x4F << 8) | (uint64_t)log_page;
+    return ata_io_ex(0xB0, 0x40, sig, (uint8_t *)buf, 0, 0xD5, (uint16_t)sectors);
 }
 
 /* --- block write ops -------------------------------------------------------- */

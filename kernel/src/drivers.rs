@@ -3,7 +3,7 @@
 
 use core::ffi::c_void;
 use core::fmt::Write;
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use crate::mm::frame;
 use crate::mm::paging::phys_to_virt;
@@ -21,6 +21,16 @@ pub fn ahci_bdf() -> u32 {
 extern "C" {
     fn ahci_probe(abar: u64) -> i32;
     fn blk_read(dev: *mut c_void, lba: u64, buf: *mut c_void, sectors: usize) -> i32;
+    /// Open a drive by index (M5.5 driver ops extension); NULL when absent.
+    fn blk_open(index: usize) -> *mut c_void;
+}
+
+/// Handle of the drive brought up by init() — diagnostics pass it to the
+/// C driver ops (identify/SMART) instead of a NULL placeholder.
+static DRIVE: AtomicUsize = AtomicUsize::new(0);
+
+pub fn drive_handle() -> *mut c_void {
+    DRIVE.load(Ordering::Relaxed) as *mut c_void
 }
 
 // --- rust_core.h exports --------------------------------------------------
@@ -97,6 +107,14 @@ pub fn init() -> bool {
         let _ = writeln!(s, "ahci: probe failed");
         return false;
     }
+
+    // M5.5: take the drive handle once; every later op goes through it.
+    let handle = unsafe { blk_open(0) };
+    if handle.is_null() {
+        let _ = writeln!(s, "ahci: blk_open(0) returned no handle");
+        return false;
+    }
+    DRIVE.store(handle as usize, Ordering::Relaxed);
 
     let mut sector = [0u8; 512];
     let rc = unsafe { blk_read(core::ptr::null_mut(), 0, sector.as_mut_ptr() as *mut c_void, 1) };

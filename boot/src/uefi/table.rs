@@ -7,7 +7,7 @@ use core::ffi::c_void;
 
 use super::protocol::SimpleTextOutput;
 use super::{Handle, Status, TableHeader};
-use crate::uefi::guid::{ACPI2_GUID, Guid};
+use crate::uefi::guid::{ACPI2_GUID, Guid, SMBIOS3_TABLE_GUID, SMBIOS_TABLE_GUID};
 
 #[repr(C)]
 pub struct ConfigurationTable {
@@ -96,6 +96,23 @@ pub struct BootServices {
 }
 
 const _: () = assert!(core::mem::size_of::<BootServices>() == 24 + 38 * 8);
+
+/// Find the SMBIOS entry point in the configuration table (M5.5). The vendor
+/// table pointer is the SMBIOS 3.0/2.x entry point structure, whose anchor
+/// precedes the structure-table address the kernel parses.
+pub fn locate_smbios(st: &SystemTable) -> u64 {
+    let mut addr: u64 = 0;
+    let n_tables = st.number_of_table_entries;
+    let cfg = st.configuration_table;
+    for i in 0..n_tables {
+        let e = unsafe { &*cfg.add(i) };
+        if e.vendor_guid.eq(&SMBIOS3_TABLE_GUID) || e.vendor_guid.eq(&SMBIOS_TABLE_GUID) {
+            addr = e.vendor_table as u64;
+            break;
+        }
+    }
+    addr
+}
 
 /// Find the ACPI 2.0 RSDP in the configuration table (SMP/ACPI entry point).
 pub fn locate_rsdp(st: &SystemTable) -> u64 {

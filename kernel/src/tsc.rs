@@ -36,6 +36,21 @@ pub fn hz() -> u64 {
     TSC_HZ.load(Ordering::Relaxed)
 }
 
+/// Raw TSC read / tick conversion — used by the disk surface scan (§7).
+#[allow(dead_code)]
+pub fn now() -> u64 {
+    unsafe { _rdtsc() }
+}
+
+#[allow(dead_code)]
+pub fn to_nanos(ticks: u64) -> u128 {
+    let hz = TSC_HZ.load(Ordering::Relaxed);
+    if hz == 0 {
+        return 0;
+    }
+    (ticks as u128) * 1_000_000_000u128 / (hz as u128)
+}
+
 /// Busy-wait sleep. Safe before calibration (TSC_HZ = 0 => returns at once).
 pub fn sleep_ms(ms: u64) {
     let hz = TSC_HZ.load(Ordering::Relaxed);

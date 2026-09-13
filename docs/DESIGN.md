@@ -200,15 +200,16 @@ can be added or removed without breaking old components.
   - **Stage 1 (pure Rust core, seconds)**: CPU -> GPU presence -> RAM quick test.
   - **Stage 2 (after C drivers load)**: storage scan -> SMART summary -> OS
     identification -> auto ro-mount.
-- **v1 implemented (M5, `kernel/src/diag/`)**: the framework (Check + Severity +
-  per-stage runner) and four checks — cpu (CPUID brand/topology/features via
-  inline assembly + RDMSR microcode), gpu (PCI presence + §6.2 beep codes),
-  ram (pattern test over allocator-borrowed frames), storage (MBR/GPT boot
-  header + IDENTIFY model/serial/capacity through the C AHCI driver).
-  Deferred to M5.5: SMBIOS parsing (slot-based "2 short" dGPU detection,
-  RAM DIMM info), SMART attributes (power-on hours, reallocated/pending,
-  TBW), surface scan, OS identification and auto ro-mount (needs filesystem
-  probing, M6).
+- **v1 implemented (M5 + M5.5, `kernel/src/diag/`)**: the framework (Check +
+  Severity + per-stage runner) and the checks — cpu (SMBIOS identity lines +
+  CPUID brand/topology/features/µcode), gpu (PCI display catalog + §6.2 beep
+  codes incl. the slot-vs-PCI "2 short" dGPU check), ram (pattern test over
+  allocator-borrowed frames), storage in the order ① IDENTIFY strings →
+  ② SMART health line → ③ per-partition filesystem types → ④ ESP bootloaders.
+  SMBIOS discovery prefers the UEFI configuration table (BootInfo.smbios_table)
+  with an F-segment anchor scan as fallback; absent tables degrade gracefully.
+  Still deferred: surface scan (shell `diskhealth --scan`, §10) and NVMe SMART
+  (task for the NVMe driver).
 
 ### 6.1 Stage 1 checks
 
@@ -366,8 +367,20 @@ fantuan-kernel/
   command slot) reading a QEMU test disk. NVMe is the next storage driver.
 - **M5** — DONE: diagnostics framework v1 (Check/Severity/stage runner) with
   stage 1 (CPU/GPU/RAM) and stage 2 (storage via AHCI: boot header +
-  IDENTIFY); beep codes wired. M5.5 adds SMBIOS, SMART attributes, surface
-  scan, OS identification.
+  IDENTIFY); beep codes wired.
+- **M5.5** — DONE: SMBIOS parser (`kernel/src/smbios.rs`: config-table entry
+  point with F-segment fallback, checksum-validated, types 0/1/4/9/17 bounded
+  walk, printable-ASCII string pool) feeding the CPU identity lines and the
+  slot-vs-PCI dGPU check; driver ops extension (`blk_open`/`blk_identify`/
+  `blk_smart_read_data`/`blk_smart_read_log`, handle-validated in the C
+  driver); SMART disk health (`diag/diskhealth.rs`: power-on hours,
+  reallocated/pending/uncorrectable, ATA SSD detection via IDENTIFY word 217,
+  4 GiB-capped opt-in surface scan kept for the shell); filesystem probing
+  (`vfs/probe.rs`: FAT32 mount + ext2/3/4, XFS, Btrfs, NTFS, swap magic,
+  probe-only labelling, ESP bootloader enumeration); PCI catalog
+  (`pci.rs`: display/storage lists, device struct with BAR0/BAR5). Verified by
+  a `--two-fs` fixture (ext4-magic second partition stays unmounted) and
+  QEMU `-smbios` overrides. Surface scan and NVMe SMART remain for §10/Task 8.
 - **M6** — DONE (read-only core): VFS v1 (mount of the first FAT32 partition),
   GPT + MBR parsing, FAT32 read-only driver (BPB, FAT chain walk, 8.3
   directory entries with LFN skipping, multi-cluster file reads) over the C

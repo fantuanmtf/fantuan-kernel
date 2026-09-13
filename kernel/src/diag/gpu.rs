@@ -19,33 +19,26 @@ pub struct GpuInfo {
 pub fn scan(s: &mut Serial) -> GpuInfo {
     let mut count = 0;
     let mut any_intel = false;
-    for bus in 0..=255u8 {
-        for dev in 0..32u8 {
-            let vendor = crate::pci::read32(bus, dev, 0, 0);
-            if vendor == 0xFFFF_FFFF {
-                continue;
-            }
-            let c = crate::pci::read32(bus, dev, 0, 8);
-            if ((c >> 24) as u8) == 0x03 {
-                let vendor_id = vendor & 0xFFFF;
-                let device_id = vendor >> 16;
-                count += 1;
-                if vendor_id == 0x8086 {
-                    any_intel = true;
-                }
-                let _ = writeln!(
-                    s,
-                    "  gpu: {:02x}:{:02x}.0 vendor {:#06x} device {:#06x}",
-                    bus, dev, vendor_id, device_id
-                );
-            }
+    // M5.5: the PCI catalog owns enumeration; this check only classifies.
+    for d in crate::pci::list_display_devices() {
+        count += 1;
+        if d.vendor == 0x8086 {
+            any_intel = true;
         }
+        let _ = writeln!(
+            s,
+            "  gpu: {:02x}:{:02x}.{} vendor {:#06x} device {:#06x}",
+            d.bus, d.dev, d.func, d.vendor, d.device
+        );
     }
+    let _ = writeln!(s, "  gpu: pci display devices found: {}", count);
     GpuInfo { count, any_intel }
 }
 
 pub fn check(s: &mut Serial) -> Severity {
     let info = scan(s);
+    let sev = check_slots_vs_pci(s);
+    let worst = if sev > info.severity() { sev } else { info.severity() };
     if info.count == 0 {
         let _ = writeln!(s, "  gpu: none detected — no display device");
         crate::pit::beep_n(4, crate::pit::BeepLen::Short);
@@ -53,9 +46,54 @@ pub fn check(s: &mut Serial) -> Severity {
     } else if !info.any_intel {
         let _ = writeln!(s, "  gpu: display path present (no Intel iGPU)");
         crate::pit::beep_n(1, crate::pit::BeepLen::Short);
-        Severity::Ok
+        worst
     } else {
         let _ = writeln!(s, "  gpu: display path present");
+        worst
+    }
+}
+
+impl GpuInfo {
+    fn severity(&self) -> Severity {
+        if self.count == 0 { Severity::Critical } else { Severity::Ok }
+    }
+}
+
+/// Task-2-owned GPU slot ↔ PCI display-device correlation.
+/// Returns Warning and fires 2-short beep once if any Type-9 slot marked In Use and
+/// display-class-hint matched has no corresponding PCI class-0x03 device.
+pub fn check_slots_vs_pci(s: &mut Serial) -> Severity {
+    let slots = crate::smbios::system_slots();
+    let displays = crate::pci::list_display_devices();
+    let mut pci_slots_in_use = 0usize;
+    let mut mismatch = 0;
+    for slot in slots.iter() {
+        if slot.in_use && slot.uses_pci {
+            pci_slots_in_use += 1;
+        }
+        if slot.in_use && slot.display_class_hint {
+            let found = !displays.is_empty();
+            if !found {
+                mismatch += 1;
+                let _ = writeln!(s, "  gpu: slot {} '{}' marked in-use (display-class) but no PCI 0x03 device",
+                    slot.slot_id, slot.designation);
+            }
+        }
+    }
+    if !slots.is_empty() {
+        let _ = writeln!(
+            s,
+            "  gpu: smbios slots {} (pci in-use {}), pci display devices {}",
+            slots.len(),
+            pci_slots_in_use,
+            displays.len()
+        );
+    }
+    if mismatch > 0 {
+        crate::pit::beep_n(2, crate::pit::BeepLen::Short);
+        let _ = writeln!(s, "  gpu: {} display slot(s) in-use but no PCI class 0x03 (2-short beep)", mismatch);
+        Severity::Warning
+    } else {
         Severity::Ok
     }
 }
