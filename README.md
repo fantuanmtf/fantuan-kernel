@@ -7,7 +7,7 @@ BSD diagnosis, Windows deferred.
 All repository artifacts are in English. The authoritative design lives in
 [docs/DESIGN.md](docs/DESIGN.md) — change it before changing code.
 
-## Current state: M7.6 + M7.7 + M7.8 + M5.5
+## Current state: M7.6 + M7.7 + M7.8 + M5.5 + M8 (storage)
 
 M0-M6 are in: UEFI boot chain, interrupts, higher-half kernel + frame
 allocator, scheduler + syscall ABI, ring-3 user mode with an ELF loader,
@@ -27,7 +27,12 @@ and the driver handle API (`blk_open`/`blk_identify`/SMART ops).
 M7.7 adds Secure Boot key inventory and the Setup-Mode platform-key
 enrollment path; M7.8 (§10) adds the built-in minimal shell — serial line
 editor with the 11 rescue commands, ESP autorun script, surface scan and
-confirmation-gated repair. tools/mkdisk.py hand-builds the GPT + FAT32 test
+confirmation-gated repair. M8 (storage part) puts storage behind a
+driver-agnostic ops registry: the new NVMe driver registers the same table
+as AHCI, so the VFS, boot repair and SMART run unchanged over either
+transport (`tools/run.sh --nvme`); 64-bit NVMe BARs above 4 GiB are mapped
+on demand by `mm::paging::map_mmio`. tools/mkdisk.py hand-builds the GPT +
+FAT32 test
 disk including the ESP fixture (`--broken` / `--broken-shim` / `--two-fs` /
 `--keys` / `--shell-repair` variants).
 

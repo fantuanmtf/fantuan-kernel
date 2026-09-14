@@ -170,9 +170,9 @@ fn parse_entry(e: &mut BootEntry, vfs: &Vfs) {
         }
         if ntype == 0x01 && subtype == 0x01 && nlen >= 6 {
             // PCI node: payload = function, device. Direct PciRoot children
-            // sit on bus 0, matching the ahci_bdf() (bus<<8|dev) encoding.
+            // sit on bus 0, matching storage_bdf() (bus<<8|dev).
             let bdf = data[p + 5] as u32;
-            pci_match = bdf == (crate::drivers::ahci_bdf() & 0xFF);
+            pci_match = bdf == (crate::drivers::storage_bdf() & 0xFF);
         }
         if ntype == 0x04 && subtype == 0x01 && nlen >= 42 {
             // HD node: partition signature at +24 (16 bytes), signature type

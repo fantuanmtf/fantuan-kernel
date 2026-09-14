@@ -185,9 +185,20 @@ can be added or removed without breaking old components.
   §2.1: minimal hardware access) and hands the ABAR to the C probe — the C
   layer never touches PCI config space itself.
 - **Storage device abstraction** (`open_dev / capacity / read_lba`) — never
-  SATA-specific loops. M4.5 implements AHCI read-only first (polling, one
-  command slot); NVMe second (modern laptops are NVMe-only; a rescue system
-  that misses them misses half the field).
+  SATA-specific loops. **Implemented**: `drivers/c/blk.c` owns a device
+  registry and dispatches the driver-agnostic ops (`blk_read`, `blk_write`,
+  `blk_identity`, `blk_smart_read_data`, `blk_smart_read_log`); each driver
+  registers a `struct blk_ops` after probing. `drivers/c/ahci.c` (M4.5) and
+  `drivers/c/nvme.c` (M8) both register the same table, so the VFS, boot
+  repair and diagnostics never learn which transport served the bytes.
+  A NULL handle means "the first registered drive".
+- **NVMe** (M8): polling driver — controller reset, admin queue, Identify
+  Controller/Namespace, one I/O queue pair, PRP1 transfers through a 4 KiB
+  page (8 sectors per command), SMART/Health log page 0x02. NVMe BARs are
+  64-bit and sit above 4 GiB, so the kernel grew
+  `mm::paging::map_mmio()`: it builds the missing PML4/PDPT/PD levels on
+  demand and maps the register window into the PHYS_OFFSET alias with
+  PCD|PWT (2 MiB pages) — the same path a real laptop needs.
 - Known trade-off: C drivers can corrupt the kernel. Accepted for v1; long-term
   option is moving drivers into isolated userspace processes.
 
@@ -462,6 +473,17 @@ fantuan-kernel/
   shell/mod.rs (input, dispatch, aliases) and shell/cmds.rs (commands) per the
   file-size rule. Deferred: ash/bash, job control, keyboard input (the input
   layer takes the serial reader, so a PS/2 path plugs in).
+- **M8 (storage part)** — DONE: block-device ops registry (`drivers/c/blk.c`)
+  + NVMe driver (`drivers/c/nvme.c`) behind the same ops table as AHCI;
+  driver-side identity decode (ATA IDENTIFY / NVMe Identify Controller +
+  Namespace) surfaced as `blk_identity`; NVMe SMART/Health log decoding in
+  `diag/diskhealth.rs` (data units are 1000 x 512 bytes; unimplemented
+  fields read as all-ones and are reported as zero); dynamic MMIO mapping for
+  64-bit BARs (`mm::paging::map_mmio`). Verified by `tools/run.sh --nvme`:
+  the whole stack (FAT32 VFS, boot repair, diagnostics, SMART) runs over NVMe
+  with the AHCI path unchanged. Still open for M8: the linuxulator
+  compatibility layer and a crypto stack (PKCS#7/SHA-256) for authenticated
+  Secure Boot variable updates.
 - **M8** — linuxulator compatibility layer + Secure Boot story.
 - **M9** — RISC-V port behind the arch/ HAL.
 

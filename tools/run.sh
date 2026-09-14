@@ -21,6 +21,7 @@ SMBIOS=1
 TWO_FS=0
 KEYS=0
 SHELL_REPAIR=0
+NVME=0
 for a in "$@"; do
   case "$a" in
     --graphics)    GRAPHICS=1 ;;
@@ -31,6 +32,7 @@ for a in "$@"; do
     --two-fs)      TWO_FS=1 ;;
     --keys)        KEYS=1 ;;
     --shell-repair) KEYS=1; SHELL_REPAIR=1 ;;
+    --nvme)        NVME=1 ;;
   esac
 done
 
@@ -109,7 +111,12 @@ elif [ "$KEYS" = "1" ]; then
   MKDISK_ARGS="$MKDISK_ARGS --keys"
 fi
 python3 tools/mkdisk.py $MKDISK_ARGS build/test.img
-AHCI_DEV="-device ich9-ahci,id=sata -drive file=build/test.img,format=raw,if=none,id=td0 -device ide-hd,drive=td0,bus=sata.0"
+# Storage attachment: AHCI (reference) or NVMe (the same blk_ops table).
+if [ "$NVME" = "1" ]; then
+  AHCI_DEV="-drive file=build/test.img,format=raw,if=none,id=td0 -device nvme,drive=td0,serial=FANTUAN1"
+else
+  AHCI_DEV="-device ich9-ahci,id=sata -drive file=build/test.img,format=raw,if=none,id=td0 -device ide-hd,drive=td0,bus=sata.0"
+fi
 
 SERIAL_OPT="-nographic"
 if [ "$GRAPHICS" = "1" ]; then SERIAL_OPT="-serial stdio"; fi
@@ -120,11 +127,10 @@ QEMU_ARGS=(
   -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"
   -drive "if=pflash,format=raw,file=$OVMF_VARS"
   -drive format=raw,file=fat:rw:build/esp
-  -device ich9-ahci,id=sata
-  -drive file=build/test.img,format=raw,if=none,id=td0
-  -device ide-hd,drive=td0,bus=sata.0
   -no-reboot -no-shutdown
 )
+# Storage attachment comes from $AHCI_DEV (AHCI by default, NVMe with --nvme).
+QEMU_ARGS+=( $AHCI_DEV )
 if [ "$SMBIOS" = "1" ]; then
   QEMU_ARGS+=(
     -smbios type=0,vendor=TESTCORP,version=1.2.3

@@ -7,10 +7,8 @@ use core::fmt::Write;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 extern "C" {
-    fn blk_identify(dev: *mut c_void, out: *mut c_void) -> i32;
     fn blk_smart_read_data(dev: *mut c_void, out: *mut c_void) -> i32;
-    /// Consumed by the surface scan / NVMe work (shell §10, Task 8).
-    #[allow(dead_code)]
+    /// ATA SMART READ LOG / NVMe Get Log Page (M8: NVMe SMART/Health = 0x02).
     fn blk_smart_read_log(dev: *mut c_void, page: u8, buf: *mut c_void, sectors: usize) -> i32;
     #[allow(dead_code)]
     fn blk_read(dev: *mut c_void, lba: u64, buf: *mut c_void, sectors: usize) -> i32;
@@ -28,40 +26,31 @@ pub struct StorageId {
     pub is_ssd: bool,
 }
 
-fn ata_word(id: &[u8; 512], n: usize) -> u16 {
-    u16::from_le_bytes([id[n * 2], id[n * 2 + 1]])
-}
-
-fn swap_pairs(src: &[u8], dst: &mut [u8]) {
-    for i in 0..src.len() / 2 {
-        dst[i * 2] = src[i * 2 + 1];
-        dst[i * 2 + 1] = src[i * 2];
-    }
-}
-
-pub fn identify_strings(dev: *mut c_void) -> Option<StorageId> {
-    let mut id = [0u8; 512];
-    if unsafe { blk_identify(dev, id.as_mut_ptr() as *mut c_void) } != 0 {
-        return None;
-    }
+/// Driver-decoded identity (ATA IDENTIFY / NVMe Identify Controller+Namespace
+/// are decoded in C; the kernel only formats the result).
+pub fn identify_strings(_dev: *mut c_void) -> Option<StorageId> {
+    let ident = crate::drivers::drive_identity()?;
     let mut sid = StorageId {
         model: [0; 40],
-        model_len: 40,
+        model_len: 0,
         serial: [0; 20],
-        serial_len: 20,
-        capacity_sectors: 0,
-        is_ssd: ata_word(&id, 217) == 1,
+        serial_len: 0,
+        capacity_sectors: ident.sectors,
+        is_ssd: ident.ssd != 0,
     };
-    swap_pairs(&id[54..54 + 40], &mut sid.model);
-    while sid.model_len > 0 && sid.model[sid.model_len - 1] == b' ' {
-        sid.model_len -= 1;
+    for (i, &b) in ident.model.iter().enumerate() {
+        if b == 0 || sid.model_len >= sid.model.len() {
+            break;
+        }
+        sid.model[i] = b;
+        sid.model_len += 1;
     }
-    swap_pairs(&id[20..20 + 20], &mut sid.serial);
-    while sid.serial_len > 0 && sid.serial[sid.serial_len - 1] == b' ' {
-        sid.serial_len -= 1;
-    }
-    for i in 0..4 {
-        sid.capacity_sectors |= (ata_word(&id, 100 + i) as u64) << (16 * i);
+    for (i, &b) in ident.serial.iter().enumerate() {
+        if b == 0 || sid.serial_len >= sid.serial.len() {
+            break;
+        }
+        sid.serial[i] = b;
+        sid.serial_len += 1;
     }
     Some(sid)
 }
@@ -123,9 +112,45 @@ pub struct NvmeSmart {
     pub media_errors: u32,
 }
 
-#[allow(dead_code)]
-pub fn nvme_smart(_dev: *mut c_void) -> Option<NvmeSmart> {
-    None
+/// NVMe SMART/Health Information (log page 0x02). Field offsets per NVMe 1.4:
+/// percentage used at 5, data units read/written at 32/48 (each unit is
+/// 1000 x 512 bytes), power-on hours at 128, media errors at 160.
+pub fn nvme_smart(dev: *mut c_void) -> Option<NvmeSmart> {
+    let mut page = [0u8; 512];
+    if unsafe { blk_smart_read_log(dev, 0x02, page.as_mut_ptr() as *mut c_void, 1) } != 0 {
+        return None;
+    }
+    // The log fields are 128-bit; readers take the low 64 (all counters that
+    // matter fit) and treat an all-ones field as "not implemented" — QEMU
+    // leaves several that way — reporting zero instead of 2^64.
+    let counter = |off: usize| -> u64 {
+        let mut lo = 0u64;
+        for i in 0..8 {
+            lo |= (page[off + i] as u64) << (8 * i);
+        }
+        if lo == u64::MAX {
+            0
+        } else {
+            lo
+        }
+    };
+    Some(NvmeSmart {
+        power_on_hours: counter(128),
+        data_units_read: counter(32),
+        data_units_written: counter(48),
+        percentage_used: page[5],
+        media_errors: counter(160).min(u32::MAX as u64) as u32,
+    })
+}
+
+/// SMART for whatever driver is active: ATA attribute page when the device
+/// answers it, otherwise the NVMe health log.
+pub fn smart_report(dev: *mut c_void) -> (Option<AtaSmart>, Option<NvmeSmart>) {
+    if crate::drivers::drive_name() == "nvme" {
+        (None, nvme_smart(dev))
+    } else {
+        (ata_smart(dev), None)
+    }
 }
 
 // --- Surface scan ---
@@ -257,8 +282,11 @@ pub fn format_line(
     let _ = s.write_str(" h");
     if is_nvme {
         if let Some(n) = nvme {
-            let gib_r = n.data_units_read * 512 / (1024 * 1024 * 1024);
-            let gib_w = n.data_units_written * 512 / (1024 * 1024 * 1024);
+            // One data unit = 1000 x 512 bytes (NVMe spec).
+            const BYTES_PER_UNIT: u128 = 1000 * 512;
+            const GIB: u128 = 1024 * 1024 * 1024;
+            let gib_r = ((n.data_units_read as u128) * BYTES_PER_UNIT / GIB) as u64;
+            let gib_w = ((n.data_units_written as u128) * BYTES_PER_UNIT / GIB) as u64;
             let _ = s.write_str(" (");
             write_u64(s, poh / 24);
             let _ = s.write_str(" d)   read ");

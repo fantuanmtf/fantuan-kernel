@@ -214,65 +214,77 @@ static int read_one(uint64_t lba, uint8_t *dst)
     return ata_io(0x24, 0x40, lba, dst, 0);    /* device: LBA mode */
 }
 
-/* --- drive handles (M5.5, driver ops extension) --------------------------- */
+/* --- identity decode (M5.5/M8: generic blk_identity) ---------------------- */
 
-/* Validate a handle returned by blk_open(); NULL when it is not ours. */
-static struct ahci_port *check_handle(void *dev)
+/* ATA IDENTIFY words are byte-swapped on the wire: word N lives at bytes
+ * [2N+1, 2N] in the DMA buffer. */
+static void ata_string(const uint8_t *id, int first_word, int words,
+                       char *out, int out_max)
 {
-    struct ahci_port *p = (struct ahci_port *)dev;
-    if (p == NULL || p != &g_port || p->tag != AHCI_PORT_TAG || !p->inited) {
-        return NULL;
+    int i, n = 0;
+    for (i = 0; i < words && n < out_max - 1; i++) {
+        char hi = (char)id[(first_word + i) * 2 + 1];
+        char lo = (char)id[(first_word + i) * 2];
+        if (hi != ' ' && hi != 0 && n < out_max - 1) {
+            out[n++] = hi;
+        }
+        if (lo != ' ' && lo != 0 && n < out_max - 1) {
+            out[n++] = lo;
+        }
     }
-    return p;
+    while (n > 0 && out[n - 1] == ' ') {
+        n--;
+    }
+    out[n] = 0;
 }
 
-/* Open a drive by 0-based index. Only index 0 exists in v1. */
-void *blk_open(size_t index)
+static int ahci_identity(void *priv, struct blk_identity *out)
 {
-    if (index != 0 || !g_port.inited || g_port.tag != AHCI_PORT_TAG) {
-        return NULL;
-    }
-    return &g_port;
-}
+    struct ahci_port *p = (struct ahci_port *)priv;
+    uint8_t id[512];
+    uint64_t cap = 0;
+    int i;
 
-/* IDENTIFY DEVICE into a 512-byte buffer. */
-int blk_identify(void *dev, void *out_512)
-{
-    if (check_handle(dev) == NULL || out_512 == NULL) {
+    if (p == NULL || !p->inited || out == NULL) {
         return -1;
     }
-    return ata_io(0xEC, 0xA0, 0, (uint8_t *)out_512, 0);
-}
-
-/* SMART READ DATA: 512-byte attribute page. The ATA signature lives in the
- * LBA registers (mid = 0x4F, high = 0xC2) with features = 0xD0. */
-int blk_smart_read_data(void *dev, void *out_512)
-{
-    uint64_t sig;
-    if (check_handle(dev) == NULL || out_512 == NULL) {
+    if (ata_io(0xEC, 0xA0, 0, id, 0)) {
         return -1;
     }
-    sig = ((uint64_t)0xC2 << 16) | ((uint64_t)0x4F << 8);
-    return ata_io_ex(0xB0, 0x40, sig, (uint8_t *)out_512, 0, 0xD0, 1);
-}
-
-/* SMART READ LOG for LOG_PAGE: the page number goes in LBA low. */
-int blk_smart_read_log(void *dev, uint8_t log_page, void *buf, size_t sectors)
-{
-    uint64_t sig;
-    if (check_handle(dev) == NULL || buf == NULL || sectors == 0 || sectors > 8) {
-        return -1;
+    ata_string(id, 27, 20, out->model, BLK_MODEL_MAX + 1);
+    ata_string(id, 10, 10, out->serial, BLK_SERIAL_MAX + 1);
+    for (i = 0; i < 4; i++) {
+        cap |= (uint64_t)((uint16_t)id[(100 + i) * 2] |
+                          ((uint16_t)id[(100 + i) * 2 + 1] << 8)) << (16 * i);
     }
-    sig = ((uint64_t)0xC2 << 16) | ((uint64_t)0x4F << 8) | (uint64_t)log_page;
-    return ata_io_ex(0xB0, 0x40, sig, (uint8_t *)buf, 0, 0xD5, (uint16_t)sectors);
+    out->sectors = cap;
+    /* Word 217: 1 = non-rotating (SSD). */
+    out->ssd = (((uint16_t)id[217 * 2] | ((uint16_t)id[217 * 2 + 1] << 8)) == 1);
+    return 0;
 }
 
-/* --- block write ops -------------------------------------------------------- */
-int blk_write(void *dev, uint64_t lba, const void *buf, size_t sectors)
+/* --- ops table (registered with blk.c) ------------------------------------ */
+
+static int ahci_read(void *priv, uint64_t lba, void *buf, size_t sectors)
 {
+    struct ahci_port *p = (struct ahci_port *)priv;
     size_t s;
-    (void)dev;
-    if (!g_port.inited) {
+    if (p == NULL || !p->inited) {
+        return -1;
+    }
+    for (s = 0; s < sectors; s++) {
+        if (read_one(lba + s, (uint8_t *)buf + s * 512)) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int ahci_write(void *priv, uint64_t lba, const void *buf, size_t sectors)
+{
+    struct ahci_port *p = (struct ahci_port *)priv;
+    size_t s;
+    if (p == NULL || !p->inited) {
         return -1;
     }
     for (s = 0; s < sectors; s++) {
@@ -282,6 +294,40 @@ int blk_write(void *dev, uint64_t lba, const void *buf, size_t sectors)
     }
     return 0;
 }
+
+/* SMART READ DATA: 512-byte attribute page. The ATA signature lives in the
+ * LBA registers (mid = 0x4F, high = 0xC2) with features = 0xD0. */
+static int ahci_smart_read_data(void *priv, void *out_512)
+{
+    struct ahci_port *p = (struct ahci_port *)priv;
+    uint64_t sig;
+    if (p == NULL || !p->inited || out_512 == NULL) {
+        return -1;
+    }
+    sig = ((uint64_t)0xC2 << 16) | ((uint64_t)0x4F << 8);
+    return ata_io_ex(0xB0, 0x40, sig, (uint8_t *)out_512, 0, 0xD0, 1);
+}
+
+/* SMART READ LOG for LOG_PAGE: the page number goes in LBA low. */
+static int ahci_smart_read_log(void *priv, uint8_t log_page, void *buf, size_t sectors)
+{
+    struct ahci_port *p = (struct ahci_port *)priv;
+    uint64_t sig;
+    if (p == NULL || !p->inited || buf == NULL || sectors == 0 || sectors > 8) {
+        return -1;
+    }
+    sig = ((uint64_t)0xC2 << 16) | ((uint64_t)0x4F << 8) | (uint64_t)log_page;
+    return ata_io_ex(0xB0, 0x40, sig, (uint8_t *)buf, 0, 0xD5, (uint16_t)sectors);
+}
+
+static const struct blk_ops AHCI_OPS = {
+    .name = "ahci",
+    .read = ahci_read,
+    .write = ahci_write,
+    .identity = ahci_identity,
+    .smart_read_data = ahci_smart_read_data,
+    .smart_read_log = ahci_smart_read_log,
+};
 
 /* --- exported probe -------------------------------------------------------- */
 /* Called from the Rust core with the ABAR (physical) found by PCI scan. */
@@ -300,25 +346,16 @@ int ahci_probe(uint64_t abar_phys)
 
     for (port = 0; port < 32; port++) {
         if (pi & (1u << port)) {
-            return init_port(port);
+            if (init_port(port) != 0) {
+                return -1;
+            }
+            if (blk_register(&AHCI_OPS, &g_port) < 0) {
+                k_log("ahci: device table full\n");
+                return -1;
+            }
+            return 0;
         }
     }
     k_log("ahci: no implemented ports");
     return -1;
-}
-
-/* --- block read ops -------------------------------------------------------- */
-int blk_read(void *dev, uint64_t lba, void *buf, size_t sectors)
-{
-    size_t s;
-    (void)dev;
-    if (!g_port.inited) {
-        return -1;
-    }
-    for (s = 0; s < sectors; s++) {
-        if (read_one(lba + s, (uint8_t *)buf + s * 512)) {
-            return -1;
-        }
-    }
-    return 0;
 }
