@@ -14,6 +14,8 @@ const EOC_MIN: u32 = 0x0FFF_FFF8;
 pub struct Fat32 {
     pub sectors_per_cluster: u32,
     pub sectors_per_fat: u32,
+    /// Number of FAT copies from the BPB — writers must update all of them.
+    pub num_fats: u32,
     pub root_cluster: u32,
     pub fat_lba: u64,
     pub data_lba: u64,
@@ -41,9 +43,19 @@ pub fn parse(part_lba: u64) -> Option<Fat32> {
     let num_fats = bpb[16] as u32;
     let spf = u32::from_le_bytes([bpb[36], bpb[37], bpb[38], bpb[39]]);
     let root_cluster = u32::from_le_bytes([bpb[44], bpb[45], bpb[46], bpb[47]]);
+    if num_fats == 0 || num_fats > 4 {
+        return None;
+    }
     let fat_lba = part_lba + reserved as u64;
     let data_lba = fat_lba + (num_fats * spf) as u64;
-    Some(Fat32 { sectors_per_cluster: spc, sectors_per_fat: spf, root_cluster, fat_lba, data_lba })
+    Some(Fat32 {
+        sectors_per_cluster: spc,
+        sectors_per_fat: spf,
+        num_fats,
+        root_cluster,
+        fat_lba,
+        data_lba,
+    })
 }
 
 impl Fat32 {
@@ -81,6 +93,44 @@ impl Fat32 {
                 got += n;
                 done += n;
             }
+            c = self.next_cluster(c);
+        }
+        Some(got)
+    }
+
+    /// Read LEN bytes starting at byte OFFSET of a file (used for streaming
+    /// copies that cannot hold the whole file in one buffer).
+    pub fn read_range(&self, start_cluster: u32, offset: u64, buf: &mut [u8]) -> Option<usize> {
+        let cluster_bytes = (self.sectors_per_cluster * 512) as u64;
+        let mut skip = offset / cluster_bytes;
+        let mut c = start_cluster;
+        while skip > 0 && c >= 2 && c < EOC_MIN {
+            c = self.next_cluster(c);
+            skip -= 1;
+        }
+        if skip > 0 || c < 2 || c >= EOC_MIN {
+            return None;
+        }
+        let mut in_cluster = offset % cluster_bytes;
+        let mut got = 0usize;
+        let mut sec = [0u8; 512];
+        while got < buf.len() && c >= 2 && c < EOC_MIN {
+            let lba = self.cluster_to_lba(c);
+            while in_cluster < cluster_bytes && got < buf.len() {
+                let sec_idx = in_cluster / 512;
+                if !read_sector(lba + sec_idx, &mut sec) {
+                    return None;
+                }
+                let in_sec = (in_cluster % 512) as usize;
+                let n = (512 - in_sec).min((cluster_bytes - in_cluster) as usize).min(buf.len() - got);
+                buf[got..got + n].copy_from_slice(&sec[in_sec..in_sec + n]);
+                got += n;
+                in_cluster += n as u64;
+            }
+            if got >= buf.len() {
+                break;
+            }
+            in_cluster = 0;
             c = self.next_cluster(c);
         }
         Some(got)

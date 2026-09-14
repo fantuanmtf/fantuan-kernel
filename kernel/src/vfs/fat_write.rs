@@ -1,9 +1,12 @@
-//! FAT32 write path (M7.5b): cluster allocation, FAT updates (both copies),
-//! data writes and directory-entry writes. The kernel gates every call
-//! behind repair mode (vfs::write_file) — the rescue iron rule.
+//! FAT32 write path (M7.5b; streaming since the P0 audit): cluster
+//! allocation, FAT updates across every FAT copy, data writes and directory
+//! entries. The kernel gates every call behind repair mode (vfs::write_file)
+//! — the rescue iron rule.
 //!
-//! Metadata ordering: data clusters first, then the FAT chain, then the
-//! directory entry — so an interrupted write never points at garbage.
+//! Metadata ordering: a cluster's data is on disk before any FAT entry points
+//! at it, and the directory entry is written last — so an interrupted write
+//! never exposes a chain that leads to garbage. The streaming writer keeps no
+//! chain array, so file size is bounded by the disk, not by a stack buffer.
 
 use core::ffi::c_void;
 
@@ -16,6 +19,8 @@ extern "C" {
 
 const EOC: u32 = 0x0FFF_FFFF;
 const EOC_MIN: u32 = 0x0FFF_FFF8;
+/// Largest cluster this writer buffers (FAT32 allows up to 64 KiB).
+pub const MAX_CLUSTER_BYTES: usize = 32 * 1024;
 
 fn write_sector(lba: u64, buf: &[u8; 512]) -> bool {
     unsafe { blk_write(core::ptr::null_mut(), lba, buf.as_ptr() as *const c_void, 1) == 0 }
@@ -25,13 +30,25 @@ fn read_sector(lba: u64, buf: &mut [u8; 512]) -> bool {
     unsafe { blk_read(core::ptr::null_mut(), lba, buf.as_mut_ptr() as *mut c_void, 1) == 0 }
 }
 
+/// Append-only writer for one file: chunks are streamed in, the chain is
+/// linked as it grows, and finish() writes the directory entry.
+pub struct FileWriter<'a> {
+    fs: &'a Fat32,
+    dir_cluster: u32,
+    name: [u8; 11],
+    first: u32,
+    prev: u32,
+    size: u32,
+    cluster_bytes: usize,
+}
+
 impl Fat32 {
-    /// Update the FAT entry for cluster n in BOTH FAT copies.
+    /// Update the FAT entry for cluster n in EVERY FAT copy.
     fn write_fat_entry(&self, n: u32, value: u32) -> bool {
         let entry_offset = n as u64 * 4;
         let rel_sector = (entry_offset / 512) as u32;
         let off = (entry_offset % 512) as usize;
-        for fat_index in 0..2u32 {
+        for fat_index in 0..self.num_fats {
             let lba = self.fat_lba + (fat_index * self.sectors_per_fat + rel_sector) as u64;
             let mut sec = [0u8; 512];
             if !read_sector(lba, &mut sec) {
@@ -84,41 +101,41 @@ impl Fat32 {
         true
     }
 
-    /// Create (or overwrite) an 8.3 file in the given directory cluster.
-    /// Returns true on success.
-    pub fn write_file(&self, dir_cluster: u32, name: &[u8; 11], data: &[u8]) -> bool {
+    /// Start a streaming file. Call append() for the payload (data, then the
+    /// link into the previous cluster) and finish() to publish the entry.
+    pub fn create_file(&self, dir_cluster: u32, name: &[u8; 11]) -> Option<FileWriter<'_>> {
         let cluster_bytes = (self.sectors_per_cluster * 512) as usize;
-        let clusters_needed = data.len().div_ceil(cluster_bytes).max(1) as u32;
-
-        // 1. Allocate the chain + write the data (data first).
-        let mut chain = [0u32; 16];
-        if clusters_needed as usize > chain.len() {
-            return false;
+        if cluster_bytes == 0 || cluster_bytes > MAX_CLUSTER_BYTES {
+            return None;
         }
-        for i in 0..clusters_needed {
+        Some(FileWriter {
+            fs: self,
+            dir_cluster,
+            name: *name,
+            first: 0,
+            prev: 0,
+            size: 0,
+            cluster_bytes,
+        })
+    }
+
+    /// Create (or overwrite) a file from one buffer — the simple path used by
+    /// the self-test. Large copies should stream through create_file().
+    pub fn write_file(&self, dir_cluster: u32, name: &[u8; 11], data: &[u8]) -> bool {
+        let Some(mut w) = self.create_file(dir_cluster, name) else {
+            return false;
+        };
+        if data.is_empty() {
+            // A zero-length file still needs a start cluster for its entry.
             let Some(c) = self.alloc_cluster() else {
                 return false;
             };
-            chain[i as usize] = c;
+            w.first = c;
+            w.prev = c;
+        } else if !w.append(data) {
+            return false;
         }
-        for i in 0..clusters_needed {
-            let start = i as usize * cluster_bytes;
-            let end = (start + cluster_bytes).min(data.len());
-            if !self.write_cluster(chain[i as usize], &data[start..end]) {
-                return false;
-            }
-        }
-
-        // 2. FAT chain (second, after the data is on disk).
-        for i in 0..clusters_needed {
-            let next = if i + 1 < clusters_needed { chain[i as usize + 1] } else { EOC };
-            if !self.write_fat_entry(chain[i as usize], next) {
-                return false;
-            }
-        }
-
-        // 3. Directory entry (last).
-        self.append_dir_entry(dir_cluster, name, chain[0], data.len() as u32)
+        w.finish()
     }
 
     /// Put an 8.3 entry into the directory: overwrite the existing entry of
@@ -175,5 +192,41 @@ impl Fat32 {
             c = self.next_cluster(c);
         }
         false
+    }
+}
+
+impl FileWriter<'_> {
+    /// Number of bytes written so far.
+    pub fn size(&self) -> u32 {
+        self.size
+    }
+
+    /// Append a chunk: each cluster's data goes to disk first, then the
+    /// previous cluster is linked to it. Chunks may be any size.
+    pub fn append(&mut self, data: &[u8]) -> bool {
+        for chunk in data.chunks(self.cluster_bytes) {
+            let Some(c) = self.fs.alloc_cluster() else {
+                return false;
+            };
+            if !self.fs.write_cluster(c, chunk) {
+                return false;
+            }
+            if self.first == 0 {
+                self.first = c;
+            } else if !self.fs.write_fat_entry(self.prev, c) {
+                return false;
+            }
+            self.prev = c;
+            self.size += chunk.len() as u32;
+        }
+        true
+    }
+
+    /// Publish the directory entry. The last cluster already carries EOC.
+    pub fn finish(self) -> bool {
+        if self.first == 0 {
+            return false;
+        }
+        self.fs.append_dir_entry(self.dir_cluster, &self.name, self.first, self.size)
     }
 }

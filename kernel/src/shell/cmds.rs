@@ -266,7 +266,7 @@ pub fn cmd_grubfix(sh: &mut Shell, s: &mut Serial, args: &[&[u8]]) {
     let repair = args.first().map(|a| *a == b"repair").unwrap_or(false);
     if !repair {
         out!(s, "grub-fix: diagnosis (read-only) — 'grub-fix repair' to act");
-        crate::bootrepair::run(s, &vfs, sh.rt);
+        crate::bootrepair::diagnose(s, &vfs, sh.rt);
         return;
     }
 
@@ -282,6 +282,6 @@ pub fn cmd_grubfix(sh: &mut Shell, s: &mut Serial, args: &[&[u8]]) {
         return;
     }
     crate::vfs::enable_repair_mode();
-    out!(s, "grub-fix: repair mode ON — re-running boot repair");
-    crate::bootrepair::run(s, &vfs, sh.rt);
+    out!(s, "grub-fix: repair mode ON — applying fixes");
+    crate::bootrepair::repair(s, &vfs, sh.rt);
 }

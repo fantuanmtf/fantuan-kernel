@@ -17,6 +17,12 @@ pub fn enable_repair_mode() {
     REPAIR_MODE.store(true, Ordering::Relaxed);
 }
 
+/// Whether writes are currently permitted. The repair path checks this, so a
+/// stray call can never write with repair mode off.
+pub fn repair_mode() -> bool {
+    REPAIR_MODE.load(Ordering::Relaxed)
+}
+
 /// Create or overwrite an 8.3 file in the given directory — gated behind
 /// repair mode.
 pub fn write_file(fs: &fat::Fat32, dir_cluster: u32, name: &[u8; 11], data: &[u8]) -> bool {
