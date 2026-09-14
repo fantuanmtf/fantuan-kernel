@@ -1,0 +1,287 @@
+//! Shell command implementations (DESIGN.md §10). Read-only except
+//! `grub-fix repair`, which is the single interactive path that enables
+//! repair mode after an explicit YES confirmation.
+
+use core::fmt::Write;
+use core::sync::atomic::{AtomicBool, Ordering};
+
+use crate::diag;
+use crate::drivers;
+use crate::serial::{Serial, COM1};
+use crate::vfs;
+
+use super::Shell;
+
+/// Scratch buffer for `cat` (4 KiB cap keeps the stack small).
+static mut CAT_BUF: [u8; 4096] = [0; 4096];
+static SCAN_CANCEL: AtomicBool = AtomicBool::new(false);
+
+macro_rules! out {
+    ($s:expr, $($arg:tt)*) => {
+        { let _ = writeln!($s, $($arg)*); }
+    };
+}
+
+pub fn cmd_help(_sh: &mut Shell, s: &mut Serial, _args: &[&[u8]]) {
+    out!(s, "shell commands (DESIGN.md §10):");
+    for (name, help, _) in super::COMMANDS.iter() {
+        let _ = write!(s, "  {:<11} {}\n", name, help);
+    }
+}
+
+pub fn cmd_hwdiag(_sh: &mut Shell, _s: &mut Serial, _args: &[&[u8]]) {
+    let stage1: [diag::Check; 3] = [
+        diag::Check { name: "cpu", run: diag::cpu::check },
+        diag::Check { name: "gpu", run: diag::gpu::check },
+        diag::Check { name: "ram", run: diag::ram::check },
+    ];
+    diag::run_stage("1 hardware", &stage1);
+    let stage2: [diag::Check; 1] = [
+        diag::Check { name: "storage", run: diag::storage::check },
+    ];
+    diag::run_stage("2 storage", &stage2);
+}
+
+pub fn cmd_lsdev(_sh: &mut Shell, s: &mut Serial, _args: &[&[u8]]) {
+    for d in crate::pci::find_storage_controllers() {
+        out!(s, "  storage {:02x}:{:02x}.{} vendor {:#06x} device {:#06x} class {:02x}/{:02x} progif {:#04x}",
+            d.bus, d.dev, d.func, d.vendor, d.device, d.class, d.subclass, d.progif);
+    }
+    for d in crate::pci::list_display_devices() {
+        out!(s, "  display {:02x}:{:02x}.{} vendor {:#06x} device {:#06x}",
+            d.bus, d.dev, d.func, d.vendor, d.device);
+    }
+    match diag::diskhealth::identify_strings(drivers::drive_handle()) {
+        Some(id) => out!(
+            s,
+            "  drive: {} (sn {}) — {} sectors, {} MiB, {}",
+            core::str::from_utf8(&id.model[..id.model_len]).unwrap_or("?"),
+            core::str::from_utf8(&id.serial[..id.serial_len]).unwrap_or("?"),
+            id.capacity_sectors,
+            id.capacity_sectors / 2048,
+            if id.is_ssd { "SSD" } else { "HDD" }
+        ),
+        None => out!(s, "  drive: IDENTIFY unavailable"),
+    }
+}
+
+pub fn cmd_lsos(_sh: &mut Shell, s: &mut Serial, _args: &[&[u8]]) {
+    for e in vfs::probe::probe_table() {
+        let _ = write!(s, "  part {}: {}", e.part_index + 1, e.label);
+        let mut first = true;
+        for b in e.bootloaders.iter().filter(|b| !b.is_empty()) {
+            if first {
+                let _ = write!(s, " [");
+                first = false;
+            } else {
+                let _ = write!(s, ", ");
+            }
+            let _ = write!(s, "{}", b);
+        }
+        if !first {
+            let _ = write!(s, "]");
+        }
+        out!(s, "{}", if e.mounted { " — mounted ro" } else { " — not mounted" });
+    }
+}
+
+pub fn cmd_lsmnt(sh: &mut Shell, s: &mut Serial, _args: &[&[u8]]) {
+    let Some(vfs) = sh.vfs else {
+        out!(s, "lsmnt: no filesystem mounted");
+        return;
+    };
+    out!(s, "  /mnt/disk0  part {} (FAT32, ro)", vfs.fat_part + 1);
+    for (path, len, active) in sh.mounts().iter() {
+        if *active {
+            out!(s, "  {}  part {} (ro alias)", core::str::from_utf8(&path[..*len]).unwrap_or("?"), vfs.fat_part + 1);
+        }
+    }
+}
+
+pub fn cmd_mount(sh: &mut Shell, s: &mut Serial, args: &[&[u8]]) {
+    if args.len() != 2 {
+        out!(s, "usage: mount esp0 /mnt/esp0");
+        return;
+    }
+    if args[0] != b"esp0" {
+        out!(s, "mount: not supported (v1 ro-only FAT32 aliases; try 'mount esp0 /mnt/esp0')");
+        return;
+    }
+    if sh.vfs.is_none() {
+        out!(s, "mount: no FAT32 filesystem available");
+        return;
+    }
+    if sh.mount_alias(args[1]) {
+        let _ = write!(s, "mount: ");
+        let _ = s.write(args[1]);
+        out!(s, " mounted ro (alias)");
+    } else {
+        out!(s, "mount: alias table full or path already mounted");
+    }
+}
+
+pub fn cmd_umount(sh: &mut Shell, s: &mut Serial, args: &[&[u8]]) {
+    if args.len() != 1 {
+        out!(s, "usage: umount <path>");
+        return;
+    }
+    let _ = write!(s, "umount: ");
+    let _ = s.write(args[0]);
+    if sh.umount_alias(args[0]) {
+        out!(s, " removed");
+    } else {
+        out!(s, " not in the mount table");
+    }
+}
+
+pub fn cmd_cat(sh: &mut Shell, s: &mut Serial, args: &[&[u8]]) {
+    if args.len() != 1 {
+        out!(s, "usage: cat <path>   (e.g. cat /HELLO.TXT)");
+        return;
+    }
+    let Some(vfs) = sh.vfs else {
+        out!(s, "cat: no filesystem mounted");
+        return;
+    };
+    let path = args[0];
+    let path = if path.first() == Some(&b'/') { &path[1..] } else { path };
+
+    let mut names = [[0u8; 11]; 4];
+    let mut refs: [&[u8; 11]; 4] = [&[0; 11]; 4];
+    let mut n = 0usize;
+    for comp in path.split(|&b| b == b'/') {
+        if comp.is_empty() {
+            continue;
+        }
+        if n == names.len() {
+            out!(s, "cat: path too deep (max 4 components)");
+            return;
+        }
+        let Ok(text) = core::str::from_utf8(comp) else {
+            out!(s, "cat: path is not ASCII");
+            return;
+        };
+        let Some(name) = vfs::to_8_3(text) else {
+            out!(s, "cat: not an 8.3 name: {}", text);
+            return;
+        };
+        names[n] = name;
+        n += 1;
+    }
+    if n == 0 {
+        out!(s, "cat: empty path");
+        return;
+    }
+    for i in 0..n {
+        refs[i] = &names[i];
+    }
+    let Some((cluster, size)) = vfs::find_path(&vfs.fs, vfs.fs.root_cluster, &refs[..n]) else {
+        out!(s, "cat: not found");
+        return;
+    };
+
+    let buf = unsafe { &mut *core::ptr::addr_of_mut!(CAT_BUF) };
+    let want = (size as usize).min(buf.len());
+    let Some(got) = vfs.fs.read_file(cluster, want as u32, buf) else {
+        out!(s, "cat: read failed");
+        return;
+    };
+    if (size as usize) > buf.len() {
+        out!(s, "cat: {} bytes, truncated to {}", size, buf.len());
+    } else {
+        out!(s, "cat: {} bytes", got);
+    }
+    for &b in &buf[..got] {
+        let c = if (0x20..0x7F).contains(&b) || b == b'\n' || b == b'\t' { b } else { b'.' };
+        let _ = s.write(&[c]);
+    }
+    if got > 0 && buf[got - 1] != b'\n' {
+        let _ = s.write(b"\r\n");
+    }
+}
+
+pub fn cmd_bootinfo(sh: &mut Shell, s: &mut Serial, _args: &[&[u8]]) {
+    let bi = sh.bi;
+    out!(s, "  magic {:#010x}  version {}", bi.magic, bi.version);
+    out!(s, "  kernel_base {:#x}  stack_top {:#x}  rsdp {:#x}", bi.kernel_base, bi.stack_top, bi.rsdp);
+    out!(s, "  caps {:#x}  runtime_services {:#x}  smbios_table {:#x}", bi.caps, bi.runtime_services, bi.smbios_table);
+    out!(s, "  fb {}x{} stride {} format {}", bi.fb.width, bi.fb.height, bi.fb.stride, bi.fb.format);
+    out!(s, "  memmap entries {} (desc {} bytes)", bi.memmap.count, bi.memmap.desc_size);
+    out!(s, "  page tables: pml4 {:#x}, {} pages", bi.boot_pml4, bi.boot_tables_pages);
+}
+
+pub fn cmd_diskhealth(_sh: &mut Shell, s: &mut Serial, args: &[&[u8]]) {
+    let dev = drivers::drive_handle();
+    let Some(id) = diag::diskhealth::identify_strings(dev) else {
+        out!(s, "diskhealth: IDENTIFY unavailable");
+        return;
+    };
+    let smart = diag::diskhealth::ata_smart(dev);
+    let _ = write!(s, "  diskhealth: ");
+    diag::diskhealth::format_line(s, &id, smart.as_ref(), None);
+
+    if args.iter().any(|a| *a == b"--scan") {
+        let cap_sectors = (4u64 << 30) / 512;
+        let sectors = id.capacity_sectors.min(cap_sectors);
+        if id.capacity_sectors > cap_sectors {
+            out!(s, "  scan: capped to 4 GiB ({} sectors of {})", sectors, id.capacity_sectors);
+        }
+        SCAN_CANCEL.store(false, Ordering::Relaxed);
+        out!(s, "  scan: {} sectors, press 'q' to cancel", sectors);
+        let mut last_pct = u64::MAX;
+        let r = diag::diskhealth::surface_scan(
+            dev,
+            0,
+            sectors,
+            |done, total| {
+                let pct = done * 100 / total.max(1);
+                if pct != last_pct && pct % 10 == 0 {
+                    last_pct = pct;
+                    let mut w = Serial::new(COM1);
+                    let _ = write!(w, "  scan: {}%\r\n", pct);
+                }
+                if let Some(b) = Serial::new(COM1).read() {
+                    if b == b'q' || b == b'Q' {
+                        SCAN_CANCEL.store(true, Ordering::Relaxed);
+                    }
+                }
+            },
+            &SCAN_CANCEL,
+        );
+        out!(
+            s,
+            "  scan: done — {} sectors, slow sectors: {}, read errors: {}",
+            r.total_sectors,
+            r.slow_sectors,
+            r.read_errors
+        );
+    }
+}
+
+pub fn cmd_grubfix(sh: &mut Shell, s: &mut Serial, args: &[&[u8]]) {
+    let Some(vfs) = sh.vfs else {
+        out!(s, "grub-fix: no filesystem mounted");
+        return;
+    };
+    let repair = args.first().map(|a| *a == b"repair").unwrap_or(false);
+    if !repair {
+        out!(s, "grub-fix: diagnosis (read-only) — 'grub-fix repair' to act");
+        crate::bootrepair::run(s, &vfs, sh.rt);
+        return;
+    }
+
+    out!(s, "WARNING: repair mode enables disk writes — confirm by typing YES");
+    out!(s, "repair actions: ESP fallback copy, FIXED.TXT self-test, NVRAM BootOrder repair");
+    let _ = write!(s, "confirm> ");
+    if !sh.read_line(s) {
+        out!(s, "grub-fix: no confirmation — aborted");
+        return;
+    }
+    if sh.line_bytes() != b"YES" {
+        out!(s, "grub-fix: confirmation not YES — aborted (nothing written)");
+        return;
+    }
+    crate::vfs::enable_repair_mode();
+    out!(s, "grub-fix: repair mode ON — re-running boot repair");
+    crate::bootrepair::run(s, &vfs, sh.rt);
+}

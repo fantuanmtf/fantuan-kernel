@@ -331,6 +331,20 @@ grub-fix    Linux boot repair (diagnose / repair modes)
 Shell roadmap: built-in minimal -> ash -> bash. (bash: C, POSIX-sh superset, smaller
 than fish; job control and readline come late.)
 
+**Implemented (v1, `kernel/src/shell/`)**: serial line editor (echo,
+backspace, 128-byte lines; `Serial::read` polls LSR), tokenizer, command
+table with per-command handlers — `shell/mod.rs` owns input/dispatch/mount
+aliases, `shell/cmds.rs` the commands and their data sources (diag stages,
+PCI catalog, probe table, SMART, BootInfo). The loop halts between polls, so
+the demo tasks keep running; after 30 s without input it logs
+`shell: idle on serial (no input yet)` once. Two safety rules are enforced:
+`mount` only creates read-only aliases of the already-mounted FAT32 (any
+other request is refused), and `grub-fix repair` requires an explicit `YES`
+line before it calls `enable_repair_mode()` — a grep audit confirms the shell
+contains exactly one such call. Autorun: an ESP script
+(`EFI/fantuan/shell.cmd`, one command per line) is executed at shell start,
+which is also how the smoke test drives the commands headlessly.
+
 ## 11. Repository Layout (planned)
 
 ```
@@ -440,6 +454,14 @@ fantuan-kernel/
   refuse our unsigned loader. Full verification needs an OVMF build with
   SECURE_BOOT_ENABLE=TRUE and an empty auth store (or the same on real
   hardware) — the code is written for exactly that case.
+- **M7.8 / §10** — DONE (Minimal Shell v1): the built-in shell described in
+  §10 — serial line editor, the 11 commands (help, hwdiag, lsdev, lsos,
+  lsmnt, mount, umount, cat, bootinfo, diskhealth [-scan], grub-fix
+  [diagnose|repair]), surface scan with progress + 'q' cancel and the 4 GiB
+  cap, confirmation-gated repair, ESP autorun script. Split across
+  shell/mod.rs (input, dispatch, aliases) and shell/cmds.rs (commands) per the
+  file-size rule. Deferred: ash/bash, job control, keyboard input (the input
+  layer takes the serial reader, so a PS/2 path plugs in).
 - **M8** — linuxulator compatibility layer + Secure Boot story.
 - **M9** — RISC-V port behind the arch/ HAL.
 
