@@ -154,16 +154,5 @@ pub fn find_nvme() -> Option<PciDevice> {
     }
 }
 
-pub fn find_ahci() -> Option<(u8, u8, u8, u64)> {
-    unsafe {
-        init_catalog();
-        for i in 0..256 {
-            if let Some(d) = CATALOG[i] {
-                if d.class == 0x01 && d.subclass == 0x06 && d.progif == 0x01 {
-                    return Some((d.bus, d.dev, d.func, d.bar5));
-                }
-            }
-        }
-        None
-    }
-}
+// find_ahci() retired with the block-device registry: drivers::init walks
+// the storage catalog itself and lets each driver probe (AHCI or NVMe).

@@ -65,6 +65,8 @@ fn main() {
     // model (0xFFFF8000... addresses) and no red zone (interrupts may push a
     // frame below rsp at any time).
     println!("cargo:rerun-if-changed={dir}/../drivers/c/ahci.c");
+    println!("cargo:rerun-if-changed={dir}/../drivers/c/blk.c");
+    println!("cargo:rerun-if-changed={dir}/../drivers/c/nvme.c");
     println!("cargo:rerun-if-changed={dir}/../drivers/c/include/rust_core.h");
     println!("cargo:rerun-if-changed={dir}/../drivers/c/include/driver.h");
     cc::Build::new()
@@ -73,6 +75,8 @@ fn main() {
         .file(format!("{dir}/src/asm/switch.S"))
         .file(format!("{dir}/src/asm/syscall.S"))
         .file(format!("{dir}/../drivers/c/ahci.c"))
+        .file(format!("{dir}/../drivers/c/blk.c"))
+        .file(format!("{dir}/../drivers/c/nvme.c"))
         .flag("-mcmodel=large")
         .flag("-mno-red-zone")
         .flag("-ffreestanding")

@@ -31,6 +31,59 @@ pub const fn phys_to_virt(phys: u64) -> u64 {
     PHYS_OFFSET + phys
 }
 
+const P_PCD: u64 = 1 << 4; // cache disable (MMIO)
+const P_PWT: u64 = 1 << 3; // write-through (MMIO)
+
+/// Map a physical MMIO range into the PHYS_OFFSET window with 2 MiB pages,
+/// creating the page-table levels on demand. Modern NVMe controllers expose
+/// 64-bit BARs above 4 GiB, which the boot map does not cover — this is what
+/// makes such devices reachable. Returns the virtual base address.
+pub fn map_mmio(alloc: &mut FrameAllocator, phys: u64, len: u64) -> Option<u64> {
+    if len == 0 {
+        return None;
+    }
+    let pml4_phys = KERNEL_PML4.load(Ordering::Relaxed);
+    if pml4_phys == 0 {
+        return None;
+    }
+    let start = phys & !(HUGE - 1);
+    let end = (phys + len + HUGE - 1) & !(HUGE - 1);
+
+    unsafe {
+        let pml4 = phys_to_virt(pml4_phys) as *mut u64;
+        let mut p = start;
+        while p < end {
+            let v = phys_to_virt(p);
+            let i4 = ((v >> 39) & 0x1FF) as usize;
+            let i3 = ((v >> 30) & 0x1FF) as usize;
+            let i2 = ((v >> 21) & 0x1FF) as usize;
+
+            if *pml4.add(i4) & P_PRESENT == 0 {
+                let f = alloc.alloc()?;
+                let t = phys_to_virt(f) as *mut u64;
+                for k in 0..512 {
+                    *t.add(k) = 0;
+                }
+                *pml4.add(i4) = f | P_PRESENT | P_WRITABLE;
+            }
+            let pdpt = phys_to_virt(*pml4.add(i4) & !0xFFF) as *mut u64;
+            if *pdpt.add(i3) & P_PRESENT == 0 {
+                let f = alloc.alloc()?;
+                let t = phys_to_virt(f) as *mut u64;
+                for k in 0..512 {
+                    *t.add(k) = 0;
+                }
+                *pdpt.add(i3) = f | P_PRESENT | P_WRITABLE;
+            }
+            let pd = phys_to_virt(*pdpt.add(i3) & !0xFFF) as *mut u64;
+            *pd.add(i2) = p | P_PRESENT | P_WRITABLE | P_HUGE | P_PCD | P_PWT;
+            p += HUGE;
+        }
+        asm!("invlpg [{}]", in(reg) start + PHYS_OFFSET, options(nostack));
+    }
+    Some(start + PHYS_OFFSET)
+}
+
 /// Build the tables, switch CR3, and return the new PML4's physical address.
 pub fn init(alloc: &mut FrameAllocator) -> u64 {
     // 1 PML4 + 2 PDPTs + 2 x 4 PDs = 11 frames.

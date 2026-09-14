@@ -94,6 +94,24 @@ else
   exit 1
 fi
 
+# NVMe phase (M8): the same stack over a different transport — the driver
+# registry picks the NVMe ops table and everything above it is unchanged.
+rm -f build/smoke-nvme.log
+timeout --signal=KILL 75 ./tools/run.sh --nvme > build/smoke-nvme.log 2>&1 || true
+if grep -q "blk: nvme registered" build/smoke-nvme.log \
+   && grep -q "storage: QEMU NVMe Ctrl" build/smoke-nvme.log \
+   && grep -q "diskhealth: QEMU NVMe Ctrl  SSD" build/smoke-nvme.log \
+   && grep -q "vfs: HELLO.TXT" build/smoke-nvme.log \
+   && grep -q "vfs: INFO.TXT => 1000" build/smoke-nvme.log \
+   && grep -q "esp: EFI/BOOT/BOOTX64.EFI" build/smoke-nvme.log; then
+  echo "SMOKE PASS (NVMe: controller + VFS + SMART + boot repair)"
+  grep -aE "nvme:|blk: |storage: QEMU NVMe|diskhealth: QEMU NVMe" build/smoke-nvme.log | head -5
+else
+  echo "SMOKE FAIL (NVMe) — log tail:"
+  tail -25 build/smoke-nvme.log
+  exit 1
+fi
+
 # M7.7 phase: Secure Boot key inventory + the Setup-Mode enrollment path.
 # The keyless OVMF vars template is a plain (non-auth) store, so the firmware
 # refuses the write — the phase accepts either outcome and checks the report.

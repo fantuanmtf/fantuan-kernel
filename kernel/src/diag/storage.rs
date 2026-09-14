@@ -41,11 +41,11 @@ pub fn check(s: &mut Serial) -> Severity {
     );
     let _ = writeln!(s, "  storage: LBA0 boot header: mbr {} gpt {}", is_mbr, is_gpt);
 
-    // --- ② SMART health ---
-    let smart = diskhealth::ata_smart(dev);
+    // --- ② SMART health (ATA attributes or the NVMe health log) ---
+    let (ata, nvme) = diskhealth::smart_report(dev);
     let _ = write!(s, "  diskhealth: ");
-    diskhealth::format_line(s, &id, smart.as_ref(), None);
-    if smart.is_none() {
+    diskhealth::format_line(s, &id, ata.as_ref(), nvme.as_ref());
+    if ata.is_none() && nvme.is_none() {
         let _ = writeln!(s, "  diskhealth: SMART unavailable on this drive");
     }
 

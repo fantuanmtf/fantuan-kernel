@@ -216,9 +216,9 @@ pub fn cmd_diskhealth(_sh: &mut Shell, s: &mut Serial, args: &[&[u8]]) {
         out!(s, "diskhealth: IDENTIFY unavailable");
         return;
     };
-    let smart = diag::diskhealth::ata_smart(dev);
+    let (ata, nvme) = diag::diskhealth::smart_report(dev);
     let _ = write!(s, "  diskhealth: ");
-    diag::diskhealth::format_line(s, &id, smart.as_ref(), None);
+    diag::diskhealth::format_line(s, &id, ata.as_ref(), nvme.as_ref());
 
     if args.iter().any(|a| *a == b"--scan") {
         let cap_sectors = (4u64 << 30) / 512;

@@ -10,27 +10,75 @@ use crate::mm::paging::phys_to_virt;
 use crate::serial::{self, Serial};
 use crate::tsc;
 
-/// Bus/device of the AHCI controller we actually drive — the boot-repair
-/// NVRAM layer correlates whole-disk Boot#### entries through it (M7.6).
-static AHCI_BDF: AtomicU32 = AtomicU32::new(u32::MAX);
+/// Bus/device of the storage controller we actually drive (AHCI or NVMe) —
+/// the boot-repair NVRAM layer correlates whole-disk Boot#### entries
+/// through it (M7.6).
+static STORAGE_BDF: AtomicU32 = AtomicU32::new(u32::MAX);
 
-pub fn ahci_bdf() -> u32 {
-    AHCI_BDF.load(Ordering::Relaxed)
+pub fn storage_bdf() -> u32 {
+    STORAGE_BDF.load(Ordering::Relaxed)
 }
 
 extern "C" {
     fn ahci_probe(abar: u64) -> i32;
+    fn nvme_probe(bar0: u64) -> i32;
     fn blk_read(dev: *mut c_void, lba: u64, buf: *mut c_void, sectors: usize) -> i32;
-    /// Open a drive by index (M5.5 driver ops extension); NULL when absent.
+    /// Open a drive by index (driver ops registry); NULL when absent.
     fn blk_open(index: usize) -> *mut c_void;
+    /// Driver name of the handle ("ahci"/"nvme").
+    fn blk_name(dev: *mut c_void) -> *const u8;
+    /// Driver-decoded identity (model/serial/sectors/ssd).
+    fn blk_identity(dev: *mut c_void, out: *mut BlkIdentity) -> i32;
+}
+
+/// Generic identity as the C drivers report it (driver.h struct blk_identity).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct BlkIdentity {
+    pub model: [u8; 41],
+    pub serial: [u8; 21],
+    pub sectors: u64,
+    pub ssd: i32,
+}
+
+impl BlkIdentity {
+    pub const EMPTY: BlkIdentity = BlkIdentity {
+        model: [0; 41],
+        serial: [0; 21],
+        sectors: 0,
+        ssd: 0,
+    };
 }
 
 /// Handle of the drive brought up by init() — diagnostics pass it to the
-/// C driver ops (identify/SMART) instead of a NULL placeholder.
+/// C driver ops (identity/SMART) instead of a NULL placeholder.
 static DRIVE: AtomicUsize = AtomicUsize::new(0);
 
 pub fn drive_handle() -> *mut c_void {
     DRIVE.load(Ordering::Relaxed) as *mut c_void
+}
+
+/// Name of the driver behind the active handle (for logs and dispatch).
+pub fn drive_name() -> &'static str {
+    let p = unsafe { blk_name(drive_handle()) };
+    if p.is_null() {
+        return "?";
+    }
+    let mut n = 0;
+    while n < 16 && unsafe { *p.add(n) } != 0 {
+        n += 1;
+    }
+    core::str::from_utf8(unsafe { core::slice::from_raw_parts(p, n) }).unwrap_or("?")
+}
+
+/// Driver-decoded identity of the active drive.
+pub fn drive_identity() -> Option<BlkIdentity> {
+    let mut id = BlkIdentity::EMPTY;
+    if unsafe { blk_identity(drive_handle(), &mut id) } == 0 {
+        Some(id)
+    } else {
+        None
+    }
 }
 
 // --- rust_core.h exports --------------------------------------------------
@@ -96,25 +144,48 @@ pub extern "C" fn k_delay_ms(ms: u64) {
 /// MBR. Returns true when the full C-driver path worked.
 pub fn init() -> bool {
     let mut s = Serial::new(serial::COM1);
-    let Some((bus, dev, _func, abar)) = crate::pci::find_ahci() else {
-        let _ = writeln!(s, "pci: no AHCI controller found");
-        return false;
-    };
-    AHCI_BDF.store(((bus as u32) << 8) | dev as u32, Ordering::Relaxed);
-    let _ = writeln!(s, "pci: AHCI at {:02x}:{:02x}.0, ABAR {:#x}", bus, dev, abar);
 
-    if unsafe { ahci_probe(abar) } != 0 {
-        let _ = writeln!(s, "ahci: probe failed");
+    // Walk the storage-class catalog: AHCI (01/06/01) or NVMe (01/08). The
+    // first controller that probes successfully wins and registers its ops.
+    let mut probed = false;
+    for d in crate::pci::find_storage_controllers() {
+        if d.class != 0x01 {
+            continue;
+        }
+        if d.subclass == 0x06 && d.progif == 0x01 {
+            let _ = writeln!(s, "pci: AHCI at {:02x}:{:02x}.{}, ABAR {:#x}", d.bus, d.dev, d.func, d.bar5);
+            if unsafe { ahci_probe(d.bar5) } == 0 {
+                STORAGE_BDF.store(((d.bus as u32) << 8) | d.dev as u32, Ordering::Relaxed);
+                probed = true;
+                break;
+            }
+        } else if d.subclass == 0x08 {
+            let _ = writeln!(s, "pci: NVMe at {:02x}:{:02x}.{}, BAR0 {:#x}", d.bus, d.dev, d.func, d.bar0);
+            // 64-bit BARs live above 4 GiB: map the register window first.
+            let mapped = crate::mm::paging::map_mmio(crate::mm::frame::get(), d.bar0, 16 * 1024);
+            if mapped.is_none() {
+                let _ = writeln!(s, "nvme: cannot map BAR0 {:#x} (out of frames?)", d.bar0);
+                continue;
+            }
+            if unsafe { nvme_probe(d.bar0) } == 0 {
+                STORAGE_BDF.store(((d.bus as u32) << 8) | d.dev as u32, Ordering::Relaxed);
+                probed = true;
+                break;
+            }
+        }
+    }
+    if !probed {
+        let _ = writeln!(s, "pci: no usable storage controller");
         return false;
     }
-
     // M5.5: take the drive handle once; every later op goes through it.
     let handle = unsafe { blk_open(0) };
     if handle.is_null() {
-        let _ = writeln!(s, "ahci: blk_open(0) returned no handle");
+        let _ = writeln!(s, "blk: blk_open(0) returned no handle");
         return false;
     }
     DRIVE.store(handle as usize, Ordering::Relaxed);
+    let _ = writeln!(s, "blk: {} registered (drive 0)", drive_name());
 
     let mut sector = [0u8; 512];
     let rc = unsafe { blk_read(core::ptr::null_mut(), 0, sector.as_mut_ptr() as *mut c_void, 1) };
