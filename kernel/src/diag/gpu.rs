@@ -14,6 +14,8 @@ use crate::serial::Serial;
 pub struct GpuInfo {
     pub count: u32,
     pub any_intel: bool,
+    /// A Type-9 slot is In Use and graphics-capable (§6.2 "2 short" input).
+    pub slot_in_use: bool,
 }
 
 pub fn scan(s: &mut Serial) -> GpuInfo {
@@ -32,68 +34,57 @@ pub fn scan(s: &mut Serial) -> GpuInfo {
         );
     }
     let _ = writeln!(s, "  gpu: pci display devices found: {}", count);
-    GpuInfo { count, any_intel }
+    let slot_in_use = crate::smbios::system_slots()
+        .iter()
+        .any(|sl| sl.in_use && sl.display_class_hint);
+    GpuInfo { count, any_intel, slot_in_use }
 }
 
 pub fn check(s: &mut Serial) -> Severity {
     let info = scan(s);
-    let sev = check_slots_vs_pci(s);
-    let worst = if sev > info.severity() { sev } else { info.severity() };
+    let displays = crate::pci::list_display_devices();
+    let has_dgpu = displays.iter().any(|d| d.vendor != 0x8086);
+    let has_igpu = info.any_intel;
+
+    // §6.2 beep codes. 4 short supersedes 2+1 — when nothing is detected we
+    // beep 4 and never emit an ambiguous 2+1 sequence.
     if info.count == 0 {
         let _ = writeln!(s, "  gpu: none detected — no display device");
         crate::pit::beep_n(4, crate::pit::BeepLen::Short);
-        Severity::Critical
-    } else if !info.any_intel {
-        let _ = writeln!(s, "  gpu: display path present (no Intel iGPU)");
-        crate::pit::beep_n(1, crate::pit::BeepLen::Short);
-        worst
-    } else {
-        let _ = writeln!(s, "  gpu: display path present");
-        worst
+        return Severity::Critical;
     }
-}
 
-impl GpuInfo {
-    fn severity(&self) -> Severity {
-        if self.count == 0 { Severity::Critical } else { Severity::Ok }
-    }
-}
-
-/// Task-2-owned GPU slot ↔ PCI display-device correlation.
-/// Returns Warning and fires 2-short beep once if any Type-9 slot marked In Use and
-/// display-class-hint matched has no corresponding PCI class-0x03 device.
-pub fn check_slots_vs_pci(s: &mut Serial) -> Severity {
+    // Informational: how the SMBIOS slot table lines up with the PCI catalog.
     let slots = crate::smbios::system_slots();
-    let displays = crate::pci::list_display_devices();
-    let mut pci_slots_in_use = 0usize;
-    let mut mismatch = 0;
-    for slot in slots.iter() {
-        if slot.in_use && slot.uses_pci {
-            pci_slots_in_use += 1;
-        }
-        if slot.in_use && slot.display_class_hint {
-            let found = !displays.is_empty();
-            if !found {
-                mismatch += 1;
-                let _ = writeln!(s, "  gpu: slot {} '{}' marked in-use (display-class) but no PCI 0x03 device",
-                    slot.slot_id, slot.designation);
-            }
-        }
-    }
     if !slots.is_empty() {
+        let pci_in_use = slots.iter().filter(|s| s.in_use && s.uses_pci).count();
         let _ = writeln!(
             s,
-            "  gpu: smbios slots {} (pci in-use {}), pci display devices {}",
+            "  gpu: smbios slots {} (pci in-use {}), display devices {}",
             slots.len(),
-            pci_slots_in_use,
-            displays.len()
+            pci_in_use,
+            info.count
         );
     }
-    if mismatch > 0 {
-        crate::pit::beep_n(2, crate::pit::BeepLen::Short);
-        let _ = writeln!(s, "  gpu: {} display slot(s) in-use but no PCI class 0x03 (2-short beep)", mismatch);
-        Severity::Warning
+
+    let mut worst = Severity::Ok;
+    if !has_igpu {
+        let _ = writeln!(s, "  gpu: display path present (no Intel iGPU)");
+        crate::pit::beep_n(1, crate::pit::BeepLen::Short);
     } else {
-        Severity::Ok
+        let _ = writeln!(s, "  gpu: display path present");
     }
+
+    // 2 short: a Type-9 slot is In Use (a card is seated in a graphics-capable
+    // slot) but no discrete GPU answered on PCI.
+    if info.slot_in_use && !has_dgpu {
+        for sl in slots.iter().filter(|s| s.in_use && s.display_class_hint) {
+            let _ = writeln!(s, "  gpu: slot {} '{}' In Use", sl.slot_id, sl.designation);
+        }
+        let _ = writeln!(s, "  gpu: slot marked In Use but no discrete GPU enumerated (2-short beep)");
+        crate::pit::beep_n(2, crate::pit::BeepLen::Short);
+        worst = Severity::Warning;
+    }
+    worst
 }
+

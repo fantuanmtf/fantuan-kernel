@@ -70,11 +70,15 @@ pub(super) fn repair(s: &mut Serial, rt: &Runtime, vfs: &Vfs) {
     }
     if !has_partition_entry && path_exists(vfs, b"\\EFI\\BOOT\\BOOTX64.EFI") {
         if let Some(num) = create_esp_entry(s, rt, vfs, &entries[..count]) {
-            for i in (0..new_n).rev() {
-                new_order[i + 1] = new_order[i];
+            if new_n < new_order.len() {
+                for i in (0..new_n).rev() {
+                    new_order[i + 1] = new_order[i];
+                }
+                new_order[0] = num;
+                new_n += 1;
+            } else {
+                let _ = writeln!(s, "repair: BootOrder table is full — entry registered but not ordered");
             }
-            new_order[0] = num;
-            new_n += 1;
         }
     }
 

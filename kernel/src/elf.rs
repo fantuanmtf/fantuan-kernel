@@ -38,7 +38,7 @@ pub fn load(elf: &[u8]) -> Option<(u64, u64)> {
     // Track already-mapped pages: two segments may share a 4K page (e.g.
     // .rodata and .data), and the second must reuse the first's frame — a
     // fresh frame would shadow the earlier content.
-    let mut mapped: [(u64, u64); 32] = [(0, 0); 32];
+    let mut mapped: [(u64, u64); 64] = [(0, 0); 64];
     let mut mapped_n = 0;
 
     for i in 0..phnum {
@@ -59,6 +59,12 @@ pub fn load(elf: &[u8]) -> Option<(u64, u64)> {
                 Some(&(_, phys)) => phys, // shared page: overlay this segment
                 None => {
                     let f = frame::get().alloc()?;
+                    if mapped_n >= mapped.len() {
+                        // More distinct pages than the tracking table holds:
+                        // refuse rather than map an untracked page (which a
+                        // later segment could double-allocate).
+                        return None;
+                    }
                     mapped[mapped_n] = (page, f);
                     mapped_n += 1;
                     user::map_page(cr3, page, f, user::P_PRESENT | user::P_WRITABLE | user::P_USER);

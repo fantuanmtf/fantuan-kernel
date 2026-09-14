@@ -27,7 +27,8 @@
 #define NVME_CSTS_RDY    (1u << 0)
 #define NVME_CC_IOSQES   (6u << 16)   /* 64-byte submission entries */
 #define NVME_CC_IOCQES   (4u << 20)   /* 16-byte completion entries */
-/* Doorbell stride 0 (DSTRD = 0): SQ0TDBL 0x1000, CQ0HDBL 0x1004, then per QID. */
+/* Doorbell base; the stride between queues is (8 << CAP.DSTRD) bytes, with
+ * the CQ head doorbell one (4 << DSTRD) further on (NVMe 1.4 §3.1.4). */
 #define NVME_DBS_BASE    0x1000u
 
 /* --- admin opcodes -------------------------------------------------------- */
@@ -83,6 +84,7 @@ struct nvme_ctrl {
     uint64_t iocq_phys;
     uint8_t *buf;                     /* one 4 KiB data page */
     uint64_t buf_phys;
+    uint32_t dstrd;                   /* doorbell stride (CAP bits 35:32) */
     uint32_t nsze_lo, nsze_hi;        /* namespace size in LBAs */
     uint32_t adm_tail, adm_phase, adm_cq_head;
     uint32_t io_tail, io_phase, io_cq_head;
@@ -152,7 +154,8 @@ static int submit(struct nvme_ctrl *c, int admin, uint8_t opcode, uint32_t nsid,
 
     __sync_synchronize();
     *tail = (*tail + 1) % entries;
-    c->regs[(NVME_DBS_BASE + qid * 8) / 4] = *tail;   /* SQ tail doorbell */
+    /* Doorbells: SQyTDBL at 0x1000 + 2y*(4<<DSTRD), CQyHDBL one stride on. */
+    c->regs[(NVME_DBS_BASE + qid * (8u << c->dstrd)) / 4] = *tail;
 
     cqe_idx = *head;
     for (;;) {
@@ -166,7 +169,7 @@ static int submit(struct nvme_ctrl *c, int admin, uint8_t opcode, uint32_t nsid,
         k_delay_ms(1);
     }
     *head = (cqe_idx + 1) % entries;
-    c->regs[(NVME_DBS_BASE + qid * 8 + 4) / 4] = *head; /* CQ head doorbell */
+    c->regs[(NVME_DBS_BASE + qid * (8u << c->dstrd) + (4u << c->dstrd)) / 4] = *head;
     if (*head == 0) {
         *phase ^= 1u;
     }
@@ -309,6 +312,7 @@ int nvme_probe(uint64_t bar0_phys)
 
     c->regs = (volatile uint32_t *)k_phys_to_virt(bar0_phys);
     cap = (uint64_t)c->regs[NVME_CAP / 4] | ((uint64_t)c->regs[NVME_CAP / 4 + 1] << 32);
+    c->dstrd = (uint32_t)((cap >> 32) & 0xF);
     k_log("nvme: version ");
     k_log_hex(c->regs[NVME_VS / 4]);
     k_log(" mqes ");

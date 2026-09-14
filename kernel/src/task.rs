@@ -153,10 +153,18 @@ pub fn spawn_user(elf_image: &[u8]) -> Option<u64> {
         return None;
     };
 
-    // User stack: frames mapped at USER_STACK_TOP - 16 KiB.
-    let ustack_phys = frame::get().alloc()?;
+    // User stack: frames mapped at USER_STACK_TOP - 16 KiB. Every early exit
+    // must restore the interrupt state saved above, or an OOM would leave IRQs
+    // disabled for the rest of the boot.
+    let Some(ustack_phys) = frame::get().alloc() else {
+        cpu::irq_restore(flags);
+        return None;
+    };
     for _ in 1..USER_STACK_PAGES {
-        frame::get().alloc()?;
+        if frame::get().alloc().is_none() {
+            cpu::irq_restore(flags);
+            return None;
+        }
     }
     let ustack_base = USER_STACK_TOP - USER_STACK_PAGES * frame::FRAME_SIZE;
     for i in 0..USER_STACK_PAGES {
@@ -171,9 +179,15 @@ pub fn spawn_user(elf_image: &[u8]) -> Option<u64> {
     // Kernel stack + the initial frame: six saved-register zeros, then
     // user_entry as the ret target, then the ring-3 iretq frame
     // [rip][cs][rflags][rsp][ss].
-    let stack_phys = frame::get().alloc()?;
+    let Some(stack_phys) = frame::get().alloc() else {
+        cpu::irq_restore(flags);
+        return None;
+    };
     for _ in 1..STACK_PAGES {
-        frame::get().alloc()?;
+        if frame::get().alloc().is_none() {
+            cpu::irq_restore(flags);
+            return None;
+        }
     }
     let stack_top = phys_to_virt(stack_phys + STACK_PAGES * frame::FRAME_SIZE);
     let sp = (stack_top - 12 * 8) as *mut u64;
