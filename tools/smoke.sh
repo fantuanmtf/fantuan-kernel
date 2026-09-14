@@ -61,6 +61,39 @@ else
   exit 1
 fi
 
+# §10 shell phase: the ESP carries an autorun script (EFI/fantuan/SHELL.CMD),
+# so the read-only commands and the confirmation-gated repair path are
+# exercised deterministically — no timing-dependent serial injection.
+rm -f build/smoke-shell.log build/smoke-shell-repair.log
+timeout --signal=KILL 90 ./tools/run.sh --keys --broken > build/smoke-shell.log 2>&1 || true
+if grep -q "shell: autorun 8 command(s)" build/smoke-shell.log \
+   && grep -q "shell> help" build/smoke-shell.log \
+   && grep -q "hwdiag      re-run hardware" build/smoke-shell.log \
+   && grep -q "part 1: EFI System Partition" build/smoke-shell.log \
+   && grep -q "cat: 35 bytes" build/smoke-shell.log \
+   && grep -q "scan: done" build/smoke-shell.log \
+   && grep -q "idle on serial" build/smoke-shell.log; then
+  echo "SMOKE PASS (shell: autorun commands + surface scan + idle notice)"
+  grep -aE "shell: (ready|autorun|idle)|cat: |scan: done" build/smoke-shell.log | head -6
+else
+  echo "SMOKE FAIL (shell autorun) — log tail:"
+  tail -25 build/smoke-shell.log
+  exit 1
+fi
+timeout --signal=KILL 90 ./tools/run.sh --shell-repair --broken > build/smoke-shell-repair.log 2>&1 || true
+if grep -q "WARNING: repair mode enables disk writes" build/smoke-shell-repair.log \
+   && grep -q "confirm> YES" build/smoke-shell-repair.log \
+   && grep -q "grub-fix: repair mode ON" build/smoke-shell-repair.log \
+   && grep -q "repair: FIXED.TXT write+readback ok" build/smoke-shell-repair.log \
+   && grep -q "cat: 21 bytes" build/smoke-shell-repair.log; then
+  echo "SMOKE PASS (shell: confirmation-gated repair + cat of the repaired fallback)"
+  grep -aE "WARNING: repair|confirm>|repair mode ON|cat: " build/smoke-shell-repair.log | head -4
+else
+  echo "SMOKE FAIL (shell repair path) — log tail:"
+  tail -25 build/smoke-shell-repair.log
+  exit 1
+fi
+
 # M7.7 phase: Secure Boot key inventory + the Setup-Mode enrollment path.
 # The keyless OVMF vars template is a plain (non-auth) store, so the firmware
 # refuses the write — the phase accepts either outcome and checks the report.

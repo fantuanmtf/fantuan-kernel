@@ -80,6 +80,17 @@ impl Serial {
         }
     }
 
+    /// Non-blocking read of one received byte (LSR bit 0 = data ready).
+    pub fn read(&self) -> Option<u8> {
+        unsafe {
+            if inb(self.port + 5) & 0x01 != 0 {
+                Some(inb(self.port))
+            } else {
+                None
+            }
+        }
+    }
+
     /// Write a byte slice to the port (debug channel; no line discipline).
     pub fn write(&self, buf: &[u8]) -> usize {
         for &b in buf {

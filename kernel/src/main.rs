@@ -37,6 +37,7 @@ mod pit;
 mod port;
 mod runtime;
 mod serial;
+mod shell;
 mod smbios;
 mod syscall;
 mod task;
@@ -236,13 +237,14 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     diag::run_stage("1 hardware", &stage1);
 
     // --- M4.5: C driver layer -----------------------------------------------
+    let mut mounted: Option<vfs::Vfs> = None;
     if drivers::init() {
         let _ = writeln!(s, "drivers: C layer + AHCI read-only verified");
 
         // --- M6: VFS + partition table + FAT32 read-only ------------------
         // Mount first: stage 2 reports per-partition filesystem types from
         // the probe table (M5.5) and the ESP bootloaders it found.
-        let mounted = vfs::init();
+        mounted = vfs::init();
         if mounted.is_some() {
             let _ = writeln!(s, "vfs: ok");
         } else {
@@ -267,15 +269,11 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     // diagnostic codes (DESIGN.md §6.2).
     pit::beep_long();
     let _ = writeln!(s, "beep: boot ok (1 long)");
-    let _ = writeln!(s, "kernel: idle (hlt; IRQ0 ticks wake it)");
 
-    // Idle (task 0): hlt wakes on every 10 ms tick; the scheduler hands the
-    // CPU to the demo tasks.
-    loop {
-        unsafe {
-            core::arch::asm!("hlt", options(nomem, nostack));
-        }
-    }
+    // --- §10 Minimal shell -------------------------------------------------
+    // The interactive loop replaces the idle spin: it halts between polls, so
+    // the scheduler keeps running the other tasks exactly as before.
+    shell::enter(mounted, bi, bi.runtime_services);
 }
 
 #[panic_handler]

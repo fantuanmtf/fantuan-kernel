@@ -20,6 +20,7 @@ SMM=0
 SMBIOS=1
 TWO_FS=0
 KEYS=0
+SHELL_REPAIR=0
 for a in "$@"; do
   case "$a" in
     --graphics)    GRAPHICS=1 ;;
@@ -29,6 +30,7 @@ for a in "$@"; do
     --no-smbios)   SMBIOS=0 ;;
     --two-fs)      TWO_FS=1 ;;
     --keys)        KEYS=1 ;;
+    --shell-repair) KEYS=1; SHELL_REPAIR=1 ;;
   esac
 done
 
@@ -101,7 +103,9 @@ fi
 if [ "$TWO_FS" = "1" ]; then
   MKDISK_ARGS="$MKDISK_ARGS --two-fs"
 fi
-if [ "$KEYS" = "1" ]; then
+if [ "$SHELL_REPAIR" = "1" ]; then
+  MKDISK_ARGS="$MKDISK_ARGS --shell-repair"
+elif [ "$KEYS" = "1" ]; then
   MKDISK_ARGS="$MKDISK_ARGS --keys"
 fi
 python3 tools/mkdisk.py $MKDISK_ARGS build/test.img
