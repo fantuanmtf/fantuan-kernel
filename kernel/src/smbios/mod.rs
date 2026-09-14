@@ -116,120 +116,7 @@ unsafe fn get_nth_string(str_area: *const u8, area_end: *const u8, n: u8) -> Str
     StrRef { off: 0, len: 0 }
 }
 
-// --- Structure parsers: Type 0/1/4/9/16/17 ---
-
-unsafe fn parse_structs(table_phys: u64, table_len: usize) {
-    let buf = core::ptr::addr_of_mut!(TABLE_BUF).cast::<u8>();
-    let len = table_len.min(TABLE_BUF_LEN);
-    let buf_end = buf.add(len);
-    let src = phys_to_virt(table_phys) as *const u8;
-    for i in 0..len {
-        *buf.add(i) = *src.add(i);
-    }
-
-    let mut pos = buf;
-    let tlim = buf_end;
-    while pos.add(4) <= tlim {
-        let stype = *pos;
-        let slen = *pos.add(1) as usize;
-        if slen < 4 {
-            CORRUPT = true;
-            break;
-        }
-        let hdr_end = pos.add(slen);
-        if hdr_end > tlim {
-            CORRUPT = true;
-            break;
-        }
-
-        let mut str_start = hdr_end;
-        while str_start.add(1) < tlim && !(*str_start == 0 && *str_start.add(1) == 0) {
-            str_start = str_start.add(1);
-        }
-        if str_start.add(1) >= tlim {
-            CORRUPT = true;
-            break;
-        }
-        let str_area = hdr_end;
-        let str_end = str_start.add(1);
-
-        match stype {
-            0 => {
-                if slen >= 0x12 {
-                    let v = get_nth_string(str_area, str_end, *pos.add(0x4));
-                    let ver = get_nth_string(str_area, str_end, *pos.add(0x5));
-                    let rel = get_nth_string(str_area, str_end, *pos.add(0x8));
-                    BIOS = Some((v, ver, rel));
-                }
-            }
-            1 => {
-                if slen >= 0x08 {
-                    let mfr = get_nth_string(str_area, str_end, *pos.add(0x4));
-                    let prod = get_nth_string(str_area, str_end, *pos.add(0x5));
-                    let ser = get_nth_string(str_area, str_end, *pos.add(0x7));
-                    SYSTEM = Some((mfr, prod, ser));
-                }
-            }
-            4 => {
-                if slen >= 0x11 {
-                    let _ = get_nth_string(str_area, str_end, *pos.add(0x7));
-                    let _ = get_nth_string(str_area, str_end, *pos.add(0x10));
-                }
-            }
-            9 => {
-                if slen >= 0x0B && SLOT_COUNT < MAX_SLOTS {
-                    let desg = get_nth_string(str_area, str_end, *pos.add(0x4));
-                    let slot_type = *pos.add(0x5);
-                    let usage = *pos.add(0x0A);
-                    let uses_pci = slot_type >= 0x04 && slot_type <= 0x07;
-                    let display = slot_type >= 0x08 && slot_type <= 0x0C;
-                    SLOTS[SLOT_COUNT] = SlotInfo {
-                        slot_id: SLOT_COUNT as u8,
-                        designation: "",
-                        in_use: usage == 0x01,
-                        uses_pci,
-                        display_class_hint: display,
-                    };
-                    let sr = strref_to_str(desg);
-                    SLOTS[SLOT_COUNT].designation = sr;
-                    SLOT_COUNT += 1;
-                }
-            }
-            17 => {
-                if slen >= 0x1B && DIMM_COUNT < MAX_DIMMS {
-                    // Size field: bit15 clear => MiB; bit15 set => KiB;
-                    // 0 => not installed; 0x7FFF => extended size (MiB) at 0x1C;
-                    // 0xFFFF => unknown.
-                    // Type 17: size at 0x0C (2), speed at 0x15 (2),
-                    // manufacturer string 0x17, part number string 0x1A.
-                    let size16 = *(pos.add(0x0C) as *const u16);
-                    let size_mb: u32 = if size16 == 0 || size16 == 0xFFFF {
-                        0
-                    } else if size16 == 0x7FFF {
-                        if slen >= 0x20 {
-                            *(pos.add(0x1C) as *const u32) & 0x7FFF_FFFF
-                        } else {
-                            0
-                        }
-                    } else if size16 & 0x8000 != 0 {
-                        ((size16 & 0x7FFF) as u32 + 1023) / 1024
-                    } else {
-                        size16 as u32
-                    };
-                    let speed = *(pos.add(0x15) as *const u16);
-                    let mfr = get_nth_string(str_area, str_end, *pos.add(0x17));
-                    let part = get_nth_string(str_area, str_end, *pos.add(0x1A));
-                    let ms = strref_to_str(mfr);
-                    let ps = strref_to_str(part);
-                    DIMMS[DIMM_COUNT] = MemoryDevice { size_mb, speed_mtps: speed, manufacturer: ms, part_number: ps };
-                    DIMM_COUNT += 1;
-                }
-            }
-            _ => {}
-        }
-        pos = str_end.add(1);
-    }
-}
+mod structs;
 
 // --- Query API exports + static catalog ---
 
@@ -254,7 +141,7 @@ pub unsafe fn init(phys_start_scan_region: u64, len: u64) {
     if INITED { return; }
     reset_catalog();
     if let Some((taddr, tlen, _)) = find_entry(phys_start_scan_region, len) {
-        parse_structs(taddr, tlen);
+        structs::parse_structs(taddr, tlen);
     }
 }
 
@@ -274,7 +161,7 @@ pub unsafe fn init_from_entry(entry_phys: u64) {
             let table_addr = *(ep.add(0x10) as *const u64);
             let max_struct = *(ep.add(0x0C) as *const u32) as usize;
             reset_catalog();
-            parse_structs(table_addr, max_struct);
+            structs::parse_structs(table_addr, max_struct);
         }
     } else if sig == 0x5F4D535F {
         // SMBIOS 2.x: length at +5, table length at +0x16, address at +0x18.
@@ -283,7 +170,7 @@ pub unsafe fn init_from_entry(entry_phys: u64) {
             let table_addr = *(ep.add(0x18) as *const u32) as u64;
             let table_len = *(ep.add(0x16) as *const u16) as usize;
             reset_catalog();
-            parse_structs(table_addr, table_len);
+            structs::parse_structs(table_addr, table_len);
         }
     }
 }

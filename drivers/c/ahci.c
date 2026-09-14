@@ -225,10 +225,11 @@ static void ata_string(const uint8_t *id, int first_word, int words,
     for (i = 0; i < words && n < out_max - 1; i++) {
         char hi = (char)id[(first_word + i) * 2 + 1];
         char lo = (char)id[(first_word + i) * 2];
-        if (hi != ' ' && hi != 0 && n < out_max - 1) {
+        /* Keep interior spaces; stop at a NUL and trim trailing spaces. */
+        if (hi != 0 && n < out_max - 1) {
             out[n++] = hi;
         }
-        if (lo != ' ' && lo != 0 && n < out_max - 1) {
+        if (lo != 0 && n < out_max - 1) {
             out[n++] = lo;
         }
     }
