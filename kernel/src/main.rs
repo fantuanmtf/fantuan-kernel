@@ -258,8 +258,10 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         diag::run_stage("2 storage", &stage2);
 
         // --- M7: boot repair v1 (read-only diagnosis + repair actions) ----
+        // The boot path is READ-ONLY: diagnosis only. Repairs run solely from
+        // the shell's confirmation-gated `grub-fix repair` (iron rule).
         if let Some(v) = mounted {
-            bootrepair::run(&mut s, &v, bi.runtime_services);
+            bootrepair::diagnose(&mut s, &v, bi.runtime_services);
         }
     } else {
         let _ = writeln!(s, "drivers: AHCI unavailable (boot continues)");

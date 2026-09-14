@@ -62,7 +62,9 @@ fn guid_to_text(g: &[u8; 16]) -> [u8; 36] {
     t
 }
 
-pub fn run(s: &mut Serial, vfs: &Vfs, runtime_services: u64) {
+/// Read-only diagnosis — the ONLY bootrepair entry point the boot path
+/// calls. Nothing here writes to a disk or to NVRAM.
+pub fn diagnose(s: &mut Serial, vfs: &Vfs, runtime_services: u64) {
     let _ = writeln!(s, "bootrepair: v1 diagnosis (read-only)");
 
     // 1. ESP scan: what bootloaders live in EFI/?
@@ -113,9 +115,23 @@ pub fn run(s: &mut Serial, vfs: &Vfs, runtime_services: u64) {
         let _ = writeln!(s, "bootrepair: runtime services unavailable (rt={:#x})", runtime_services);
     }
 
-    // 6. Repair self-test (M7.5b): explicit repair mode, write a file to the
-    // root, read it back, verify. The test disk is regenerated each boot.
-    crate::vfs::enable_repair_mode();
+    // 6. Recommendations.
+    let _ = writeln!(s, "bootrepair: recommendations:");
+    let _ = writeln!(s, "  - run 'grub-fix repair' in the shell to apply repairs (YES confirmation)");
+}
+
+/// Repair actions — WRITES. Only reachable after the operator explicitly
+/// enables repair mode (the shell's `grub-fix repair` + YES, or a future
+/// non-interactive opt-in); this function refuses to run otherwise. The boot
+/// path calls diagnose() only.
+pub fn repair(s: &mut Serial, vfs: &Vfs, runtime_services: u64) {
+    if !crate::vfs::repair_mode() {
+        let _ = writeln!(s, "repair: refused — repair mode is off (explicit consent required)");
+        return;
+    }
+    let _ = writeln!(s, "repair: repair mode ON — applying fixes");
+
+    // 1. Write self-test: create FIXED.TXT in the root and read it back.
     let fixed_name = to_8_3("FIXED.TXT").unwrap();
     let content = b"written by bootrepair v1\n";
     if crate::vfs::write_file(&vfs.fs, vfs.fs.root_cluster, &fixed_name, content) {
@@ -135,30 +151,25 @@ pub fn run(s: &mut Serial, vfs: &Vfs, runtime_services: u64) {
         let _ = writeln!(s, "repair: FIXED.TXT write failed");
     }
 
-    // 7. Fallback-loader repair: when EFI/BOOT/BOOTX64.EFI is missing but
-    //    EFI/ubuntu/shimx64.efi exists, copy the latter into place.
-    fix_missing_fallback(s, &vfs.fs);
+    // 2. Fallback-loader repair: when EFI/BOOT/BOOTX64.EFI is missing but
+    //    EFI/ubuntu/shimx64.efi exists, stream the latter into place.
+    fix_missing_fallback(s, vfs);
 
-    // 8. NVRAM repair (M7.6): BootOrder rebuild + stale-entry deletion +
-    //    boot-entry recreation via SetVariable. Runtime NV writes need an
-    //    SMM firmware build (tools/run.sh --smm).
+    // 3. NVRAM repair (M7.6) + Secure Boot keys (M7.7).
     if let Some(rt) = crate::runtime::Runtime::new(runtime_services) {
         nvram_repair::repair(s, &rt, vfs);
-
-        // 9. Secure Boot keys (M7.7): inventory, then — only in Setup Mode and
-        //    only in repair mode — enroll the platform key from the ESP.
         secureboot::report(s, &rt);
         secureboot::enroll(s, &rt, vfs);
     }
-
-    // 9. Recommendations.
-    let _ = writeln!(s, "bootrepair: recommendations:");
-    let _ = writeln!(s, "  - filesystem UUID checks need ext4 read support (M6.5)");
+    let _ = writeln!(s, "repair: done");
 }
 
-/// EFI/BOOT/BOOTX64.EFI missing + EFI/ubuntu/shimx64.efi present -> copy
-/// the shim into place (the classic fallback-loader repair).
-fn fix_missing_fallback(s: &mut Serial, fs: &crate::vfs::fat::Fat32) {
+/// EFI/BOOT/BOOTX64.EFI missing + EFI/ubuntu/shimx64.efi present -> stream
+/// the shim into place (the classic fallback-loader repair). The copy is
+/// chunked, so a real ~1 MiB shim works; a size mismatch aborts rather than
+/// publishing a truncated loader.
+fn fix_missing_fallback(s: &mut Serial, vfs: &Vfs) {
+    let fs = &vfs.fs;
     let efi = to_8_3("EFI").unwrap();
     let boot = to_8_3("BOOT").unwrap();
     let bootx64 = to_8_3("BOOTX64.EFI").unwrap();
@@ -185,14 +196,57 @@ fn fix_missing_fallback(s: &mut Serial, fs: &crate::vfs::fat::Fat32) {
     let Some(boot_dir) = boot_dir else {
         return;
     };
-    let mut buf = [0u8; 4096];
-    let Some(n) = fs.read_file(shim_entry.0, shim_entry.1.min(buf.len() as u32), &mut buf) else {
+    let want = shim_entry.1 as usize;
+    if want == 0 {
+        let _ = writeln!(s, "repair: shim is empty — nothing to copy");
+        return;
+    }
+    const MAX_FALLBACK: usize = 4 * 1024 * 1024;
+    if want > MAX_FALLBACK {
+        let _ = writeln!(s, "repair: shim is {} bytes — above the {} byte fallback cap; refused", want, MAX_FALLBACK);
+        return;
+    }
+
+    // Stream the shim in 32 KiB windows: read a window from the source, append
+    // it to the new file, then verify the final size by re-reading the entry.
+    let Some(mut w) = fs.create_file(boot_dir, &bootx64) else {
+        let _ = writeln!(s, "repair: cannot create EFI/BOOT/BOOTX64.EFI (unsupported cluster size?)");
         return;
     };
-    if crate::vfs::write_file(fs, boot_dir, &bootx64, &buf[..n]) {
-        let _ = writeln!(s, "repair: copied EFI/ubuntu/shimx64.efi -> EFI/BOOT/BOOTX64.EFI ({} bytes)", n);
-    } else {
-        let _ = writeln!(s, "repair: fallback copy failed");
+    let mut buf = [0u8; 32 * 1024];
+    let mut off = 0usize;
+    while off < want {
+        let n = (want - off).min(buf.len());
+        let Some(got) = fs.read_range(shim_entry.0, off as u64, &mut buf[..n]) else {
+            let _ = writeln!(s, "repair: fallback copy aborted — source read failed at {}", off);
+            return;
+        };
+        if got == 0 || !w.append(&buf[..got]) {
+            let _ = writeln!(s, "repair: fallback copy aborted — write failed at {}", off);
+            return;
+        }
+        off += got;
+    }
+    let written = w.size();
+    if !w.finish() {
+        let _ = writeln!(s, "repair: fallback copy failed while publishing the directory entry");
+        return;
+    }
+    // Verify: the directory entry must report exactly the source size.
+    match find_path(fs, fs.root_cluster, &[&efi, &boot, &bootx64]) {
+        Some((_, size)) if size as usize == want && written as usize == want => {
+            let _ = writeln!(
+                s,
+                "repair: copied EFI/ubuntu/shimx64.efi -> EFI/BOOT/BOOTX64.EFI ({} bytes, verified)",
+                want
+            );
+        }
+        Some((_, size)) => {
+            let _ = writeln!(s, "repair: fallback copy SIZE MISMATCH (source {} vs entry {})", want, size);
+        }
+        None => {
+            let _ = writeln!(s, "repair: fallback copy published but the entry is not found");
+        }
     }
 }
 
