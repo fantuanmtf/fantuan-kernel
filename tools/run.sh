@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# fantuan-kernel — one-shot build & run in QEMU/OVMF (M0).
+# fantuan-kernel — one-shot build & run in QEMU/OVMF.
 # Usage: tools/run.sh [--graphics] [--broken] [--broken-shim] [--smm]
+#                     [--no-smbios] [--two-fs] [--keys] [--shell-repair]
+#                     [--nvme] [--bigcluster] [--liar]
 #   --broken:      build the test disk with a missing EFI/BOOT/BOOTX64.EFI so
 #                  the boot-repair fallback copy can be exercised (M7.5b).
 #   --broken-shim: fallback AND shim missing — the NVRAM repair then has to
@@ -22,6 +24,8 @@ TWO_FS=0
 KEYS=0
 SHELL_REPAIR=0
 NVME=0
+BIGCLUSTER=0
+LIAR=0
 for a in "$@"; do
   case "$a" in
     --graphics)    GRAPHICS=1 ;;
@@ -33,6 +37,8 @@ for a in "$@"; do
     --keys)        KEYS=1 ;;
     --shell-repair) KEYS=1; SHELL_REPAIR=1 ;;
     --nvme)        NVME=1 ;;
+    --bigcluster)  BIGCLUSTER=1 ;;
+    --liar)        LIAR=1 ;;
   esac
 done
 
@@ -52,7 +58,7 @@ if [ "$SMM" = "1" ]; then
   # SMM build (M7.6): runtime NVRAM writes. Kept outside the repo; on Ubuntu
   # it ships in the ovmf-generic package as OVMF_CODE_4M.ms.fd + vars.
   SMM_DIR=""
-  for d in build/ovmf-smm /usr/share/OVMF /usr/share/edk2/x64; do
+  for d in build/ovmf-smm /usr/share/OVMF /usr/share/edk2/x64 /usr/share/edk2-ovmf /usr/share/edk2/OvmfX64; do
     if [ -f "$d/OVMF_CODE_4M.ms.fd" ]; then
       SMM_DIR="$d"
       break
@@ -76,7 +82,7 @@ if [ "$SMM" = "1" ]; then
   OVMF_VARS=build/OVMF_VARS.smm.fd
 else
   OVMF_DIR=""
-  for d in /usr/share/edk2/x64 /usr/share/OVMF /usr/share/ovmf; do
+  for d in /usr/share/edk2/x64 /usr/share/OVMF /usr/share/ovmf /usr/share/edk2-ovmf /usr/share/edk2/OvmfX64; do
     if [ -f "$d/OVMF_CODE.4m.fd" ] || [ -f "$d/OVMF_CODE.fd" ]; then
       OVMF_DIR="$d"
       break
@@ -110,6 +116,12 @@ if [ "$SHELL_REPAIR" = "1" ]; then
 elif [ "$KEYS" = "1" ]; then
   MKDISK_ARGS="$MKDISK_ARGS --keys"
 fi
+if [ "$BIGCLUSTER" = "1" ]; then
+  MKDISK_ARGS="$MKDISK_ARGS --bigcluster"
+fi
+if [ "$LIAR" = "1" ]; then
+  MKDISK_ARGS="$MKDISK_ARGS --liar"
+fi
 python3 tools/mkdisk.py $MKDISK_ARGS build/test.img
 # Storage attachment: AHCI (reference) or NVMe (the same blk_ops table).
 if [ "$NVME" = "1" ]; then
@@ -139,8 +151,10 @@ if [ "$SMBIOS" = "1" ]; then
   )
 fi
 if [ "$SMM" = "1" ]; then
+  # accel=kvm:tcg: use KVM when the host allows it, otherwise fall back to
+  # TCG so the SMM phases run on CI boxes and machines without /dev/kvm.
   QEMU_ARGS=(
-    -machine q35,smm=on,accel=kvm
+    -machine q35,smm=on,accel=kvm:tcg
     -global driver=cfi.pflash01,property=secure,value=on
     -global ICH9-LPC.disable_s3=1
     -global ICH9-LPC.disable_s4=1

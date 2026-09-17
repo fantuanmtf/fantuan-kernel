@@ -150,7 +150,7 @@ pub fn init() -> Option<Vfs> {
             "  part: LBA {}..{} ({} sectors) fat32 {}",
             p.first_lba,
             p.last_lba,
-            p.last_lba - p.first_lba + 1,
+            p.last_lba.saturating_sub(p.first_lba) + 1,
             is_fat32
         );
         if is_fat32 && target.is_none() {

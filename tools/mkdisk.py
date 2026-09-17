@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""mkdisk.py — build the M6 test disk from scratch: a GPT disk with one
-FAT32 partition containing two files:
-  HELLO.TXT  single-cluster (37 bytes)
-  INFO.TXT   two clusters (1000 bytes) — exercises the cluster-chain walk.
+"""mkdisk.py — build the test disk from scratch: a GPT disk with a FAT32 ESP
+fixture (HELLO.TXT/INFO.TXT, EFI/BOOT/EFI/ubuntu trees, fstab/grub.cfg, NVRAM
+and Secure Boot fixtures) and optional variant files:
+  --broken / --broken-shim   missing fallback loader / shim
+  --two-fs                   second partition with ext4 magic (probe fixture)
+  --keys / --shell-repair    Secure Boot certs + ESP autorun shell script
 Zero host-tool dependencies (no sfdisk/mkfs.fat)."""
 
 import struct
@@ -11,11 +13,22 @@ import zlib
 
 SECTOR = 512
 TWO_FS = "--two-fs" in sys.argv
-DISK_SECTORS = 40960 if TWO_FS else 32768  # 20 / 16 MiB
+# Audit fixtures:
+#   --bigcluster  SPC=8 (4 KiB clusters): exercises the short-data cluster
+#                 write (a 21-byte copy must not index past the chunk).
+#   --liar        HELLO.TXT claims 4096 bytes while holding 35: the reader
+#                 must truncate to the caller's buffer instead of panicking.
+BIGCLUSTER = "--bigcluster" in sys.argv
+LIAR = "--liar" in sys.argv
+# --two-fs adds a hand-built ext4 root (mounted ro by M6.5) and an XFS-magic
+# stub that must stay probe-only.
+DISK_SECTORS = 51200 if TWO_FS else 32768  # 25 / 16 MiB
 PART_LBA = 2048
 PART_SECTORS = 30720  # 15 MiB
 PART2_LBA = 32768
-PART2_SECTORS = 8192  # 4 MiB (ext4-magic only, probe fixture)
+PART2_SECTORS = 8192  # 4 MiB (ext4 root fixture)
+PART3_LBA = 40960
+PART3_SECTORS = 8192  # 4 MiB (XFS-magic probe fixture)
 
 out = bytearray(SECTOR * DISK_SECTORS)
 
@@ -85,9 +98,10 @@ out[2 * SECTOR:2 * SECTOR + len(entries)] = entries
 # --- FAT32 partition -------------------------------------------------------
 RESERVED = 32
 N_FATS = 2
-SPC = 1
-SPF = 240
-CLUSTERS = 30208
+# --bigcluster uses 4 KiB clusters; the FAT is sized to cover the data area.
+SPC = 8 if BIGCLUSTER else 1
+SPF = 30 if BIGCLUSTER else 240
+CLUSTERS = (PART_SECTORS - RESERVED - N_FATS * SPF) // SPC
 DATA_START = PART_LBA + RESERVED + N_FATS * SPF
 
 bpb = bytearray(SECTOR)
@@ -167,7 +181,8 @@ SHIM = b"FANTUAN SHIM (dummy)\n"
 GRUBX64 = b"FANTUAN GRUB (dummy)\n"
 
 root = bytearray(SECTOR)
-root[0:32] = dent("HELLO", "TXT", 3, len(HELLO))
+HELLO_SIZE = 4096 if LIAR else len(HELLO)
+root[0:32] = dent("HELLO", "TXT", 3, HELLO_SIZE)
 root[32:64] = dent("INFO", "TXT", 5, len(INFO))
 root[64:96] = dent("EFI", "   ", 7, 0, attrs=0x10)
 root[96:128] = dent("FSTAB", "   ", 14, len(FSTAB))
@@ -182,7 +197,12 @@ i0[0:512] = INFO[0:512]
 wsect(cluster_sector(5), i0)
 i1 = bytearray(SECTOR)
 i1[0:488] = INFO[512:1000]
-wsect(cluster_sector(6), i1)
+if SPC == 1:
+    # One sector per cluster: the second half lives in the next cluster.
+    wsect(cluster_sector(6), i1)
+else:
+    # Both halves fit the same cluster (the 5->6 chain stays unused).
+    wsect(cluster_sector(5) + 1, i1)
 
 # --- ESP structure (M7 boot-repair fixture) -------------------------------
 # Cluster map: 7=EFI/ 8=EFI/BOOT/ 9=EFI/ubuntu/ 10=BOOTX64.EFI 11=grub.cfg

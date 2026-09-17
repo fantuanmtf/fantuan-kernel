@@ -9,6 +9,11 @@ use core::arch::asm;
 use crate::consts::{GDT_CODE64, GDT_DATA64, GDT_USER_CODE, GDT_USER_DATA, IST_DOUBLE_FAULT, TSS_SEL};
 
 const TSS_LIMIT: u64 = 0x67; // size_of::<Tss>() - 1
+/// I/O permission bitmap offset. Pointing it past the TSS limit means "no
+/// bitmap", so every IN/OUT from CPL 3 raises #GP — user tasks must never
+/// touch the PIT/PIC/serial ports directly (the syscall ABI is the only
+/// kernel door).
+const TSS_IOMAP_BASE: u16 = TSS_LIMIT as u16 + 1;
 // null, code64, data64, tss_lo, tss_hi, user_data, user_code
 const GDT_ENTRIES: usize = 7;
 
@@ -50,7 +55,7 @@ static mut TSS: Tss = Tss {
     ist7: 0,
     _reserved2: 0,
     _reserved3: 0,
-    iomap_base: 0,
+    iomap_base: TSS_IOMAP_BASE,
 };
 static mut DF_STACK: Stack = Stack([0; 16 * 1024]);
 static mut GDT: [u64; GDT_ENTRIES] = [0; GDT_ENTRIES];

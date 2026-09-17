@@ -44,8 +44,12 @@
 #define NVME_CNS_CONTROLLER  0x01u
 
 #define NVME_TAG 0x4E564D45u          /* "NVME" */
-#define ADM_Q_ENTRIES 4u
-#define IO_Q_ENTRIES  4u
+/* Desired queue depth; the controller's CAP.MQES caps it (see nvme_probe).
+ * One 4 KiB page holds both SQ and CQ for depths up to 64. */
+#define NVME_Q_ENTRIES 4u
+/* Command completion poll budget, in milliseconds. NVMe commands complete in
+ * microseconds; 5 s is already a "controller is wedged" timeout. */
+#define NVME_CMD_TIMEOUT_MS 5000u
 
 struct nvme_cmd {                     /* 64-byte submission entry */
     uint32_t cdw0;                    /* opcode | (cid << 16) */
@@ -85,6 +89,7 @@ struct nvme_ctrl {
     uint8_t *buf;                     /* one 4 KiB data page */
     uint64_t buf_phys;
     uint32_t dstrd;                   /* doorbell stride (CAP bits 35:32) */
+    uint32_t q_entries;               /* actual queue depth (≤ NVME_Q_ENTRIES) */
     uint32_t nsze_lo, nsze_hi;        /* namespace size in LBAs */
     uint32_t adm_tail, adm_phase, adm_cq_head;
     uint32_t io_tail, io_phase, io_cq_head;
@@ -138,10 +143,10 @@ static int submit(struct nvme_ctrl *c, int admin, uint8_t opcode, uint32_t nsid,
     uint32_t *phase = admin ? &c->adm_phase : &c->io_phase;
     uint32_t *head = admin ? &c->adm_cq_head : &c->io_cq_head;
     uint32_t qid = admin ? 0u : 1u;
-    uint32_t entries = admin ? ADM_Q_ENTRIES : IO_Q_ENTRIES;
+    uint32_t entries = c->q_entries;
     struct nvme_cmd *cmd = &sq[*tail];
     uint32_t cqe_idx;
-    uint32_t tries = 200000;
+    uint32_t tries = NVME_CMD_TIMEOUT_MS;
     uint16_t status;
 
     zero(cmd, sizeof(*cmd));
@@ -313,6 +318,22 @@ int nvme_probe(uint64_t bar0_phys)
     c->regs = (volatile uint32_t *)k_phys_to_virt(bar0_phys);
     cap = (uint64_t)c->regs[NVME_CAP / 4] | ((uint64_t)c->regs[NVME_CAP / 4 + 1] << 32);
     c->dstrd = (uint32_t)((cap >> 32) & 0xF);
+    /* The Rust core maps a 64 KiB register window; a larger stride would put
+     * the doorbells outside it. Real controllers use 0..4. */
+    if (c->dstrd > 8u) {
+        k_log("nvme: doorbell stride above the mapped window — unsupported\n");
+        return -1;
+    }
+    /* CAP.MQES is zero-based: a controller may support fewer entries than the
+     * driver would like, and programming AQA/CQ/SQ beyond MQES is undefined. */
+    {
+        uint32_t mqes = (uint32_t)(cap & 0xFFFFu) + 1u;
+        c->q_entries = mqes < NVME_Q_ENTRIES ? mqes : NVME_Q_ENTRIES;
+    }
+    if (c->q_entries < 2u) {
+        k_log("nvme: controller queue depth below 2 — unusable\n");
+        return -1;
+    }
     k_log("nvme: version ");
     k_log_hex(c->regs[NVME_VS / 4]);
     k_log(" mqes ");
@@ -342,7 +363,7 @@ int nvme_probe(uint64_t bar0_phys)
     zero(c->iosq, 4096);
     zero(c->iocq, 4096);
 
-    c->regs[NVME_AQA / 4] = ((ADM_Q_ENTRIES - 1) << 16) | (ADM_Q_ENTRIES - 1);
+    c->regs[NVME_AQA / 4] = ((c->q_entries - 1) << 16) | (c->q_entries - 1);
     c->regs[NVME_ASQ / 4] = (uint32_t)c->asq_phys;
     c->regs[NVME_ASQ / 4 + 1] = (uint32_t)(c->asq_phys >> 32);
     c->regs[NVME_ACQ / 4] = (uint32_t)c->acq_phys;
@@ -365,12 +386,12 @@ int nvme_probe(uint64_t bar0_phys)
 
     /* One I/O completion queue + submission queue (polling, no interrupts). */
     if (submit(c, 1, NVME_ADMIN_CREATE_CQ, 0,
-               (IO_Q_ENTRIES - 1) << 16 | 1u, (1u << 0) /* PC */, 0, c->iocq_phys)) {
+               (c->q_entries - 1) << 16 | 1u, (1u << 0) /* PC */, 0, c->iocq_phys)) {
         k_log("nvme: create CQ failed\n");
         return -1;
     }
     if (submit(c, 1, NVME_ADMIN_CREATE_SQ, 0,
-               (IO_Q_ENTRIES - 1) << 16 | 1u, (1u << 0) /* PC */ | (1u << 16) /* CQID=1 */,
+               (c->q_entries - 1) << 16 | 1u, (1u << 0) /* PC */ | (1u << 16) /* CQID=1 */,
                0, c->iosq_phys)) {
         k_log("nvme: create SQ failed\n");
         return -1;

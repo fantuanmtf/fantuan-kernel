@@ -63,6 +63,14 @@ impl Fat32 {
         self.data_lba + (n as u64 - 2) * self.sectors_per_cluster as u64
     }
 
+    /// Upper bound for chain walks: a FAT has at most sectors_per_fat x 128
+    /// entries, so a longer walk means a corrupt/cyclic chain. Every loop that
+    /// follows `next_cluster` is capped with this (a bad ESP must not hang the
+    /// rescue kernel).
+    pub(super) fn chain_limit(&self) -> u64 {
+        self.sectors_per_fat as u64 * 128
+    }
+
     /// Read the FAT entry for cluster n (follow the chain).
     pub fn next_cluster(&self, n: u32) -> u32 {
         let entry_offset = n as u64 * 4;
@@ -74,21 +82,29 @@ impl Fat32 {
         u32::from_le_bytes([sec[off], sec[off + 1], sec[off + 2], sec[off + 3]]) & 0x0FFF_FFFF
     }
 
-    /// Read a whole file into buf; returns the bytes copied.
+    /// Read a whole file into buf; returns the bytes copied. Never writes past
+    /// BUF: a directory entry that claims a larger size is truncated (a
+    /// crafted ESP must not panic the kernel at boot).
     pub fn read_file(&self, start_cluster: u32, size: u32, buf: &mut [u8]) -> Option<usize> {
+        let want = (size as usize).min(buf.len());
         let mut got = 0usize;
         let mut c = start_cluster;
+        let mut hops = 0u64;
         let mut sec = [0u8; 512];
-        while got < size as usize && c >= 2 && c < EOC_MIN {
+        while got < want && c >= 2 && c < EOC_MIN {
+            hops += 1;
+            if hops > self.chain_limit() {
+                return None;
+            }
             let lba = self.cluster_to_lba(c);
             let cluster_bytes = (self.sectors_per_cluster * 512) as usize;
             let mut done = 0usize;
-            while done < cluster_bytes && got < size as usize {
+            while done < cluster_bytes && got < want {
                 if !read_sector(lba + (done / 512) as u64, &mut sec) {
                     return None;
                 }
                 let in_sec = done % 512;
-                let n = (512 - in_sec).min(cluster_bytes - done).min(size as usize - got);
+                let n = (512 - in_sec).min(cluster_bytes - done).min(want - got);
                 buf[got..got + n].copy_from_slice(&sec[in_sec..in_sec + n]);
                 got += n;
                 done += n;
@@ -104,6 +120,9 @@ impl Fat32 {
         let cluster_bytes = (self.sectors_per_cluster * 512) as u64;
         let mut skip = offset / cluster_bytes;
         let mut c = start_cluster;
+        if skip > self.chain_limit() {
+            return None;
+        }
         while skip > 0 && c >= 2 && c < EOC_MIN {
             c = self.next_cluster(c);
             skip -= 1;
@@ -113,8 +132,13 @@ impl Fat32 {
         }
         let mut in_cluster = offset % cluster_bytes;
         let mut got = 0usize;
+        let mut hops = 0u64;
         let mut sec = [0u8; 512];
         while got < buf.len() && c >= 2 && c < EOC_MIN {
+            hops += 1;
+            if hops > self.chain_limit() {
+                return None;
+            }
             let lba = self.cluster_to_lba(c);
             while in_cluster < cluster_bytes && got < buf.len() {
                 let sec_idx = in_cluster / 512;
@@ -136,11 +160,17 @@ impl Fat32 {
         Some(got)
     }
 
-    /// Walk a directory's 8.3 entries (LFN and deleted entries skipped).
+    /// Walk a directory's 8.3 entries (LFN and deleted entries skipped). A
+    /// cyclic directory chain is cut off at the chain limit.
     pub fn walk_dir(&self, start_cluster: u32, mut f: impl FnMut(&[u8; 11], u8, u32, u32)) {
         let mut c = start_cluster;
+        let mut hops = 0u64;
         let mut sec = [0u8; 512];
         while c >= 2 && c < EOC_MIN {
+            hops += 1;
+            if hops > self.chain_limit() {
+                return;
+            }
             let lba = self.cluster_to_lba(c);
             for s in 0..self.sectors_per_cluster {
                 if !read_sector(lba + s as u64, &mut sec) {

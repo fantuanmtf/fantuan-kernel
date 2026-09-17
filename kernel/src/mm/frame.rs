@@ -1,9 +1,10 @@
 //! Bitmap frame allocator over the EFI memory map (DESIGN.md §4.5).
 //!
 //! Covers the first 4 GiB — the identity-mapped span the bootloader set up.
-//! M2 scope notes: allocations are a linear scan (fine at boot), the allocator
-//! is not yet interrupt-safe (its only M2 callers are single-context), and RAM
-//! beyond 4 GiB is ignored until the map is extended.
+//! Scope notes: allocations are a linear scan (fine at boot), the allocator is
+//! still not interrupt-safe (callers are single-context), and RAM beyond 4 GiB
+//! is ignored until the map is extended. `alloc_contiguous` backs stacks,
+//! which the CPU walks as one linear region.
 
 use core::ptr;
 
@@ -30,7 +31,8 @@ pub struct FrameAllocator {
 }
 
 /// M4: the allocator is a proper global (M3 kept it as a kmain local).
-/// Single-context access via get(); interrupt-safety arrives with M5.
+/// Single-context access via get(); still not interrupt-safe (callers hold
+/// interrupts off or run before the scheduler starts).
 static mut FRAME_ALLOCATOR: FrameAllocator = FrameAllocator { free_frames: 0, next: 0 };
 
 pub fn init(bi: &BootInfo) {
@@ -145,6 +147,62 @@ impl FrameAllocator {
             }
             self.free_frames += 1;
         }
+    }
+
+    /// Allocate FRAMES physically contiguous frames; returns the first
+    /// physical address. Stacks are used as one linear region, so a run of
+    /// separate alloc() calls (which may straddle reserved holes) is not
+    /// enough. The scan starts at the round-robin cursor and never lets a run
+    /// cross the bitmap end, so the result is always contiguous in physical
+    /// memory.
+    pub fn alloc_contiguous(&mut self, frames: usize) -> Option<u64> {
+        let total = BITMAP_BYTES * 8;
+        if frames == 0 || frames > total {
+            return None;
+        }
+        let start = self.next % total;
+        if let Some(p) = self.scan_run(start, total, frames) {
+            return Some(p);
+        }
+        if start > 0 {
+            if let Some(p) = self.scan_run(0, start, frames) {
+                return Some(p);
+            }
+        }
+        None
+    }
+
+    /// Find and claim a run of FRAMES free frames in [begin, end).
+    fn scan_run(&mut self, begin: usize, end: usize, frames: usize) -> Option<u64> {
+        let total = BITMAP_BYTES * 8;
+        let mut run = 0usize;
+        let mut first = 0usize;
+        let mut idx = begin;
+        while idx < end {
+            let byte = idx / 8;
+            let mask = 1u8 << (idx % 8);
+            let free = unsafe { *ptr::addr_of!(BITMAP[byte]) } & mask != 0;
+            if free {
+                if run == 0 {
+                    first = idx;
+                }
+                run += 1;
+                if run == frames {
+                    for i in first..first + frames {
+                        let b = i / 8;
+                        let m = 1u8 << (i % 8);
+                        unsafe { *ptr::addr_of_mut!(BITMAP[b]) &= !m };
+                    }
+                    self.free_frames -= frames as u64;
+                    self.next = (first + frames) % total;
+                    return Some(first as u64 * FRAME_SIZE);
+                }
+            } else {
+                run = 0;
+            }
+            idx += 1;
+        }
+        None
     }
 
     pub fn usable_mib(&self) -> u64 {

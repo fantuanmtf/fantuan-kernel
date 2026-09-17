@@ -1,6 +1,6 @@
-//! M5.5 disk-health diagnostics: DESIGN.md §7, Task 4. Read-only surface scan,
-//! IDENTIFY decode, and ATA SMART attributes. NVMe SMART is a stub until Task 8;
-//! the dispatcher already routes protocol checks so later work is surgical.
+//! M5.5 disk-health diagnostics: DESIGN.md §7. Read-only surface scan,
+//! IDENTIFY decode, ATA SMART attributes and the NVMe SMART/Health log; the
+//! dispatcher routes protocol-specific decoding to the right format.
 
 use core::ffi::c_void;
 
@@ -97,11 +97,9 @@ pub fn ata_smart(dev: *mut c_void) -> Option<AtaSmart> {
     Some(sm)
 }
 
-// --- NVMe SMART dispatcher (stub until Task 8) ---
+// --- NVMe SMART payload (log page 0x02) ---
 
-/// NVMe SMART payload — the dispatcher stub keeps the formatting code shared
-/// until the NVMe driver lands (Task 8).
-#[allow(dead_code)]
+/// Decoded NVMe SMART/Health fields, formatted by the shared report code.
 #[derive(Default)]
 pub struct NvmeSmart {
     pub power_on_hours: u64,

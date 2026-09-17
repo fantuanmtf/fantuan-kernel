@@ -6,7 +6,8 @@
 //!   - list_display_devices() -> &[PciDevice]   — class 0x03 (display controllers)
 //!   - find_storage_controllers() -> &[PciDevice] — class 0x01 (mass storage)
 //!   - find_nvme() -> Option<PciDevice>         — class 0x01 subclass 0x08
-//!   - find_ahci() -> Option<(u8,u8,u8,u64)>    — class 0x01 sub 0x06 progif 0x01
+//! (find_ahci() was retired with the block-device registry; drivers::init walks
+//! find_storage_controllers() and probes by progif.)
 
 use crate::port::{inl, outl};
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -130,7 +131,7 @@ pub fn list_display_devices() -> &'static [PciDevice] {
     }
 }
 
-/// Storage-class catalog — the NVMe driver (Task 8) is the next consumer.
+/// Storage-class catalog — consumed by drivers::init (AHCI/NVMe bring-up).
 #[allow(dead_code)]
 pub fn find_storage_controllers() -> &'static [PciDevice] {
     unsafe {

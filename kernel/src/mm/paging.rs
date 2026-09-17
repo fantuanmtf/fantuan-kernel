@@ -47,7 +47,14 @@ pub fn map_mmio(alloc: &mut FrameAllocator, phys: u64, len: u64) -> Option<u64> 
         return None;
     }
     let start = phys & !(HUGE - 1);
-    let end = (phys + len + HUGE - 1) & !(HUGE - 1);
+    // Checked end computation: a BAR near the top of the address space must
+    // fail cleanly instead of wrapping into a tiny mapping. The PHYS_OFFSET
+    // window must also cover the whole range without wrapping.
+    let end = phys.checked_add(len)?.checked_add(HUGE - 1)? & !(HUGE - 1);
+    let vstart = start.checked_add(PHYS_OFFSET)?;
+    if end.checked_add(PHYS_OFFSET).is_none() {
+        return None;
+    }
 
     unsafe {
         let pml4 = phys_to_virt(pml4_phys) as *mut u64;
@@ -79,9 +86,9 @@ pub fn map_mmio(alloc: &mut FrameAllocator, phys: u64, len: u64) -> Option<u64> 
             *pd.add(i2) = p | P_PRESENT | P_WRITABLE | P_HUGE | P_PCD | P_PWT;
             p += HUGE;
         }
-        asm!("invlpg [{}]", in(reg) start + PHYS_OFFSET, options(nostack));
+        asm!("invlpg [{}]", in(reg) vstart, options(nostack));
     }
-    Some(start + PHYS_OFFSET)
+    Some(vstart)
 }
 
 /// Build the tables, switch CR3, and return the new PML4's physical address.

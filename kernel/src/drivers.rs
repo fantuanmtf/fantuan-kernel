@@ -90,7 +90,9 @@ pub extern "C" fn k_log(s: *const u8) {
         return;
     }
     let mut len = 0;
-    while unsafe { *s.add(len) } != 0 && len < 256 {
+    // Order matters: bound-check BEFORE dereferencing, or the scan reads one
+    // byte past the 256-byte cap.
+    while len < 256 && unsafe { *s.add(len) } != 0 {
         len += 1;
     }
     let buf = unsafe { core::slice::from_raw_parts(s, len) };
@@ -162,7 +164,9 @@ pub fn init() -> bool {
         } else if d.subclass == 0x08 {
             let _ = writeln!(s, "pci: NVMe at {:02x}:{:02x}.{}, BAR0 {:#x}", d.bus, d.dev, d.func, d.bar0);
             // 64-bit BARs live above 4 GiB: map the register window first.
-            let mapped = crate::mm::paging::map_mmio(crate::mm::frame::get(), d.bar0, 16 * 1024);
+            // 64 KiB covers the controller registers plus the doorbells for
+            // any doorbell stride the driver accepts (CAP.DSTRD ≤ 8).
+            let mapped = crate::mm::paging::map_mmio(crate::mm::frame::get(), d.bar0, 64 * 1024);
             if mapped.is_none() {
                 let _ = writeln!(s, "nvme: cannot map BAR0 {:#x} (out of frames?)", d.bar0);
                 continue;

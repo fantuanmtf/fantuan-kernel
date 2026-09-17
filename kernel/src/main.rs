@@ -1,9 +1,11 @@
-//! fantuan-kernel — M1: interrupts & exceptions.
+//! fantuan-kernel — boot entry + core bring-up (M0-M8).
 //!
 //! Boot chain: UEFI firmware -> fantuan-boot (Rust EFI app) -> boot/entry.S ->
-//! kmain. On top of M0 (handshake, serial, GOP console, beeper), M1 adds:
-//! authoritative GDT + TSS (IST1 for #DF), IDT with 256 stubs, PIC remap,
-//! 100 Hz PIT timer on IRQ0, TSC-calibrated sleep, exception handlers.
+//! kmain. The tree currently carries: handshake/serial/GOP console (M0),
+//! interrupts + PIT/TSC (M1), higher-half kernel + frame allocator (M2),
+//! tasks/scheduler + syscall ABI (M3), ring-3 + ELF loader (M4), the C driver
+//! boundary + AHCI (M4.5), diagnostics (M5/M5.5), the VFS (M6), boot repair
+//! (M7.x), the built-in shell (§10), and the storage ops registry + NVMe (M8).
 
 #![no_std]
 #![no_main]
@@ -102,7 +104,7 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     }
 
     let _ = writeln!(s);
-    let _ = writeln!(s, "fantuan-kernel v0.1 (M3)");
+    let _ = writeln!(s, "fantuan-kernel v0.1 (M8)");
     let _ = writeln!(
         s,
         "handshake ok: magic={:#x} version={} rsdp={:#x}",
@@ -124,7 +126,7 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     );
     let mut con = console::Console::new(fb);
     if let Some(c) = con.as_mut() {
-        let _ = writeln!(c, "fantuan-kernel v0.1 (M1)");
+        let _ = writeln!(c, "fantuan-kernel v0.1 (M8)");
         let _ = writeln!(c, "handshake ok: magic={:#x} version={}", bi.magic, bi.version);
         let _ = writeln!(c, "console: GOP framebuffer {}x{}", fb.width, fb.height);
     } else {

@@ -108,8 +108,8 @@ pub fn check(s: &mut Serial) -> Severity {
         }
     }
 
-    // Family/model/stepping from leaf 1.
-    let (v1, _, _, _) = cpuid(1, 0);
+    // Family/model/stepping from leaf 1 (EDX bit 28 = HTT).
+    let (v1, _, _, d1) = cpuid(1, 0);
     let family = ((v1 >> 8) & 0xF) + ((v1 >> 20) & 0xFF);
     let model = ((v1 >> 4) & 0xF) + (((v1 >> 16) & 0xF) << 4);
     let stepping = v1 & 0xF;
@@ -122,17 +122,25 @@ pub fn check(s: &mut Serial) -> Severity {
     let smep = b7 & (1 << 7) != 0;
     let smap = b7 & (1 << 20) != 0;
 
-    // Topology via leaf 0xB (SMT level first, core level second). Emulators
-    // (QEMU TCG) may return zeroes; fall back to leaf 1's logical-processor
-    // count then.
-    let (ebx_core, _, _, _) = cpuid(0xB, 0);
-    let (_, _, _, edx_all) = cpuid(0xB, 1);
-    let mut cores = ebx_core & 0xFFFF;
-    let mut threads = edx_all & 0xFFFF;
-    if cores == 0 {
-        cores = 1;
-        threads = (v1 >> 16) & 0xFF;
-    }
+    // Topology via leaf 0xB: ECX bits 15:8 hold the level type (1 = SMT,
+    // 2 = core) and EBX the logical-processor count at that level. The core
+    // count is the core-level EBX divided by the SMT-level EBX. Emulators may
+    // return zeroes; fall back to leaf 1's logical count then.
+    let (_, ebx0, ecx0, _) = cpuid(0xB, 0);
+    let (_, ebx1, ecx1, _) = cpuid(0xB, 1);
+    let type0 = (ecx0 >> 8) & 0xFF;
+    let type1 = (ecx1 >> 8) & 0xFF;
+    let smt_ebx = if type0 == 1 { ebx0 & 0xFFFF } else if type1 == 1 { ebx1 & 0xFFFF } else { 0 };
+    let core_ebx = if type0 == 2 { ebx0 & 0xFFFF } else if type1 == 2 { ebx1 & 0xFFFF } else { 0 };
+    let logical = ((v1 >> 16) & 0xFF).max(1);
+    let (cores, threads) = if smt_ebx > 0 && core_ebx > 0 {
+        (core_ebx / smt_ebx, smt_ebx)
+    } else if d1 & (1 << 28) != 0 {
+        (logical / 2, logical) // HTT set: logical count includes siblings
+    } else {
+        (logical, logical)
+    };
+    let cores = cores.max(1);
 
     // Microcode revision: IA32_BIOS_SIGN_ID, valid after a CPUID(1).
     let mc = rdmsr(0x8B);

@@ -2,5 +2,8 @@
 /build
 /kernel/user_program.bin
 
+# Python bytecode cache (tools/*.py)
+__pycache__/
+
 # IDE agent scaffolding (Trae) — not project artifacts
 .trae/

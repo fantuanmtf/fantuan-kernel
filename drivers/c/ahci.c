@@ -70,6 +70,8 @@ struct ahci_port {
     uint64_t ct_phys;
     uint8_t *buf;            /* one-page (4K) DMA buffer */
     uint64_t buf_phys;
+    uint8_t *fis;            /* one-page FIS receive area (PX_FB) */
+    uint64_t fis_phys;
     int inited;
 };
 
@@ -104,19 +106,22 @@ static int init_port(int port)
         return -1;
     }
 
-    /* allocate the command list, command table and DMA buffer */
+    /* allocate the command list, command table, DMA buffer and FIS area */
     p->clb = (struct cmd_header *)k_alloc_page(&phys);
     p->clb_phys = phys;
     p->ct = (struct cmd_table *)k_alloc_page(&phys);
     p->ct_phys = phys;
     p->buf = (uint8_t *)k_alloc_page(&phys);
     p->buf_phys = phys;
+    p->fis = (uint8_t *)k_alloc_page(&phys);
+    p->fis_phys = phys;
 
-    /* install and start: FIS receive first, then the command engine */
+    /* install and start: FIS receive needs a valid receive area BEFORE FRE
+     * is set (the HBA DMAs FISes there; a null base would write to phys 0) */
     p->px[PX_CLB / 4] = (uint32_t)p->clb_phys;
     p->px[PX_CLB / 4 + 1] = (uint32_t)(p->clb_phys >> 32);
-    p->px[PX_FB / 4] = 0;
-    p->px[PX_FB / 4 + 1] = 0;
+    p->px[PX_FB / 4] = (uint32_t)p->fis_phys;
+    p->px[PX_FB / 4 + 1] = (uint32_t)(p->fis_phys >> 32);
     p->px[PX_IE / 4] = 0; /* no interrupts in v1: pure polling */
     p->px[PX_CMD / 4] |= PX_CMD_FRE;
     p->px[PX_CMD / 4] |= PX_CMD_ST;
@@ -168,6 +173,12 @@ static int ata_io_ex(uint8_t cmd, uint8_t device, uint64_t lba, uint8_t *dst,
     cfis[5] = (uint8_t)((lba >> 8) & 0xFF);
     cfis[6] = (uint8_t)((lba >> 16) & 0xFF);
     cfis[7] = device;
+    /* LBA48 bits 24..47: without these, disks above 8 GiB read the wrong
+     * sectors (the low 24 bits alias every 8 GiB). */
+    cfis[8] = (uint8_t)((lba >> 24) & 0xFF);
+    cfis[9] = (uint8_t)((lba >> 32) & 0xFF);
+    cfis[10] = (uint8_t)((lba >> 40) & 0xFF);
+    cfis[11] = 0;    /* Features (15:8) */
     cfis[12] = (uint8_t)(sector_count & 0xFF);
     cfis[13] = (uint8_t)((sector_count >> 8) & 0xFF);
 

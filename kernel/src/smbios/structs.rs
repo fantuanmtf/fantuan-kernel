@@ -8,7 +8,7 @@ use super::{
     TABLE_BUF_LEN,
 };
 
-// --- Structure parsers: Type 0/1/4/9/16/17 ---
+// --- Structure parsers: Type 0/1/4/9/17 ---
 
 pub(super) unsafe fn parse_structs(table_phys: u64, table_len: usize) {
     let buf = core::ptr::addr_of_mut!(TABLE_BUF).cast::<u8>();

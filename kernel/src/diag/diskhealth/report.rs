@@ -94,6 +94,10 @@ pub fn format_line(
             let _ = s.write_str("   life ");
             write_u8(s, n.percentage_used);
             let _ = s.write_char('%');
+            if n.media_errors > 0 {
+                let _ = s.write_str("   media-errors ");
+                write_u32(s, n.media_errors);
+            }
         }
     } else if let Some(a) = ata {
         let _ = s.write_str("   reallocated ");

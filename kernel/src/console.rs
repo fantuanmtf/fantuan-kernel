@@ -28,9 +28,18 @@ impl Console {
         if fb.size == 0 || fb.base == 0 || fb.width < GLYPH_W || fb.height < GLYPH_H {
             return None;
         }
-        // v1 supports RGB8/BGR8 and assumes bit-mask formats are 8-bit/channel.
+        // The backing store must cover every pixel we address; a QEMU or
+        // firmware bug that reports a short buffer must not turn into wild
+        // writes. 32 bpp only.
+        let needed = (fb.stride as u64).checked_mul(fb.height as u64)?.checked_mul(4)?;
+        if fb.size < needed {
+            return None;
+        }
+        // v1 supports RGB8/BGR8 only (channel-symmetric colors); bit-mask
+        // formats need per-channel shifts and are rejected rather than
+        // rendered incorrectly.
         match fb.format {
-            0 | 1 | 2 => {}
+            0 | 1 => {}
             _ => return None,
         }
         let mut c = Console {

@@ -1,10 +1,11 @@
 //! Own syscall ABI v1 (DESIGN.md §4.6).
 //!
-//! Mechanism: INT 0x60 (a plain IDT gate; ring-3 entry comes with M4).
+//! Mechanism: INT 0x60, DPL 3 since M4.
 //! Register ABI: rax = number, rdi..r8 = five arguments, rax = result.
-//! Versioned dispatch: each call is registered with its own version so the
-//! ABI can evolve per-call (capability negotiation). Unknown numbers return
-//! ERR_NOSYS. v1 runs with kernel-mode callers only — arguments are trusted.
+//! Versioned ABI: SYS_VERSION probes ABI_VERSION and the call numbers live in
+//! fantuan-abi; adding a call is an append-only change, never a renumbering.
+//! Unknown numbers return ERR_NOSYS. v1 treats callers as trusted (no user
+//! pointer validation beyond the page tables).
 
 use crate::interrupts::InterruptFrame;
 use crate::serial;

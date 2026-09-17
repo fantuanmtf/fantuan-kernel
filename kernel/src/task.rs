@@ -108,11 +108,9 @@ pub fn spawn(body: fn() -> !) -> u64 {
     let slot = find_slot().expect("task table full");
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed) + 1;
 
-    let stack_phys = frame::get().alloc().expect("no frames for task stack");
-    // Claim the rest of the stack: the task owns STACK_PAGES frames.
-    for _ in 1..STACK_PAGES {
-        frame::get().alloc().expect("no frames for task stack");
-    }
+    let stack_phys = frame::get()
+        .alloc_contiguous(STACK_PAGES as usize)
+        .expect("no contiguous frames for task stack");
     let stack_top = phys_to_virt(stack_phys + STACK_PAGES * frame::FRAME_SIZE);
     // [r15..rbx zeros][task_entry] <- rsp
     let sp = (stack_top - 7 * 8) as *mut u64;
@@ -153,19 +151,13 @@ pub fn spawn_user(elf_image: &[u8]) -> Option<u64> {
         return None;
     };
 
-    // User stack: frames mapped at USER_STACK_TOP - 16 KiB. Every early exit
-    // must restore the interrupt state saved above, or an OOM would leave IRQs
-    // disabled for the rest of the boot.
-    let Some(ustack_phys) = frame::get().alloc() else {
+    // User stack: contiguous frames mapped at USER_STACK_TOP - 16 KiB. Every
+    // early exit must restore the interrupt state saved above, or an OOM would
+    // leave IRQs disabled for the rest of the boot.
+    let Some(ustack_phys) = frame::get().alloc_contiguous(USER_STACK_PAGES as usize) else {
         cpu::irq_restore(flags);
         return None;
     };
-    for _ in 1..USER_STACK_PAGES {
-        if frame::get().alloc().is_none() {
-            cpu::irq_restore(flags);
-            return None;
-        }
-    }
     let ustack_base = USER_STACK_TOP - USER_STACK_PAGES * frame::FRAME_SIZE;
     for i in 0..USER_STACK_PAGES {
         user::map_page(
@@ -179,16 +171,13 @@ pub fn spawn_user(elf_image: &[u8]) -> Option<u64> {
     // Kernel stack + the initial frame: six saved-register zeros, then
     // user_entry as the ret target, then the ring-3 iretq frame
     // [rip][cs][rflags][rsp][ss].
-    let Some(stack_phys) = frame::get().alloc() else {
+    let Some(stack_phys) = frame::get().alloc_contiguous(STACK_PAGES as usize) else {
+        for i in 0..USER_STACK_PAGES {
+            frame::get().free(ustack_phys + i * frame::FRAME_SIZE);
+        }
         cpu::irq_restore(flags);
         return None;
     };
-    for _ in 1..STACK_PAGES {
-        if frame::get().alloc().is_none() {
-            cpu::irq_restore(flags);
-            return None;
-        }
-    }
     let stack_top = phys_to_virt(stack_phys + STACK_PAGES * frame::FRAME_SIZE);
     let sp = (stack_top - 12 * 8) as *mut u64;
     unsafe {

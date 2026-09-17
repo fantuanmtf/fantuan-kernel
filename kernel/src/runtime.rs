@@ -131,10 +131,12 @@ impl Runtime {
     }
 
     /// Read a variable; returns the number of bytes copied (≤ buf.len()).
+    /// The firmware-reported size is clamped: a buggy variable store must not
+    /// make callers slice past their own buffer.
     pub fn get_variable(&self, name: &[u16], guid: &Guid, buf: &mut [u8]) -> Option<usize> {
         let (sts, size) = self.get_variable_status(name, guid, buf);
         if sts == RT_SUCCESS {
-            Some(size)
+            Some(size.min(buf.len()))
         } else {
             None
         }

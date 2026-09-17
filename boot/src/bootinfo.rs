@@ -1,12 +1,14 @@
 //! BOOT_INFO construction and the ExitBootServices + jump sequence.
 
+use core::ffi::c_void;
+
 use crate::console;
 use crate::memory::MemMapBuf;
 use crate::paging::{self, TablePages};
 use crate::serial;
 use crate::uefi::protocol::{FrameBufferInfo, MemoryDescriptor, SimpleTextOutput};
 use crate::uefi::table::BootServices;
-use crate::uefi::{Handle, EFI_SUCCESS};
+use crate::uefi::{Handle, EFI_BUFFER_TOO_SMALL, EFI_LOADER_DATA, EFI_SUCCESS};
 use fantuan_abi::{BootInfo, FrameBuffer, MemMap, BOOT_MAGIC, PHYS_OFFSET};
 
 // Lives in the EFI app's own image (.data/.bss), not on the firmware stack:
@@ -59,8 +61,22 @@ pub fn exit_and_jump(
             &mut dsz,
             &mut dv,
         );
+        if sts == EFI_BUFFER_TOO_SMALL && attempts < 8 {
+            // The map outgrew the snapshot's headroom (OVMF can add
+            // descriptors while retrying ExitBootServices). Boot Services are
+            // still alive on this path, so probe the size and grow the buffer.
+            if !grow_map(bs, con, map) {
+                loop_halt();
+            }
+            attempts += 1;
+            continue;
+        }
         if sts != EFI_SUCCESS {
-            console::println(con, "ERROR: GetMemoryMap (retry) failed");
+            let mut buf = [0u16; 256];
+            let mut off = 0;
+            console::write_ascii(&mut buf, &mut off, "ERROR: GetMemoryMap failed sts=");
+            console::write_hex64(&mut buf, &mut off, sts as u64);
+            console::output_line(con, &mut buf, off);
             loop_halt();
         }
         let sts = (bs.exit_boot_services)(image_handle, k);
@@ -118,6 +134,32 @@ pub fn exit_and_jump(
     type KernelEntry = extern "sysv64" fn(boot_info: *const BootInfo, stack_top: u64) -> !;
     let entry: KernelEntry = unsafe { core::mem::transmute((PHYS_OFFSET + kernel_addr) as *const ()) };
     entry(&raw const BOOT_INFO, stack_top);
+}
+
+/// Grow the memory-map buffer after EFI_BUFFER_TOO_SMALL: re-probe the
+/// required size, allocate a larger pool block (with headroom for the next
+/// change), and update MAP. The old buffer is deliberately not freed — that
+/// would itself change the map again.
+fn grow_map(bs: &BootServices, con: *mut SimpleTextOutput, map: &mut MemMapBuf) -> bool {
+    let mut need: usize = 0;
+    let mut key: usize = 0;
+    let mut dsz: usize = map.desc_size;
+    let mut dv: u32 = 0;
+    let sts = (bs.get_memory_map)(&mut need, core::ptr::null_mut(), &mut key, &mut dsz, &mut dv);
+    if sts != EFI_BUFFER_TOO_SMALL || dsz == 0 || need == 0 {
+        console::println(con, "ERROR: GetMemoryMap size probe failed");
+        return false;
+    }
+    let capacity = need + dsz * 8;
+    let mut ptr: *mut c_void = core::ptr::null_mut();
+    if (bs.allocate_pool)(EFI_LOADER_DATA, capacity, &mut ptr) != EFI_SUCCESS || ptr.is_null() {
+        console::println(con, "ERROR: AllocatePool(grow memory map) failed");
+        return false;
+    }
+    map.ptr = ptr;
+    map.capacity = capacity;
+    map.desc_size = dsz;
+    true
 }
 
 fn loop_halt() -> ! {

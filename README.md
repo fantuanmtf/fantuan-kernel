@@ -31,10 +31,13 @@ confirmation-gated repair. M8 (storage part) puts storage behind a
 driver-agnostic ops registry: the new NVMe driver registers the same table
 as AHCI, so the VFS, boot repair and SMART run unchanged over either
 transport (`tools/run.sh --nvme`); 64-bit NVMe BARs above 4 GiB are mapped
-on demand by `mm::paging::map_mmio`. tools/mkdisk.py hand-builds the GPT +
-FAT32 test
-disk including the ESP fixture (`--broken` / `--broken-shim` / `--two-fs` /
-`--keys` / `--shell-repair` variants).
+on demand by `mm::paging::map_mmio`. A three-round audit (P0-P2) then closed
+the remaining violations of the read-only iron rule and the latent
+robustness bugs it found (FAT/ELF/bootloader input validation, hardware
+paths, the `RepairToken` write capability). tools/mkdisk.py hand-builds the
+GPT + FAT32 test disk including the ESP fixture (`--broken` / `--broken-shim`
+/ `--two-fs` / `--keys` / `--shell-repair` / `--liar` / `--bigcluster`
+variants).
 
 - `boot/` — self-written UEFI bootloader in Rust (`x86_64-unknown-uefi`),
   hand-rolled against the UEFI spec: GOP, RSDP, memory map, kernel load via

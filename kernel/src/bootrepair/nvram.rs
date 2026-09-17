@@ -224,19 +224,31 @@ fn parse_entry(e: &mut BootEntry, vfs: &Vfs) {
 /// firmware-issued names/vendors are authoritative — direct-name reads are
 /// unreliable on some firmware). Returns (entries filled, BootOrder bytes,
 /// BootOrder length).
+///
+/// The scan must visit the WHOLE namespace: stopping early once 8 Boot####
+/// entries were seen could miss BootOrder (firmware enumeration order is not
+/// alphabetical), and a truncated BootOrder is how the repair path would
+/// delete boot entries it never saw. Extra Boot#### names beyond the entry
+/// array are ignored; the iteration cap guards against firmware that loops.
 pub(super) fn collect(rt: &Runtime, vfs: &Vfs, entries: &mut [BootEntry; 8]) -> (usize, [u8; 64], usize) {
+    const MAX_VARIABLES: usize = 256;
     let mut order = [0u8; 64];
     let mut order_n = 0usize;
     let mut names: [[u8; 8]; 8] = [[0; 8]; 8];
     let mut found = 0usize;
+    let mut iters = 0usize;
     let mut name_buf = [0u16; 32];
     let mut vendor = GLOBAL_GUID;
-    while found < 8 && rt.next_variable(&mut name_buf, &mut vendor) {
+    while rt.next_variable(&mut name_buf, &mut vendor) {
+        iters += 1;
+        if iters > MAX_VARIABLES {
+            break;
+        }
         let mut ascii = [0u8; 16];
         let alen = utf16_to_ascii(&name_buf, &mut ascii);
         if alen == 9 && &ascii[..9] == b"BootOrder" {
             order_n = rt.get_variable(&name_buf, &vendor, &mut order).unwrap_or(0);
-        } else if alen == 8 && &ascii[..4] == b"Boot" {
+        } else if alen == 8 && &ascii[..4] == b"Boot" && found < names.len() {
             names[found].copy_from_slice(&ascii[..8]);
             found += 1;
         }

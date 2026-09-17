@@ -66,11 +66,45 @@ else
   exit 1
 fi
 
+# Audit phase (P2): a crafted ESP whose HELLO.TXT claims 4096 bytes while the
+# file holds 35 must not panic the boot path — read_file truncates to the
+# caller's buffer and the boot continues.
+rm -f build/smoke-liar.log
+timeout --signal=KILL 60 ./tools/run.sh --liar > build/smoke-liar.log 2>&1 || true
+if grep -q "handshake ok" build/smoke-liar.log \
+   && grep -q "vfs: HELLO.TXT =>" build/smoke-liar.log \
+   && grep -q "vfs: INFO.TXT => 1000" build/smoke-liar.log; then
+  echo "SMOKE PASS (crafted FAT: oversized file entry truncated, boot completes)"
+  grep -aE "vfs: (HELLO|INFO)" build/smoke-liar.log
+else
+  echo "SMOKE FAIL (crafted FAT size lie) — log tail:"
+  tail -20 build/smoke-liar.log
+  exit 1
+fi
+
+# Audit phase (P2): 4 KiB clusters + the 21-byte fallback copy — the short
+# final chunk must zero-pad the rest of its cluster instead of indexing past
+# the buffer.
+rm -f build/smoke-bigcluster.log
+timeout --signal=KILL 90 ./tools/run.sh --bigcluster --broken --shell-repair > build/smoke-bigcluster.log 2>&1 || true
+if grep -q "repair: copied EFI/ubuntu/shimx64.efi -> EFI/BOOT/BOOTX64.EFI (21 bytes, verified)" build/smoke-bigcluster.log \
+   && grep -q "vfs: INFO.TXT => 1000 bytes read, all-X true" build/smoke-bigcluster.log \
+   && grep -q "cat: 21 bytes" build/smoke-bigcluster.log; then
+  echo "SMOKE PASS (4 KiB clusters: short-data cluster write zero-pads)"
+  grep -aE "repair: copied|vfs: INFO|cat: " build/smoke-bigcluster.log | head -4
+else
+  echo "SMOKE FAIL (4 KiB clusters) — log tail:"
+  tail -25 build/smoke-bigcluster.log
+  exit 1
+fi
+
 # §10 shell phase: the ESP carries an autorun script (EFI/fantuan/SHELL.CMD),
 # so the read-only commands and the confirmation-gated repair path are
 # exercised deterministically — no timing-dependent serial injection.
 rm -f build/smoke-shell.log build/smoke-shell-repair.log
-timeout --signal=KILL 90 ./tools/run.sh --keys --broken > build/smoke-shell.log 2>&1 || true
+# The idle notice needs ~30 s after the autorun scan finishes, and a TCG boot
+# can take most of the first minute: budget 150 s.
+timeout --signal=KILL 150 ./tools/run.sh --keys --broken > build/smoke-shell.log 2>&1 || true
 if grep -q "shell: autorun 8 command(s)" build/smoke-shell.log \
    && grep -q "shell> help" build/smoke-shell.log \
    && grep -q "hwdiag      re-run hardware" build/smoke-shell.log \

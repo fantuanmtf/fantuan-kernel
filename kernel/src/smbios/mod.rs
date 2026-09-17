@@ -1,6 +1,6 @@
 //! SMBIOS parsing (M5.5, DESIGN.md §3 §6.2): entry-point scan, checksum
 //! validation, string-table sanitization, and structure-parsers for the
-//! diagnostic-relevant types (0/1/4/9/16/17). Single-threaded boot-time only;
+//! diagnostic-relevant types (0/1/4/9/17). Single-threaded boot-time only;
 //! uses static mut buffers with a one-shot init flag.
 
 use fantuan_abi::PHYS_OFFSET;

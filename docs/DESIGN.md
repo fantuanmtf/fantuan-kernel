@@ -145,9 +145,12 @@ can be added or removed without breaking old components.
   proper global in M4).
 - **Syscall ABI v1**: INT 0x60 gate (DPL 3 since M4); rax = number,
   rdi..r8 = five arguments, rax = result; 0 = OK, u64::MAX = ENOSYS,
-  u64::MAX-1 = EINVAL. Versioned dispatch table — every call carries its own
-  version so the ABI evolves per-call (capability negotiation);
-  `SYS_VERSION` (0) probes the ABI version. Calls: exit(1), sleep_ms(2),
+  u64::MAX-1 = EINVAL. Versioned ABI: `SYS_VERSION` (0) probes `ABI_VERSION`
+  and the call numbers live in `fantuan-abi`, which both sides include — new
+  calls are appended, never renumbered. v1 carries no per-call version
+  argument (calls are additive and capability-gated); a per-call version
+  word is kept as an M8 ABI-hardening option if a call ever needs a breaking
+  semantic change. Calls: exit(1), sleep_ms(2),
   write(3) (kernel debug channel), get_tid(4), yield(5). The trampoline
   (assembly) reserves scratch below rsp so the interrupt frame never touches
   the caller's red zone.
@@ -219,8 +222,9 @@ can be added or removed without breaking old components.
   ② SMART health line → ③ per-partition filesystem types → ④ ESP bootloaders.
   SMBIOS discovery prefers the UEFI configuration table (BootInfo.smbios_table)
   with an F-segment anchor scan as fallback; absent tables degrade gracefully.
-  Still deferred: surface scan (shell `diskhealth --scan`, §10) and NVMe SMART
-  (task for the NVMe driver).
+  Surface scan (shell `diskhealth --scan`), NVMe SMART (M8) and the storage
+  ops registry have since landed; the remaining v1 diagnostic gap is UFS
+  (diagnosis-only, §9).
 
 ### 6.1 Stage 1 checks
 
@@ -428,7 +432,7 @@ fantuan-kernel/
   Windows identified-not-repaired), grub.cfg parsing (search.fs_uuid, root
   device), fstab parsing (UUID=/PARTUUID=), cross-checks (PARTUUID vs GPT
   unique GUIDs, fstab/ vs grub.cfg UUID consistency). Read-only: repairs are
-  recommendations until FAT32 writes (M6.5). Deferred: NVRAM/Secure Boot
+  recommendations until FAT32 writes (M7.5b). Deferred: NVRAM/Secure Boot
   checks (need UEFI Runtime Services via BootInfo), BSD UFS diagnosis,
   actual repair actions.
 - **M7.6** — DONE (NVRAM repair via SetVariable): explicit-attrs SetVariable
@@ -484,6 +488,23 @@ fantuan-kernel/
   with the AHCI path unchanged. Still open for M8: the linuxulator
   compatibility layer and a crypto stack (PKCS#7/SHA-256) for authenticated
   Secure Boot variable updates.
+- **Audit rounds (P0-P2)** — DONE (code only; no new subsystem): the M1-M8
+  read-only-rule and robustness audits. P0 consent-gated every repair
+  (`diagnose()` vs `repair()`, streaming FAT writes, BPB-driven FAT copies);
+  P1 fixed the beep classification, the NVMe doorbell stride, task/IRQ
+  boundaries and table-overflow paths; P2 hardened the surviving findings:
+  FAT chain cycle caps and buffer clamps (a crafted ESP can no longer panic or
+  hang the boot), ELF header/segment validation and kernel-half vaddr
+  rejection, firmware-returned size clamps, AHCI LBA48 + a real FIS receive
+  page, `alloc_cluster` failure propagation, full-namespace BootOrder
+  enumeration, contiguous frame allocation for stacks, the TSS I/O-map (ring 3
+  has no port access), the `RepairToken` write capability, NVMe MQES/timeouts,
+  checked `map_mmio` arithmetic, MBR range guards, correct CPUID 0xB topology,
+  and a memory-map grow-and-retry in the bootloader's ExitBootServices loop.
+  Verified by the smoke suite plus the `--liar` (oversized FAT entry) and
+  `--bigcluster` (4 KiB clusters, short cluster write) fixtures. Deferred to a
+  later cleanup: splitting `nvme.c`/`ahci.c`/`interrupts.S` to the §13.4a size
+  rule, and ownership validation in `frame::free`.
 - **M8** — linuxulator compatibility layer + Secure Boot story.
 - **M9** — RISC-V port behind the arch/ HAL.
 
