@@ -286,11 +286,14 @@ else:
         b"cat /HELLO.TXT",
         b"bootinfo",
         b"diskhealth",
-        b"diskhealth --scan",
     ]
     if TWO_FS:
-        # The ext4 root read path through the shell (M6.5).
+        # Ext4 phase: keep the script fast and deterministic (the surface scan
+        # would eat the phase budget on the 25 MiB disk); the scan itself is
+        # covered by the default --keys phase.
         cmds.append(b"cat /etc/fstab")
+    else:
+        cmds.append(b"diskhealth --scan")
     SHELL_CMD = b"".join(c + b"\n" for c in cmds)
 if KEYS:
     FANTUAN_DIR = bytearray(SECTOR)
