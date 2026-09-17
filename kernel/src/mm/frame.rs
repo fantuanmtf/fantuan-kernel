@@ -1,14 +1,23 @@
 //! Bitmap frame allocator over the EFI memory map (DESIGN.md §4.5).
 //!
 //! Covers the first 4 GiB — the identity-mapped span the bootloader set up.
-//! Scope notes: allocations are a linear scan (fine at boot), the allocator is
-//! still not interrupt-safe (callers are single-context), and RAM beyond 4 GiB
-//! is ignored until the map is extended. `alloc_contiguous` backs stacks,
-//! which the CPU walks as one linear region. A second ownership bitmap makes
-//! `free()` reject frames the caller never allocated (double frees, reserved
-//! kernel pages); the boot-time bootloader teardown uses `reclaim()`.
+//! Scope notes: allocations are a linear scan (fine at boot) and RAM beyond
+//! 4 GiB is ignored until the map is extended. `alloc_contiguous` backs
+//! stacks, which the CPU walks as one linear region. A second ownership
+//! bitmap makes `free()` reject frames the caller never allocated (double
+//! frees, reserved kernel pages); the boot-time bootloader teardown uses
+//! `reclaim()`.
+//!
+//! Interrupt safety (M8.3a): every mutating entry point takes the mm::lock
+//! IrqLock, so the IRQ0 scheduler path (which will reap tasks and free
+//! frames, M8.3b) can never preempt a task mid-allocation and deadlock.
+//! The method bodies delegate to private *_unlocked helpers, so the lock
+//! is never taken recursively.
 
 use core::ptr;
+use core::sync::atomic::AtomicBool;
+
+use super::lock::IrqLock;
 
 use fantuan_abi::{BootInfo, PHYS_OFFSET};
 
@@ -41,6 +50,9 @@ pub struct FrameAllocator {
 /// Single-context access via get(); still not interrupt-safe (callers hold
 /// interrupts off or run before the scheduler starts).
 static mut FRAME_ALLOCATOR: FrameAllocator = FrameAllocator { free_frames: 0, next: 0 };
+
+/// Serializes mutating allocator calls (see mm::lock).
+static LOCK: AtomicBool = AtomicBool::new(false);
 
 pub fn init(bi: &BootInfo) {
     unsafe {
@@ -125,6 +137,11 @@ impl FrameAllocator {
     /// First-fit allocation; returns the PHYSICAL address. Use
     /// mm::paging::phys_to_virt to access it.
     pub fn alloc(&mut self) -> Option<u64> {
+        let _g = IrqLock::acquire(&LOCK);
+        self.alloc_unlocked()
+    }
+
+    fn alloc_unlocked(&mut self) -> Option<u64> {
         let total_bits = BITMAP_BYTES * 8;
         for off in 0..total_bits {
             let idx = (self.next + off) % total_bits;
@@ -147,6 +164,11 @@ impl FrameAllocator {
     /// allocated (reserved kernel/BootInfo pages, firmware memory) are
     /// refused; use reclaim() for the boot-time bootloader teardown.
     pub fn free(&mut self, phys: u64) {
+        let _g = IrqLock::acquire(&LOCK);
+        self.free_unlocked(phys)
+    }
+
+    fn free_unlocked(&mut self, phys: u64) {
         let idx = (phys / FRAME_SIZE) as usize;
         if idx >= BITMAP_BYTES * 8 {
             return; // outside bitmap coverage
@@ -168,6 +190,11 @@ impl FrameAllocator {
     /// allocator never handed out; refuses frames that are already free or
     /// currently owned.
     pub fn reclaim(&mut self, phys: u64) {
+        let _g = IrqLock::acquire(&LOCK);
+        self.reclaim_unlocked(phys)
+    }
+
+    fn reclaim_unlocked(&mut self, phys: u64) {
         let idx = (phys / FRAME_SIZE) as usize;
         if idx >= BITMAP_BYTES * 8 {
             return;
@@ -190,6 +217,11 @@ impl FrameAllocator {
     /// cross the bitmap end, so the result is always contiguous in physical
     /// memory.
     pub fn alloc_contiguous(&mut self, frames: usize) -> Option<u64> {
+        let _g = IrqLock::acquire(&LOCK);
+        self.alloc_contiguous_unlocked(frames)
+    }
+
+    fn alloc_contiguous_unlocked(&mut self, frames: usize) -> Option<u64> {
         let total = BITMAP_BYTES * 8;
         if frames == 0 || frames > total {
             return None;
