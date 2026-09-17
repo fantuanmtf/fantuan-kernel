@@ -42,19 +42,26 @@ else
   exit 1
 fi
 
-# M5.5 phase: the second partition carries ext4 magic only — the probe must
-# identify it and must not mount it (mount contract), and the SMBIOS-free
-# boot path must still come up.
-rm -f build/smoke-probe.log build/smoke-nosmbios.log
-timeout --signal=KILL 60 ./tools/run.sh --two-fs > build/smoke-probe.log 2>&1 || true
-if grep -q "probe: part 2 ext4 identified, not mounted (v1 read-only probe-only)" build/smoke-probe.log \
-   && grep -q "fs: part 1 EFI System Partition (mounted ro) part 2 ext4 (probe-only, v1 no read)" build/smoke-probe.log \
-   && grep -q "bootloaders: EFI/BOOT/BOOTX64.EFI" build/smoke-probe.log; then
-  echo "SMOKE PASS (fs probe: FAT32 mounted / ext4 probe-only)"
-  grep -E "probe:|fs:|bootloaders:" build/smoke-probe.log | head -4
+# M6.5 phase: the second partition is a real (hand-built) ext4 root — the
+# driver must mount it ro, read the real /etc/fstab from it, cross-check its
+# UUID against grub.cfg, and serve `cat /etc/fstab` through the shell (the
+# --two-fs autorun adds that command). The XFS magic on part 3 must stay
+# probe-only.
+rm -f build/smoke-ext4.log build/smoke-nosmbios.log
+timeout --signal=KILL 90 ./tools/run.sh --two-fs --keys > build/smoke-ext4.log 2>&1 || true
+if grep -q "ext4: mounted ro — uuid 12345678-1234-1234-1234-123456789abc, 64 blocks of 1024 B, 16 inodes" build/smoke-ext4.log \
+   && grep -q "ext4: mounted ro at /mnt/root0 (part 2)" build/smoke-ext4.log \
+   && grep -q "probe: part 3 XFS identified, not mounted (probe-only)" build/smoke-ext4.log \
+   && grep -q "fs: part 1 EFI System Partition (mounted ro) part 2 ext4 (mounted ro) part 3 XFS (probe-only)" build/smoke-ext4.log \
+   && grep -q "bootrepair: fstab read from the ext4 root (/etc/fstab, 147 bytes)" build/smoke-ext4.log \
+   && grep -q "bootrepair: grub.cfg search.fs_uuid matches the ext4 root UUID (consistent)" build/smoke-ext4.log \
+   && grep -q "cat: 147 bytes" build/smoke-ext4.log \
+   && grep -q "UUID=12345678-1234-1234-1234-123456789abc / ext4" build/smoke-ext4.log; then
+  echo "SMOKE PASS (M6.5: ext4 mounted ro, real /etc/fstab, XFS probe-only)"
+  grep -aE "ext4: mounted|probe: part 3|fstab read|cat: 147" build/smoke-ext4.log | head -6
 else
-  echo "SMOKE FAIL (fs probe) — log tail:"
-  tail -20 build/smoke-probe.log
+  echo "SMOKE FAIL (M6.5 ext4) — log tail:"
+  tail -25 build/smoke-ext4.log
   exit 1
 fi
 timeout --signal=KILL 60 ./tools/run.sh --no-smbios > build/smoke-nosmbios.log 2>&1 || true

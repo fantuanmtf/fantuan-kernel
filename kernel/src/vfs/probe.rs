@@ -1,7 +1,8 @@
 //! M5.5 filesystem type probing (DESIGN.md §8, mount contract clause):
-//! "v1 only FAT32 supports actual data read-mounting; all other filesystems
-//! are type-probed only, auto ro-mount on non-FAT degrades gracefully with a
-//! logged reason + NO mount-table entry." Read-only throughout.
+//! FAT32 and (since M6.5) the first ext4 root support actual data
+//! read-mounting; all other filesystems are type-probed only, and a failed
+//! auto ro-mount degrades gracefully with a logged reason + NO mount-table
+//! entry. Read-only throughout.
 
 use core::ffi::c_void;
 use core::fmt::Write;
@@ -67,8 +68,9 @@ fn fs_name(t: FsType) -> &'static str {
     }
 }
 
-/// Human label for the probe table. Non-FAT filesystems are probe-only in
-/// v1 — the label says so explicitly (mount contract).
+/// Human label for the probe table. FAT32 and the first ext4 root can be
+/// mounted ro (M6.5); every other non-FAT filesystem is probe-only in v1 —
+/// the label says so explicitly (mount contract).
 fn label_for(t: FsType, is_esp: bool, mounted: bool) -> &'static str {
     if is_esp {
         return "EFI System Partition";
@@ -76,12 +78,13 @@ fn label_for(t: FsType, is_esp: bool, mounted: bool) -> &'static str {
     match t {
         FsType::Fat32 if mounted => "FAT32 (mounted ro)",
         FsType::Fat32 => "FAT32",
-        FsType::Ext4 => "ext4 (probe-only, v1 no read)",
-        FsType::Xfs => "XFS (probe-only, v1 no read)",
-        FsType::Btrfs => "Btrfs (probe-only, v1 no read)",
-        FsType::Ntfs => "NTFS (probe-only, v1 no read)",
-        FsType::Swap => "swap (probe-only, v1 no read)",
-        FsType::Ufs => "UFS (probe-only, v1 no read)",
+        FsType::Ext4 if mounted => "ext4 (mounted ro)",
+        FsType::Ext4 => "ext4 (probe-only)",
+        FsType::Xfs => "XFS (probe-only)",
+        FsType::Btrfs => "Btrfs (probe-only)",
+        FsType::Ntfs => "NTFS (probe-only)",
+        FsType::Swap => "swap (probe-only)",
+        FsType::Ufs => "UFS (probe-only)",
         FsType::Unknown => "unknown",
     }
 }
@@ -196,9 +199,10 @@ pub fn probe_table() -> &'static [FsProbeEntry] {
     }
 }
 
-/// Probe every partition. MOUNTED_INDEX is the FAT32 partition vfs::init
-/// actually mounted (only that one may claim a mount-table entry).
-pub unsafe fn init(table: &part::Table, mounted_index: usize) {
+/// Probe every partition. FAT_MOUNTED is the FAT32 partition vfs::init
+/// actually mounted; ROOT_MOUNTED is the ext4 partition mounted at
+/// /mnt/root0 (M6.5) — only those may claim a mounted entry.
+pub unsafe fn init(table: &part::Table, fat_mounted: usize, root_mounted: Option<usize>) {
     let mut s = Serial::new(serial::COM1);
     let mut count = 0usize;
     for (pi, p) in table.parts[..table.count].iter().enumerate() {
@@ -207,7 +211,8 @@ pub unsafe fn init(table: &part::Table, mounted_index: usize) {
         }
         let fst = detect_fs(p);
         let is_esp = p.type_guid == part::FAT32_GPT_GUID;
-        let mounted = fst == FsType::Fat32 && pi == mounted_index;
+        let mounted = (fst == FsType::Fat32 && pi == fat_mounted)
+            || (fst == FsType::Ext4 && root_mounted == Some(pi));
         let mut bootloaders: BootloaderList = ["", "", "", "", "", "", "", ""];
         if fst == FsType::Fat32 {
             if let Some(fs) = super::fat::parse(p.first_lba) {
@@ -221,10 +226,10 @@ pub unsafe fn init(table: &part::Table, mounted_index: usize) {
             bootloaders,
             mounted,
         };
-        if fst != FsType::Fat32 && fst != FsType::Unknown {
+        if fst != FsType::Fat32 && fst != FsType::Unknown && !mounted {
             let _ = writeln!(
                 s,
-                "probe: part {} {} identified, not mounted (v1 read-only probe-only)",
+                "probe: part {} {} identified, not mounted (probe-only)",
                 pi + 1,
                 fs_name(fst)
             );

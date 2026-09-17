@@ -1,8 +1,9 @@
 //! Boot repair v1 (M7, DESIGN.md §9): READ-ONLY diagnosis of a Linux UEFI
 //! boot chain — ESP scan, grub.cfg + fstab parsing, UUID/PARTUUID
-//! cross-checks against the partition table, and recommendations. No writes
-//! at this stage: FAT32 write support (M6.5) turns recommendations into
-//! actions.
+//! cross-checks against the partition table, and recommendations. The real
+//! /etc/fstab is read from the ext4 root when one is mounted (M6.5);
+//! otherwise the ESP copy is used. Repair actions (M7.5b+) run only after the
+//! operator explicitly enables repair mode; the boot path calls diagnose().
 
 use core::fmt::Write;
 
@@ -73,9 +74,14 @@ pub fn diagnose(s: &mut Serial, vfs: &Vfs, runtime_services: u64) {
     // 2. grub.cfg (on the ESP, Ubuntu-style).
     let grub = grub::parse(s, &vfs.fs);
 
-    // 3. fstab (copy on the ESP — the real one lives on the ext4 root).
+    // 3. fstab: the real /etc/fstab on the ext4 root when one is mounted
+    //    (M6.5), otherwise the copy placed on the ESP.
     let mut entries: [fstab::FstabEntry; 4] = [fstab::FstabEntry::none(); 4];
-    let n = fstab::parse(s, &vfs.fs, &mut entries);
+    let n = match vfs.root.as_ref() {
+        Some(root) => fstab::parse_ext4(s, root, &mut entries)
+            .unwrap_or_else(|| fstab::parse(s, &vfs.fs, &mut entries)),
+        None => fstab::parse(s, &vfs.fs, &mut entries),
+    };
 
     // 4. Cross-checks.
     let mut root_uuid: Option<(usize, [u8; 40])> = None;
@@ -104,6 +110,17 @@ pub fn diagnose(s: &mut Serial, vfs: &Vfs, runtime_services: u64) {
                 let _ = writeln!(s, "bootrepair: fstab / UUID matches grub.cfg search.fs_uuid (consistent)");
             } else {
                 let _ = writeln!(s, "bootrepair: WARNING: fstab / UUID differs from grub.cfg search.fs_uuid");
+            }
+        }
+    }
+    // M6.5: the mounted ext4 root's UUID is what search.fs_uuid should name.
+    if let (Some(root), Some(g)) = (vfs.root.as_ref(), grub.as_ref()) {
+        if g.fs_uuid_len == 36 {
+            let text = crate::vfs::ext4::guid_text(&root.uuid);
+            if g.fs_uuid[..36] == text {
+                let _ = writeln!(s, "bootrepair: grub.cfg search.fs_uuid matches the ext4 root UUID (consistent)");
+            } else {
+                let _ = writeln!(s, "bootrepair: WARNING: grub.cfg search.fs_uuid differs from the ext4 root UUID");
             }
         }
     }
@@ -209,7 +226,12 @@ fn fix_missing_fallback(s: &mut Serial, vfs: &Vfs) {
 
     // Stream the shim in 32 KiB windows: read a window from the source, append
     // it to the new file, then verify the final size by re-reading the entry.
-    let Some(mut w) = fs.create_file(boot_dir, &bootx64) else {
+    // This path is reachable only from repair(), which verified repair mode;
+    // the token makes that check a compile-time requirement.
+    let Some(token) = crate::vfs::repair_guard() else {
+        return;
+    };
+    let Some(mut w) = fs.create_file(boot_dir, &bootx64, &token) else {
         let _ = writeln!(s, "repair: cannot create EFI/BOOT/BOOTX64.EFI (unsupported cluster size?)");
         return;
     };

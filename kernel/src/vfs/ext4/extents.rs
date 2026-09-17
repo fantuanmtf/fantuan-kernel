@@ -1,8 +1,9 @@
 //! Logical-to-physical block mapping: ext4 extent trees (depth 0/1 walked;
 //! deeper trees are rejected) plus the classic ext2/3 block map for
-//! filesystems without the extents feature.
+//! filesystems without the extents feature. An uninitialised extent maps to
+//! HOLE_BLOCK (reads as zeroes), never to disk data.
 
-use super::{le16, le32, Ext4, Inode};
+use super::{le16, le32, Ext4, Inode, HOLE_BLOCK};
 
 const EXTENT_MAGIC: u16 = 0xF30A;
 const EH_SIZE: usize = 12;
@@ -36,9 +37,13 @@ impl Ext4 {
                     let ee_block = le32(&node, o) as u64;
                     let raw_len = le16(&node, o + 4) as u64;
                     // bit 15 marks an uninitialised extent (reads as zeroes).
-                    let len = if raw_len > 32768 { raw_len - 32768 } else { raw_len };
+                    let len = raw_len & 0x7FFF;
+                    let uninit = raw_len & 0x8000 != 0;
                     let start = ((le16(&node, o + 6) as u64) << 32) | le32(&node, o + 8) as u64;
                     if len > 0 && logical >= ee_block && logical < ee_block + len {
+                        if uninit {
+                            return Some(HOLE_BLOCK);
+                        }
                         return Some(start + (logical - ee_block));
                     }
                 }

@@ -1,7 +1,7 @@
-//! VFS v1 (M6, DESIGN.md §8): mount the first FAT32 partition on the first
-//! block device and demonstrate file reads. Rust filesystem logic on top of
-//! the C block driver — the layering stays: C does device I/O, Rust does the
-//! filesystem.
+//! VFS v1 (M6/M6.5, DESIGN.md §8): mount the first FAT32 partition and the
+//! first readable ext4 root (read-only, /mnt/root0) and demonstrate file
+//! reads. Rust filesystem logic on top of the C block driver — the layering
+//! stays: C does device I/O, Rust does the filesystem.
 
 use core::fmt::Write;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -23,21 +23,37 @@ pub fn repair_mode() -> bool {
     REPAIR_MODE.load(Ordering::Relaxed)
 }
 
+/// Capability token proving repair mode is on. The FAT write API takes this
+/// token, so a write without explicit operator consent does not compile; the
+/// shell's `grub-fix repair` + YES is the only enabler.
+#[derive(Clone, Copy)]
+pub struct RepairToken(());
+
+/// Obtain the write capability; None while repair mode is off.
+pub fn repair_guard() -> Option<RepairToken> {
+    if repair_mode() {
+        Some(RepairToken(()))
+    } else {
+        None
+    }
+}
+
 /// Create or overwrite an 8.3 file in the given directory — gated behind
 /// repair mode.
 pub fn write_file(fs: &fat::Fat32, dir_cluster: u32, name: &[u8; 11], data: &[u8]) -> bool {
-    if !REPAIR_MODE.load(Ordering::Relaxed) {
+    let Some(token) = repair_guard() else {
         return false;
-    }
-    fs.write_file(dir_cluster, name, data)
+    };
+    fs.write_file(dir_cluster, name, data, &token)
 }
 
+pub mod ext4;
 pub mod fat;
 pub mod fat_write;
 pub mod part;
 pub mod probe;
 
-/// The mounted world: filesystem + partition table, shared with the
+/// The mounted world: filesystems + partition table, shared with the
 /// boot-repair diagnostics (M7).
 #[derive(Clone, Copy)]
 pub struct Vfs {
@@ -45,6 +61,10 @@ pub struct Vfs {
     pub table: part::Table,
     /// Index of the mounted FAT32 partition (for NVRAM device paths, M7.6).
     pub fat_part: usize,
+    /// First readable ext4 root, mounted ro at /mnt/root0 (M6.5).
+    pub root: Option<ext4::Ext4>,
+    /// Partition index of ROOT (valid when root is Some).
+    pub root_part: usize,
 }
 
 // --- FAT 8.3 name helpers (shared with bootrepair via re-export) ----------
@@ -214,7 +234,31 @@ pub fn init() -> Option<Vfs> {
         let _ = writeln!(s, "vfs: INFO.TXT not found");
     }
 
-    unsafe { probe::init(&table, target_index); }
+    // M6.5: mount the first readable ext4 root, read-only, at /mnt/root0.
+    // A filesystem that only carries the magic (fixture stubs, trashed
+    // superblocks) fails parse and stays probe-only.
+    let mut root: Option<ext4::Ext4> = None;
+    let mut root_index: Option<usize> = None;
+    for (pi, p) in table.parts[..table.count].iter().enumerate() {
+        if let Some(e) = ext4::Ext4::parse(p.first_lba) {
+            e.describe(&mut s);
+            let _ = writeln!(s, "ext4: mounted ro at /mnt/root0 (part {})", pi + 1);
+            root = Some(e);
+            root_index = Some(pi);
+            break;
+        }
+    }
+    if root.is_none() {
+        let _ = writeln!(s, "vfs: no ext4 root mounted");
+    }
 
-    Some(Vfs { fs, table, fat_part: target_index })
+    unsafe { probe::init(&table, target_index, root_index) };
+
+    Some(Vfs {
+        fs,
+        table,
+        fat_part: target_index,
+        root,
+        root_part: root_index.unwrap_or(0),
+    })
 }

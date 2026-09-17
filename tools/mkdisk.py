@@ -3,8 +3,11 @@
 fixture (HELLO.TXT/INFO.TXT, EFI/BOOT/EFI/ubuntu trees, fstab/grub.cfg, NVRAM
 and Secure Boot fixtures) and optional variant files:
   --broken / --broken-shim   missing fallback loader / shim
-  --two-fs                   second partition with ext4 magic (probe fixture)
+  --two-fs                   real ext4 root (mounted ro by M6.5) + XFS-magic
+                             probe stub on the third partition
   --keys / --shell-repair    Secure Boot certs + ESP autorun shell script
+  --liar / --bigcluster      crafted-input fixtures: oversized FAT entry,
+                             4 KiB clusters with a short final write
 Zero host-tool dependencies (no sfdisk/mkfs.fat)."""
 
 import struct
@@ -79,16 +82,25 @@ entries = bytearray(32 * 128)
 entries[0:128] = ent
 
 if TWO_FS:
-    # Second partition: ext4-magic only — the probe must identify it and
-    # must NOT mount it (v1 mount contract).
+    # Second partition: a real (minimal) ext4 root — the M6.5 reader must
+    # mount it ro. Third partition: XFS magic — still probe-only.
     ent2 = bytearray(128)
     ent2[0:16] = bytes.fromhex("af3dc60f838472478e793d69d8477de4")  # Linux FS
     ent2[16:32] = b"FANTUANPART0002!"
     ent2[32:40] = struct.pack('<Q', PART2_LBA)
     ent2[40:48] = struct.pack('<Q', PART2_LBA + PART2_SECTORS - 1)
-    name2 = "FANTUAN ext4".encode("utf-16-le")
+    name2 = "FANTUAN root".encode("utf-16-le")
     ent2[56:56 + len(name2)] = name2
     entries[128:256] = ent2
+
+    ent3 = bytearray(128)
+    ent3[0:16] = bytes.fromhex("af3dc60f838472478e793d69d8477de4")
+    ent3[16:32] = b"FANTUANPART0003!"
+    ent3[32:40] = struct.pack('<Q', PART3_LBA)
+    ent3[40:48] = struct.pack('<Q', PART3_LBA + PART3_SECTORS - 1)
+    name3 = "FANTUAN xfs".encode("utf-16-le")
+    ent3[56:56 + len(name3)] = name3
+    entries[256:384] = ent3
 hdr[88:92] = struct.pack('<I', zlib.crc32(entries) & 0xFFFFFFFF)
 hdr[16:20] = struct.pack('<I', zlib.crc32(hdr) & 0xFFFFFFFF)
 
@@ -156,6 +168,7 @@ def dent(name8, ext3, cluster, size, attrs=0x20):
 
 HELLO = b"Hello from the fantuan-kernel VFS!\n"
 INFO = b"X" * 1000
+HELLO_EXT4 = b"hello from the ext4 root\n"
 
 # M7 boot-repair fixture: the PARTUUID in fstab must equal the GPT unique
 # GUID of the FAT32 partition, in the text form Linux uses.
@@ -265,16 +278,20 @@ if SHELL_REPAIR:
         b"cat /EFI/BOOT/BOOTX64.EFI\n"
     )
 else:
-    SHELL_CMD = (
-        b"help\n"
-        b"lsdev\n"
-        b"lsos\n"
-        b"lsmnt\n"
-        b"cat /HELLO.TXT\n"
-        b"bootinfo\n"
-        b"diskhealth\n"
-        b"diskhealth --scan\n"
-    )
+    cmds = [
+        b"help",
+        b"lsdev",
+        b"lsos",
+        b"lsmnt",
+        b"cat /HELLO.TXT",
+        b"bootinfo",
+        b"diskhealth",
+        b"diskhealth --scan",
+    ]
+    if TWO_FS:
+        # The ext4 root read path through the shell (M6.5).
+        cmds.append(b"cat /etc/fstab")
+    SHELL_CMD = b"".join(c + b"\n" for c in cmds)
 if KEYS:
     FANTUAN_DIR = bytearray(SECTOR)
     FANTUAN_DIR[0:32] = self_entry(15)
@@ -297,18 +314,139 @@ if not NOSHIM:
 put_file(13, GRUBX64)
 put_file(14, FSTAB)
 
+def wblock(lba, data):
+    """Write a multi-sector block at LBA (wsect is 512 bytes only)."""
+    out[lba * SECTOR:lba * SECTOR + len(data)] = data
+
+
+def build_ext4(part_lba):
+    """Hand-built minimal ext4: 1 KiB blocks, one group, extent trees on every
+    inode, root with /etc/fstab and /hello.txt. No journal, no checksums, no
+    backup superblocks — just enough for the read-only rescue driver."""
+    BLK = 1024
+    N_BLOCKS = 64
+    N_INODES = 16
+    # Block plan (blocks are 1 KiB, i.e. 2 sectors).
+    B_SB, B_GDT, B_BBITMAP, B_IBITMAP, B_ITABLE, B_ROOT, B_ETC, B_FSTAB, B_HELLO = 1, 2, 3, 4, 5, 7, 8, 9, 10
+    USED = 11  # blocks 0..10
+
+    def w16(b, o, v):
+        b[o:o + 2] = struct.pack('<H', v)
+
+    def w32(b, o, v):
+        b[o:o + 4] = struct.pack('<I', v)
+
+    sb = bytearray(BLK)
+    w32(sb, 0x00, N_INODES)
+    w32(sb, 0x04, N_BLOCKS)
+    w32(sb, 0x0C, N_BLOCKS - USED)
+    w32(sb, 0x10, N_INODES - 5)
+    w32(sb, 0x14, 1)            # first_data_block (1 KiB blocks)
+    w32(sb, 0x18, 0)            # log_block_size -> 1024
+    w32(sb, 0x20, N_BLOCKS)     # blocks_per_group
+    w32(sb, 0x24, N_BLOCKS)
+    w32(sb, 0x28, N_INODES)     # inodes_per_group
+    w16(sb, 0x38, 0xEF53)       # magic
+    w16(sb, 0x3A, 1)            # state: clean
+    w32(sb, 0x4C, 1)            # rev_level 1: dynamic inodes
+    w16(sb, 0x54, 11)           # first_ino
+    w16(sb, 0x58, 128)          # inode_size
+    w32(sb, 0x5C, 0x40)         # feature_compat: EXTENTS
+    w32(sb, 0x60, 0x2)          # feature_incompat: FILETYPE
+    sb[0x68:0x78] = bytes.fromhex("12345678123412341234123456789abc")
+    sb[0x78:0x87] = b"FANTUANROOT"
+    w16(sb, 0xFE, 32)           # s_desc_size (only meaningful with 64bit)
+    wblock(part_lba + B_SB * 2, sb)
+
+    gdt = bytearray(BLK)
+    w32(gdt, 0x00, B_BBITMAP)
+    w32(gdt, 0x04, B_IBITMAP)
+    w32(gdt, 0x08, B_ITABLE)
+    w16(gdt, 0x0C, N_BLOCKS - USED)
+    w16(gdt, 0x0E, N_INODES - 5)
+    w16(gdt, 0x10, 2)           # used_dirs (root + etc)
+    wblock(part_lba + B_GDT * 2, gdt)
+
+    bbitmap = bytearray(BLK)
+    for b in range(USED):
+        bbitmap[b // 8] |= 1 << (b % 8)
+    wblock(part_lba + B_BBITMAP * 2, bbitmap)
+
+    ibitmap = bytearray(BLK)
+    for i in range(1, 6):       # inodes 1..5 used
+        ibitmap[(i - 1) // 8] |= 1 << ((i - 1) % 8)
+    wblock(part_lba + B_IBITMAP * 2, ibitmap)
+
+    itable = bytearray(2 * BLK)
+
+    def inode(slot, mode, size, links, block):
+        o = (slot - 1) * 128
+        w16(itable, o + 0x00, mode)
+        w32(itable, o + 0x04, size & 0xFFFFFFFF)
+        w16(itable, o + 0x1A, links)
+        w32(itable, o + 0x1C, (size + 511) // 512)   # i_blocks in 512B units
+        w32(itable, o + 0x20, 0x80000)               # EXT4_EXTENTS_FL
+        # extent header (i_block): magic, 1 entry, max 4, depth 0.
+        ib = o + 0x28
+        itable[ib:ib + 2] = struct.pack('<H', 0xF30A)
+        itable[ib + 2:ib + 4] = struct.pack('<H', 1)
+        itable[ib + 4:ib + 6] = struct.pack('<H', 4)
+        itable[ib + 6:ib + 8] = struct.pack('<H', 0)
+        # leaf extent: ee_block=0, ee_len=1, ee_start.
+        itable[ib + 12:ib + 16] = struct.pack('<I', 0)
+        itable[ib + 16:ib + 18] = struct.pack('<H', 1)
+        itable[ib + 18:ib + 20] = struct.pack('<H', 0)
+        itable[ib + 20:ib + 24] = struct.pack('<I', block)
+
+    inode(2, 0x41ED, BLK, 3, B_ROOT)
+    inode(3, 0x41ED, BLK, 2, B_ETC)
+    inode(4, 0x81A4, len(FSTAB), 1, B_FSTAB)
+    inode(5, 0x81A4, len(HELLO_EXT4), 1, B_HELLO)
+    wblock(part_lba + B_ITABLE * 2, itable)
+
+    def dent(ino, name, rec_len, ftype):
+        e = bytearray(rec_len)
+        w32(e, 0, ino)
+        w16(e, 4, rec_len)
+        e[6] = len(name)
+        e[7] = ftype
+        e[8:8 + len(name)] = name
+        return e
+
+    def dir_block(entries):
+        blk = bytearray(BLK)
+        o = 0
+        for ino, name, ftype in entries:
+            rec = (8 + len(name) + 3) & ~3
+            blk[o:o + rec] = dent(ino, name, rec, ftype)
+            o += rec
+        w32(blk, o, 0)
+        w16(blk, o + 4, BLK - o)  # inode-0 entry spanning the remainder
+        return blk
+
+    wblock(part_lba + B_ROOT * 2, dir_block([(2, b".", 2), (2, b"..", 2), (3, b"etc", 2), (5, b"hello.txt", 1)]))
+    wblock(part_lba + B_ETC * 2, dir_block([(3, b".", 2), (2, b"..", 2), (4, b"fstab", 1)]))
+    data = bytearray(BLK)
+    data[0:len(FSTAB)] = FSTAB
+    wblock(part_lba + B_FSTAB * 2, data)
+    data = bytearray(BLK)
+    data[0:len(HELLO_EXT4)] = HELLO_EXT4
+    wblock(part_lba + B_HELLO * 2, data)
+
+
 if TWO_FS:
-    # ext2/3/4 superblock magic 0xEF53 at 1024 + 0x38 of the second partition.
-    sb = bytearray(SECTOR)
-    sb[0x38] = 0x53
-    sb[0x39] = 0xEF
-    wsect(PART2_LBA + 2, sb)
+    # A real ext4 root on part 2 (mounted ro by the M6.5 driver) and XFS
+    # magic on part 3 (must stay probe-only).
+    build_ext4(PART2_LBA)
+    out[PART3_LBA * SECTOR:PART3_LBA * SECTOR + 4] = b"XFSB"
 
 args = [a for a in sys.argv[1:] if not a.startswith("--")]
 path = args[0] if args else "build/test.img"
 with open(path, "wb") as f:
     f.write(out)
-print(f"{path}: {len(out)} bytes, GPT + FAT32 ({CLUSTERS} clusters), HELLO.TXT + INFO.TXT"
+print(f"{path}: {len(out)} bytes, GPT + FAT32 ({CLUSTERS} clusters, SPC {SPC}), HELLO.TXT + INFO.TXT"
       + (" (broken ESP: no BOOTX64.EFI)" if BROKEN else "")
       + (" + no shim" if NOSHIM else "")
-      + (" + ext4 probe partition" if TWO_FS else ""))
+      + (" + 4 KiB clusters" if BIGCLUSTER else "")
+      + (" + HELLO.TXT size lie" if LIAR else "")
+      + (" + ext4 root + XFS probe fixtures" if TWO_FS else ""))

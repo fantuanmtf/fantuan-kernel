@@ -12,7 +12,8 @@ All repository artifacts are in English. The authoritative design lives in
 M0-M6 are in: UEFI boot chain, interrupts, higher-half kernel + frame
 allocator, scheduler + syscall ABI, ring-3 user mode with an ELF loader,
 C/Rust driver boundary (AHCI), the read-only diagnostics framework, and the
-VFS (GPT/MBR + FAT32). M7 added boot-repair diagnosis v1 (ESP scan, grub.cfg
+VFS (GPT/MBR + FAT32 + the ext4 read-only root driver, M6.5). M7 added
+boot-repair diagnosis v1 (ESP scan, grub.cfg
 + fstab parsing, UUID/PARTUUID cross-checks); M7.5a added NVRAM diagnosis
 via UEFI Runtime Services; M7.5b added FAT32 repair writes behind an
 explicit repair-mode gate plus the fallback-loader repair; M7.6 adds NVRAM

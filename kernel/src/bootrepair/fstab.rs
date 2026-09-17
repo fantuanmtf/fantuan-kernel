@@ -1,11 +1,12 @@
 //! fstab parser (M7, DESIGN.md §9): UUID= and PARTUUID= entries. The real
-//! fstab lives on the ext4 root; the demo reads a copy placed on the ESP.
-//! Read-only.
+//! fstab lives on the ext4 root (read directly since M6.5); the ESP copy is
+//! the fallback for systems without a mounted ext4 root. Read-only.
 
 use core::fmt::Write;
 
 use super::{find_path, to_8_3};
 use crate::serial::Serial;
+use crate::vfs::ext4::Ext4;
 use crate::vfs::fat::Fat32;
 
 #[derive(Clone, Copy)]
@@ -24,6 +25,18 @@ impl FstabEntry {
     }
 }
 
+/// Parse the REAL /etc/fstab from a mounted ext4 root (M6.5). Returns None
+/// when the file is absent or unreadable, so the caller can fall back to the
+/// ESP copy.
+pub fn parse_ext4(s: &mut Serial, root: &Ext4, out: &mut [FstabEntry; 4]) -> Option<usize> {
+    let inode = root.lookup(b"/etc/fstab")?;
+    let mut buf = [0u8; 4096];
+    let n = root.read_file(&inode, &mut buf)?;
+    let _ = writeln!(s, "bootrepair: fstab read from the ext4 root (/etc/fstab, {} bytes)", n);
+    Some(parse_bytes(s, &buf[..n], out))
+}
+
+/// Parse the fstab copy on the ESP (8.3 name `FSTAB`) — the fallback path.
 pub fn parse(s: &mut Serial, fs: &Fat32, out: &mut [FstabEntry; 4]) -> usize {
     let Some(path) = to_8_3("FSTAB") else {
         return 0;
@@ -36,8 +49,11 @@ pub fn parse(s: &mut Serial, fs: &Fat32, out: &mut [FstabEntry; 4]) -> usize {
     let Some(n) = fs.read_file(cluster, size.min(512), &mut buf) else {
         return 0;
     };
-    let text = &buf[..n];
+    parse_bytes(s, &buf[..n], out)
+}
 
+/// The fstab line parser, shared by the ext4 and ESP readers.
+fn parse_bytes(s: &mut Serial, text: &[u8], out: &mut [FstabEntry; 4]) -> usize {
     let mut count = 0;
     for line in text.split(|&b| b == b'\n') {
         if count >= 4 {

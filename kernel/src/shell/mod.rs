@@ -13,6 +13,7 @@ use fantuan_abi::BootInfo;
 use crate::serial::{self, Serial, COM1};
 use crate::vfs::{self, Vfs};
 
+pub mod cat;
 pub mod cmds;
 
 const LINE_MAX: usize = 128;
@@ -276,7 +277,7 @@ pub static COMMANDS: [(&str, &str, Handler); 11] = [
     ("lsmnt", "mount table", cmds::cmd_lsmnt),
     ("mount", "mount esp0 /mnt/esp0 — ro alias only", cmds::cmd_mount),
     ("umount", "umount <path>", cmds::cmd_umount),
-    ("cat", "cat <path> — print a file (4 KiB max)", cmds::cmd_cat),
+    ("cat", "cat <path> — print a file (FAT or ext4, 4 KiB max)", cat::cmd_cat),
     ("bootinfo", "boot handover details", cmds::cmd_bootinfo),
     ("diskhealth", "disk health [--scan]", cmds::cmd_diskhealth),
     ("grub-fix", "boot repair [diagnose|repair]", cmds::cmd_grubfix),

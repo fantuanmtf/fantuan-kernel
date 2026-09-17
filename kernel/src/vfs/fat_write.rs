@@ -1,7 +1,7 @@
 //! FAT32 write path (M7.5b; streaming since the P0 audit): cluster
 //! allocation, FAT updates across every FAT copy, data writes and directory
-//! entries. The kernel gates every call behind repair mode (vfs::write_file)
-//! — the rescue iron rule.
+//! entries. Every public entry point takes a `RepairToken` (vfs::repair_guard)
+//! — the rescue iron rule, enforced at the type level.
 //!
 //! Metadata ordering: a cluster's data is on disk before any FAT entry points
 //! at it, and the directory entry is written last — so an interrupted write
@@ -11,6 +11,7 @@
 use core::ffi::c_void;
 
 use super::fat::Fat32;
+use super::RepairToken;
 
 extern "C" {
     fn blk_read(dev: *mut c_void, lba: u64, buf: *mut c_void, sectors: usize) -> i32;
@@ -109,7 +110,8 @@ impl Fat32 {
 
     /// Start a streaming file. Call append() for the payload (data, then the
     /// link into the previous cluster) and finish() to publish the entry.
-    pub fn create_file(&self, dir_cluster: u32, name: &[u8; 11]) -> Option<FileWriter<'_>> {
+    /// TOKEN is proof that repair mode is on (vfs::repair_guard).
+    pub fn create_file(&self, dir_cluster: u32, name: &[u8; 11], _token: &RepairToken) -> Option<FileWriter<'_>> {
         let cluster_bytes = (self.sectors_per_cluster * 512) as usize;
         if cluster_bytes == 0 || cluster_bytes > MAX_CLUSTER_BYTES {
             return None;
@@ -127,8 +129,8 @@ impl Fat32 {
 
     /// Create (or overwrite) a file from one buffer — the simple path used by
     /// the self-test. Large copies should stream through create_file().
-    pub fn write_file(&self, dir_cluster: u32, name: &[u8; 11], data: &[u8]) -> bool {
-        let Some(mut w) = self.create_file(dir_cluster, name) else {
+    pub fn write_file(&self, dir_cluster: u32, name: &[u8; 11], data: &[u8], token: &RepairToken) -> bool {
+        let Some(mut w) = self.create_file(dir_cluster, name, token) else {
             return false;
         };
         if data.is_empty() {

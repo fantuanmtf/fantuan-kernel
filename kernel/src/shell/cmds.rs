@@ -12,8 +12,7 @@ use crate::vfs;
 
 use super::Shell;
 
-/// Scratch buffer for `cat` (4 KiB cap keeps the stack small).
-static mut CAT_BUF: [u8; 4096] = [0; 4096];
+/// Surface-scan cancellation flag (set by the progress callback on 'q').
 static SCAN_CANCEL: AtomicBool = AtomicBool::new(false);
 
 macro_rules! out {
@@ -91,6 +90,15 @@ pub fn cmd_lsmnt(sh: &mut Shell, s: &mut Serial, _args: &[&[u8]]) {
         return;
     };
     out!(s, "  /mnt/disk0  part {} (FAT32, ro)", vfs.fat_part + 1);
+    if let Some(root) = vfs.root.as_ref() {
+        let uuid = crate::vfs::ext4::guid_text(&root.uuid);
+        out!(
+            s,
+            "  /mnt/root0  part {} (ext4, ro, uuid {})",
+            vfs.root_part + 1,
+            core::str::from_utf8(&uuid).unwrap_or("?")
+        );
+    }
     for (path, len, active) in sh.mounts().iter() {
         if *active {
             out!(s, "  {}  part {} (ro alias)", core::str::from_utf8(&path[..*len]).unwrap_or("?"), vfs.fat_part + 1);
@@ -131,72 +139,6 @@ pub fn cmd_umount(sh: &mut Shell, s: &mut Serial, args: &[&[u8]]) {
         out!(s, " removed");
     } else {
         out!(s, " not in the mount table");
-    }
-}
-
-pub fn cmd_cat(sh: &mut Shell, s: &mut Serial, args: &[&[u8]]) {
-    if args.len() != 1 {
-        out!(s, "usage: cat <path>   (e.g. cat /HELLO.TXT)");
-        return;
-    }
-    let Some(vfs) = sh.vfs else {
-        out!(s, "cat: no filesystem mounted");
-        return;
-    };
-    let path = args[0];
-    let path = if path.first() == Some(&b'/') { &path[1..] } else { path };
-
-    let mut names = [[0u8; 11]; 4];
-    let mut refs: [&[u8; 11]; 4] = [&[0; 11]; 4];
-    let mut n = 0usize;
-    for comp in path.split(|&b| b == b'/') {
-        if comp.is_empty() {
-            continue;
-        }
-        if n == names.len() {
-            out!(s, "cat: path too deep (max 4 components)");
-            return;
-        }
-        let Ok(text) = core::str::from_utf8(comp) else {
-            out!(s, "cat: path is not ASCII");
-            return;
-        };
-        let Some(name) = vfs::to_8_3(text) else {
-            out!(s, "cat: not an 8.3 name: {}", text);
-            return;
-        };
-        names[n] = name;
-        n += 1;
-    }
-    if n == 0 {
-        out!(s, "cat: empty path");
-        return;
-    }
-    for i in 0..n {
-        refs[i] = &names[i];
-    }
-    let Some((cluster, size)) = vfs::find_path(&vfs.fs, vfs.fs.root_cluster, &refs[..n]) else {
-        out!(s, "cat: not found");
-        return;
-    };
-
-    let buf = unsafe { &mut *core::ptr::addr_of_mut!(CAT_BUF) };
-    let want = (size as usize).min(buf.len());
-    let Some(got) = vfs.fs.read_file(cluster, want as u32, buf) else {
-        out!(s, "cat: read failed");
-        return;
-    };
-    if (size as usize) > buf.len() {
-        out!(s, "cat: {} bytes, truncated to {}", size, buf.len());
-    } else {
-        out!(s, "cat: {} bytes", got);
-    }
-    for &b in &buf[..got] {
-        let c = if (0x20..0x7F).contains(&b) || b == b'\n' || b == b'\t' { b } else { b'.' };
-        let _ = s.write(&[c]);
-    }
-    if got > 0 && buf[got - 1] != b'\n' {
-        let _ = s.write(b"\r\n");
     }
 }
 
