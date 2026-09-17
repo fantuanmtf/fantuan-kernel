@@ -11,6 +11,7 @@ use crate::mm::paging::{self, phys_to_virt};
 pub const P_PRESENT: u64 = 1;
 pub const P_WRITABLE: u64 = 1 << 1;
 pub const P_USER: u64 = 1 << 2;
+const P_HUGE: u64 = 1 << 7;
 
 const ADDR_MASK: u64 = 0x000F_FFFF_FFFF_F000;
 
@@ -56,4 +57,46 @@ unsafe fn next_level(entry: *mut u64) -> *mut u64 {
         *entry = f | P_PRESENT | P_WRITABLE | P_USER;
     }
     phys_to_virt(*entry & ADDR_MASK) as *mut u64
+}
+
+/// Free a user address space (M8.3b): every 4K page mapped in the user half
+/// (PML4 entries 0..256), the intermediate tables, then the PML4 frame. The
+/// kernel half (entry 256) is shared with the kernel PML4 and must not be
+/// touched. Huge mappings never occur in the user half (map_page is 4K-only)
+/// and are skipped defensively.
+pub fn free_user_pml4(cr3: u64) {
+    unsafe {
+        let pml4 = phys_to_virt(cr3) as *mut u64;
+        for i4 in 0..256 {
+            let e4 = *pml4.add(i4);
+            if e4 & P_PRESENT == 0 {
+                continue;
+            }
+            let pdpt = phys_to_virt(e4 & ADDR_MASK) as *mut u64;
+            for i3 in 0..512 {
+                let e3 = *pdpt.add(i3);
+                if e3 & P_PRESENT == 0 || e3 & P_HUGE != 0 {
+                    continue;
+                }
+                let pd = phys_to_virt(e3 & ADDR_MASK) as *mut u64;
+                for i2 in 0..512 {
+                    let e2 = *pd.add(i2);
+                    if e2 & P_PRESENT == 0 || e2 & P_HUGE != 0 {
+                        continue;
+                    }
+                    let pt = phys_to_virt(e2 & ADDR_MASK) as *mut u64;
+                    for i1 in 0..512 {
+                        let e1 = *pt.add(i1);
+                        if e1 & P_PRESENT != 0 {
+                            frame::get().free(e1 & ADDR_MASK);
+                        }
+                    }
+                    frame::get().free(e2 & ADDR_MASK);
+                }
+                frame::get().free(e3 & ADDR_MASK);
+            }
+            frame::get().free(e4 & ADDR_MASK);
+        }
+        frame::get().free(cr3);
+    }
 }

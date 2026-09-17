@@ -4,8 +4,8 @@
 //! schedule() from the IRQ0 handler; switch_context saves/restores the
 //! callee-saved registers and the page tables on the task stacks. User tasks
 //! (M4) get their own PML4 and enter ring 3 through a pre-built iretq frame.
-//! M4 scope notes: static task table, exited tasks leak stacks + page tables
-//! (reaping arrives later), no SMEP/SMAP.
+//! M4 scope notes: static task table; exited tasks are reaped by
+//! task/reap.rs (M8.3b). User pages are RWX until the M8.3c hardening pass.
 
 use core::ptr;
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -17,6 +17,8 @@ use crate::mm::frame;
 use crate::mm::paging::{self, phys_to_virt};
 use crate::mm::user;
 use crate::timer;
+
+mod reap;
 use fantuan_abi::{USER_CS_SEL, USER_DS_SEL, USER_STACK_TOP};
 
 pub const MAX_TASKS: usize = 16;
@@ -39,12 +41,10 @@ pub struct Task {
     pub cr3: u64,
     /// Kernel stack top: also the TSS rsp0 while this task is current.
     pub kernel_stack_top: u64,
-    /// Whether the task executes in ring 3 (informational; faults are
-    /// classified from the interrupt frame's CS).
-    #[allow(dead_code)]
+    /// Whether the task executes in ring 3 (fault classification uses the
+    /// interrupt frame's CS; reaping uses this to free the address space).
     pub is_user: bool,
-    /// Stack frame base (physical; for future reaping).
-    #[allow(dead_code)]
+    /// Kernel stack frame base (physical); reap_exited frees STACK_PAGES here.
     pub stack_phys: u64,
     pub body: fn() -> !,
     pub id: u64,
@@ -217,8 +217,11 @@ extern "C" fn task_entry() -> ! {
 /// Runs in the IRQ0 handler; the switch unwinds inside the next task's own
 /// interrupt frame, so the ISR epilogue iretqs back into the right task.
 pub fn schedule() {
-    let now = timer::ticks();
     let cur = CURRENT.load(Ordering::Relaxed);
+    // Reap finished tasks before choosing the next one: the current slot is
+    // excluded, and the frame allocator is interrupt-safe (mm::lock).
+    reap::reap_exited(cur);
+    let now = timer::ticks();
     unsafe {
         for i in 0..MAX_TASKS {
             let t = &mut *ptr::addr_of_mut!(TASKS[i]);
