@@ -172,8 +172,10 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     );
 
     // The bootloader's tables are unreferenced after the switch: reclaim them.
+    // reclaim() (not free()) because these reserved frames were never handed
+    // out by the allocator.
     for i in 0..bi.boot_tables_pages {
-        alloc.free(bi.boot_pml4 + i * mm::frame::FRAME_SIZE);
+        alloc.reclaim(bi.boot_pml4 + i * mm::frame::FRAME_SIZE);
     }
     let _ = writeln!(s, "mm: reclaimed {} bootloader table pages", bi.boot_tables_pages);
 

@@ -13,7 +13,8 @@ use crate::runtime::{Runtime, GLOBAL_GUID};
 use crate::serial::Serial;
 use crate::vfs::Vfs;
 
-use super::nvram::{ascii_to_utf16, collect, path_exists, read_by_name, BootEntry};
+use super::nvram::{ascii_to_utf16, collect, read_by_name, BootEntry};
+use super::nvram_boot::path_exists;
 
 const NV_BS_RT: u32 = 0x7; // creates/updates at runtime: NV | BS | RT
 const LOAD_ACTIVE: u32 = 0x1;

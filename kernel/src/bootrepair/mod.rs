@@ -15,6 +15,7 @@ pub mod esp;
 pub mod fstab;
 pub mod grub;
 pub mod nvram;
+pub mod nvram_boot;
 pub mod nvram_repair;
 pub mod nvram_report;
 pub mod secureboot;

@@ -4,7 +4,9 @@
 //! Scope notes: allocations are a linear scan (fine at boot), the allocator is
 //! still not interrupt-safe (callers are single-context), and RAM beyond 4 GiB
 //! is ignored until the map is extended. `alloc_contiguous` backs stacks,
-//! which the CPU walks as one linear region.
+//! which the CPU walks as one linear region. A second ownership bitmap makes
+//! `free()` reject frames the caller never allocated (double frees, reserved
+//! kernel pages); the boot-time bootloader teardown uses `reclaim()`.
 
 use core::ptr;
 
@@ -19,6 +21,11 @@ const LOW_MEMORY_CUTOFF: u64 = 0x10_0000; // never hand out frames below 1 MiB
 /// kernel-image hole). static mut is acceptable here: M2 uses it strictly
 /// single-context via FrameAllocator.
 static mut BITMAP: [u8; BITMAP_BYTES] = [0; BITMAP_BYTES];
+
+/// 1 = the allocator handed this frame out and free() may take it back.
+/// Separate from BITMAP so `free()` can reject frames the caller never owned
+/// (reserved kernel/BootInfo pages, firmware frames) and double frees.
+static mut OWNED: [u8; BITMAP_BYTES] = [0; BITMAP_BYTES];
 
 // Kernel image end, defined in link.ld.
 extern "C" {
@@ -49,6 +56,7 @@ impl FrameAllocator {
     pub fn new(bi: &BootInfo) -> Self {
         unsafe {
             BITMAP = [0; BITMAP_BYTES];
+            OWNED = [0; BITMAP_BYTES];
         }
         let mut a = FrameAllocator { free_frames: 0, next: 0 };
 
@@ -125,6 +133,7 @@ impl FrameAllocator {
             if unsafe { *ptr::addr_of!(BITMAP[byte]) } & mask != 0 {
                 unsafe {
                     *ptr::addr_of_mut!(BITMAP[byte]) &= !mask;
+                    *ptr::addr_of_mut!(OWNED[byte]) |= mask;
                 }
                 self.free_frames -= 1;
                 self.next = (idx + 1) % total_bits;
@@ -134,6 +143,9 @@ impl FrameAllocator {
         None
     }
 
+    /// Return a frame the allocator handed out. Frames that were never
+    /// allocated (reserved kernel/BootInfo pages, firmware memory) are
+    /// refused; use reclaim() for the boot-time bootloader teardown.
     pub fn free(&mut self, phys: u64) {
         let idx = (phys / FRAME_SIZE) as usize;
         if idx >= BITMAP_BYTES * 8 {
@@ -141,12 +153,34 @@ impl FrameAllocator {
         }
         let mask = 1u8 << (idx % 8);
         let byte = idx / 8;
-        if unsafe { *ptr::addr_of!(BITMAP[byte]) } & mask == 0 {
-            unsafe {
-                *ptr::addr_of_mut!(BITMAP[byte]) |= mask;
-            }
-            self.free_frames += 1;
+        if unsafe { *ptr::addr_of!(OWNED[byte]) } & mask == 0 {
+            return; // not ours (or already freed)
         }
+        unsafe {
+            *ptr::addr_of_mut!(OWNED[byte]) &= !mask;
+            *ptr::addr_of_mut!(BITMAP[byte]) |= mask;
+        }
+        self.free_frames += 1;
+    }
+
+    /// Boot-time reclaim of a RESERVED frame (e.g. the bootloader's page
+    /// tables after the CR3 switch). The only path that may free a frame the
+    /// allocator never handed out; refuses frames that are already free or
+    /// currently owned.
+    pub fn reclaim(&mut self, phys: u64) {
+        let idx = (phys / FRAME_SIZE) as usize;
+        if idx >= BITMAP_BYTES * 8 {
+            return;
+        }
+        let mask = 1u8 << (idx % 8);
+        let byte = idx / 8;
+        let is_free = unsafe { *ptr::addr_of!(BITMAP[byte]) } & mask != 0;
+        let is_owned = unsafe { *ptr::addr_of!(OWNED[byte]) } & mask != 0;
+        if is_free || is_owned {
+            return;
+        }
+        unsafe { *ptr::addr_of_mut!(BITMAP[byte]) |= mask };
+        self.free_frames += 1;
     }
 
     /// Allocate FRAMES physically contiguous frames; returns the first
@@ -191,7 +225,10 @@ impl FrameAllocator {
                     for i in first..first + frames {
                         let b = i / 8;
                         let m = 1u8 << (i % 8);
-                        unsafe { *ptr::addr_of_mut!(BITMAP[b]) &= !m };
+                        unsafe {
+                            *ptr::addr_of_mut!(BITMAP[b]) &= !m;
+                            *ptr::addr_of_mut!(OWNED[b]) |= m;
+                        }
                     }
                     self.free_frames -= frames as u64;
                     self.next = (first + frames) % total;
