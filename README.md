@@ -35,7 +35,11 @@ transport (`tools/run.sh --nvme`); 64-bit NVMe BARs above 4 GiB are mapped
 on demand by `mm::paging::map_mmio`. A three-round audit (P0-P2) then closed
 the remaining violations of the read-only iron rule and the latent
 robustness bugs it found (FAT/ELF/bootloader input validation, hardware
-paths, the `RepairToken` write capability). tools/mkdisk.py hand-builds the
+paths, the `RepairToken` write capability). M7.9 (in progress) turns the
+read-only diagnosis into a complete repair chain: /boot inventory and
+systemd-boot/rEFInd/UKI diagnosis, a deterministic grub.cfg generator, and
+`grub-fix install` (backup, regenerate, publish, verify, NVRAM entry) per
+the §9.1 write contract. tools/mkdisk.py hand-builds the
 GPT + FAT32 test disk including the ESP fixture (`--broken` / `--broken-shim`
 / `--two-fs` / `--keys` / `--shell-repair` / `--liar` / `--bigcluster`
 variants).
