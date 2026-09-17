@@ -32,7 +32,9 @@ mod exceptions;
 mod font;
 mod gdt;
 mod idt;
+mod input;
 mod interrupts;
+mod kbd;
 mod mm;
 mod pci;
 mod pic;
@@ -141,6 +143,14 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     let _ = writeln!(s, "idt: 256 entries, #DF on IST1");
     pic::init();
     let _ = writeln!(s, "pic: remapped 0x20/0x28, only IRQ0 unmasked");
+
+    // M8.5a: PS/2 keyboard on IRQ1. Absent hardware degrades to serial-only.
+    if kbd::init() {
+        pic::unmask(consts::IRQ_KEYBOARD);
+        let _ = writeln!(s, "kbd: IRQ1 unmasked (serial + keyboard input)");
+    } else {
+        let _ = writeln!(s, "kbd: no PS/2 keyboard (serial-only input)");
+    }
 
     // TSC calibration MUST precede the PIT going periodic (channel 0).
     tsc::calibrate();

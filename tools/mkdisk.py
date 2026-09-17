@@ -35,6 +35,9 @@ LIAR = "--liar" in sys.argv
 GRUB_REGEN = "--grub-regen" in sys.argv
 if GRUB_REGEN:
     TWO_FS = True
+# --kbd-test: minimal ESP script so the monitor-injected keystrokes are
+# consumed quickly (M8.5a smoke phase).
+KBD_TEST = "--kbd-test" in sys.argv
 # --two-fs adds a hand-built ext4 root (mounted ro by M6.5) and an XFS-magic
 # stub that must stay probe-only.
 DISK_SECTORS = 51200 if TWO_FS else 32768  # 25 / 16 MiB
@@ -48,7 +51,7 @@ PART3_SECTORS = 8192  # 4 MiB (XFS-magic probe fixture)
 out = bytearray(SECTOR * DISK_SECTORS)
 
 BROKEN = "--broken" in sys.argv or "--broken-shim" in sys.argv
-KEYS = "--keys" in sys.argv or "--shell-repair" in sys.argv or GRUB_REGEN
+KEYS = "--keys" in sys.argv or "--shell-repair" in sys.argv or GRUB_REGEN or KBD_TEST
 SHELL_REPAIR = "--shell-repair" in sys.argv
 # --broken-shim: the fallback loader AND the shim are gone, so the fallback
 # copy repair has nothing to copy from (exercises the NVRAM delete path).
@@ -144,6 +147,7 @@ flags = {
     "liar": LIAR,
     "shell_repair": SHELL_REPAIR,
     "grub_regen": GRUB_REGEN,
+    "kbd_test": KBD_TEST,
 }
 SPC, SPF, CLUSTERS = build_fat(out, PART_LBA, PART_SECTORS, flags, FSTAB)
 

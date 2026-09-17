@@ -69,6 +69,7 @@ fn main() {
     println!("cargo:rerun-if-changed={dir}/../drivers/c/ahci.h");
     println!("cargo:rerun-if-changed={dir}/../drivers/c/ahci_io.c");
     println!("cargo:rerun-if-changed={dir}/../drivers/c/blk.c");
+    println!("cargo:rerun-if-changed={dir}/../drivers/c/i8042.c");
     println!("cargo:rerun-if-changed={dir}/../drivers/c/nvme.c");
     println!("cargo:rerun-if-changed={dir}/../drivers/c/nvme.h");
     println!("cargo:rerun-if-changed={dir}/../drivers/c/nvme_io.c");
@@ -83,6 +84,7 @@ fn main() {
         .file(format!("{dir}/../drivers/c/ahci.c"))
         .file(format!("{dir}/../drivers/c/ahci_io.c"))
         .file(format!("{dir}/../drivers/c/blk.c"))
+        .file(format!("{dir}/../drivers/c/i8042.c"))
         .file(format!("{dir}/../drivers/c/nvme.c"))
         .file(format!("{dir}/../drivers/c/nvme_io.c"))
         .flag("-mcmodel=large")

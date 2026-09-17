@@ -139,6 +139,17 @@ pub extern "C" fn k_delay_ms(ms: u64) {
     tsc::sleep_ms(ms);
 }
 
+/// Port I/O for the C driver layer (rust_core.h; valid from IRQ context).
+#[no_mangle]
+pub extern "C" fn k_inb(port: u16) -> u8 {
+    unsafe { crate::port::inb(port) }
+}
+
+#[no_mangle]
+pub extern "C" fn k_outb(port: u16, value: u8) {
+    unsafe { crate::port::outb(port, value) };
+}
+
 // --- bring-up + verification ------------------------------------------------
 
 /// PCI-scan for AHCI, probe it, read LBA0 and verify the MBR signature

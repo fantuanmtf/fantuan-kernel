@@ -214,7 +214,9 @@ def build(out, part_lba, part_sectors, flags, fstab):
     # §10 shell autorun script. --shell-repair swaps in the confirmation-gated
     # repair sequence (the shell feeds the next script line as the YES answer);
     # --grub-regen runs the M7.9 install path instead.
-    if grub_regen:
+    if flags.get("kbd_test"):
+        SHELL_CMD = b"help\nlsmnt\n"
+    elif grub_regen:
         SHELL_CMD = (
             b"grub-fix install\n"
             b"YES\n"

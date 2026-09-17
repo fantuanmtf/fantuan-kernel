@@ -180,6 +180,9 @@ else
   exit 1
 fi
 
+# M8.5a phase: PS/2 keyboard injection via the QEMU monitor.
+if ./tools/kbd_test.sh; then :; else exit 1; fi
+
 # NVMe phase (M8): the same stack over a different transport — the driver
 # registry picks the NVMe ops table and everything above it is unchanged.
 rm -f build/smoke-nvme.log

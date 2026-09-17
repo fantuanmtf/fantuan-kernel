@@ -32,6 +32,12 @@ void *k_alloc_page(uint64_t *phys_out);
 /* --- time -------------------------------------------------------------- */
 void k_delay_ms(uint64_t ms);
 
+/* --- port I/O ---------------------------------------------------------- *
+ * Arch primitive (DESIGN.md §2.1): the C driver layer must use these
+ * instead of raw asm. Both are valid from interrupt context. */
+uint8_t k_inb(uint16_t port);
+void k_outb(uint16_t port, uint8_t value);
+
 #ifdef __cplusplus
 }
 #endif

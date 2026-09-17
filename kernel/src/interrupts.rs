@@ -4,7 +4,7 @@
 use core::fmt::Write;
 use core::mem::size_of;
 
-use crate::consts::{IRQ_TIMER, PIC2_OFFSET};
+use crate::consts::{IRQ_KEYBOARD, IRQ_TIMER, PIC2_OFFSET};
 use crate::exceptions;
 use crate::pic;
 use crate::serial::{self, Serial};
@@ -62,6 +62,8 @@ pub extern "C" fn isr_dispatch(frame: *mut InterruptFrame) {
         pic::eoi(vector as u8);
         if vector == IRQ_TIMER as u64 {
             timer::tick();
+        } else if vector == IRQ_KEYBOARD as u64 {
+            crate::kbd::irq();
         }
     } else {
         let mut s = Serial::new(serial::COM1);

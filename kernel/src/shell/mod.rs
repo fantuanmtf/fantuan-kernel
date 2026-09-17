@@ -10,7 +10,7 @@ use core::fmt::Write;
 
 use fantuan_abi::BootInfo;
 
-use crate::serial::{self, Serial, COM1};
+use crate::serial::{self, Serial};
 use crate::vfs::{self, Vfs};
 
 pub mod cat;
@@ -115,7 +115,7 @@ impl<'a> Shell<'a> {
         self.len = 0;
         let mut empty = 0u32;
         loop {
-            match Serial::new(COM1).read() {
+            match crate::input::poll_byte() {
                 Some(b) => {
                     empty = 0;
                     match b {

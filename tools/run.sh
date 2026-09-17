@@ -27,6 +27,8 @@ NVME=0
 BIGCLUSTER=0
 LIAR=0
 GRUB_REGEN=0
+MONITOR=0
+KBD_TEST=0
 for a in "$@"; do
   case "$a" in
     --graphics)    GRAPHICS=1 ;;
@@ -41,6 +43,8 @@ for a in "$@"; do
     --bigcluster)  BIGCLUSTER=1 ;;
     --liar)        LIAR=1 ;;
     --grub-regen)  GRUB_REGEN=1 ;;
+    --monitor)     MONITOR=1 ;;
+    --kbd-test)    KBD_TEST=1 ;;
   esac
 done
 
@@ -127,6 +131,9 @@ fi
 if [ "$GRUB_REGEN" = "1" ]; then
   MKDISK_ARGS="$MKDISK_ARGS --grub-regen"
 fi
+if [ "$KBD_TEST" = "1" ]; then
+  MKDISK_ARGS="$MKDISK_ARGS --kbd-test"
+fi
 python3 tools/mkdisk.py $MKDISK_ARGS build/test.img
 # Storage attachment: AHCI (reference) or NVMe (the same blk_ops table).
 if [ "$NVME" = "1" ]; then
@@ -137,6 +144,12 @@ fi
 
 SERIAL_OPT="-nographic"
 if [ "$GRAPHICS" = "1" ]; then SERIAL_OPT="-serial stdio"; fi
+if [ "$MONITOR" = "1" ]; then
+  # Keyboard-injection test path: a unix monitor socket while serial stays
+  # on stdio (-nographic would multiplex the monitor onto the same stdio).
+  rm -f build/mon.sock
+  SERIAL_OPT="-display none -serial stdio"
+fi
 
 # Argument arrays (no line-continuation gymnastics).
 QEMU_ARGS=(
@@ -168,6 +181,11 @@ if [ "$SMM" = "1" ]; then
     -global ICH9-LPC.disable_s4=1
     "${QEMU_ARGS[@]}"
   )
+fi
+
+# The monitor socket must be appended after QEMU_ARGS is fully built.
+if [ "$MONITOR" = "1" ]; then
+  QEMU_ARGS+=(-monitor "unix:build/mon.sock,server,nowait")
 fi
 
 exec qemu-system-x86_64 "${QEMU_ARGS[@]}" $SERIAL_OPT
