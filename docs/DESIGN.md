@@ -333,7 +333,10 @@ nvme0n1p4   unknown   Windows data (by GPT GUID)    -> not mounted
   non-SMM OVMF builds; the test environment still uses QEMU q35 + SMM OVMF
   (tools/run.sh --smm) because real firmware locks the flash at runtime
   without SMM. The SMM build is SB-enabled and is paired with the plain
-  (keyless) vars template to keep Secure Boot off.
+  (keyless) vars template to keep Secure Boot off. Config regeneration
+  (M7.9, §9.1): `grub-fix install` backs up and rewrites the vendor
+  configuration from the mounted ext4 root, then verifies the file and the
+  rest of the chain (ESP payloads + NVRAM entry).
 - **Architecture note**: classic boot repair uses `chroot` into the target system —
   impossible without a Linux ABI. v1 covers ~80% with native repair; a long-term
   **linuxulator compatibility layer** (FreeBSD-style) is kept as an open option to
@@ -383,9 +386,10 @@ PCI catalog, probe table, SMART, BootInfo). The loop halts between polls, so
 the demo tasks keep running; after 30 s without input it logs
 `shell: idle on serial (no input yet)` once. Two safety rules are enforced:
 `mount` only creates read-only aliases of the already-mounted FAT32 (any
-other request is refused), and `grub-fix repair` requires an explicit `YES`
-line before it calls `enable_repair_mode()` — a grep audit confirms the shell
-contains exactly one such call. Autorun: an ESP script
+other request is refused), and every write action (`grub-fix repair`,
+`grub-fix install`) requires an explicit `YES` line before it calls
+`enable_repair_mode()` — a grep audit confirms the shell contains exactly
+one such call. Autorun: an ESP script
 (`EFI/fantuan/shell.cmd`, one command per line) is executed at shell start,
 which is also how the smoke test drives the commands headlessly.
 
@@ -523,14 +527,20 @@ fantuan-kernel/
   shell/mod.rs (input, dispatch, aliases) and shell/cmds.rs (commands) per the
   file-size rule. Deferred: ash/bash, job control, keyboard input (the input
   layer takes the serial reader, so a PS/2 path plugs in).
-- **M7.9** — IN PROGRESS (boot repair v2): the repair write contract of §9.1
-  plus the pieces it needs — `/boot` inventory and `os-release`/`default/grub`
-  parsing from the mounted ext4 root, systemd-boot/rEFInd/EFI-stub (UKI)
-  diagnosis, a deterministic `grub.cfg` generator, FAT directory creation,
-  and `grub-fix install` (backup, regenerate, publish, verify, ensure the
-  NVRAM entry). The prelude (before this milestone) split `nvram.rs`,
-  `ahci.c`/`nvme.c` and `interrupts.S` to the size rule and gave
-  `frame::free` ownership checks.
+- **M7.9** — DONE (boot repair v2): the repair write contract of §9.1 plus the
+  pieces it needed — `/boot` inventory and `os-release`/`default/grub`
+  parsing from the mounted ext4 root (`bootfiles.rs`), systemd-boot/rEFInd/
+  EFI-stub (UKI) diagnosis in `esp.rs`, a deterministic `grub.cfg` generator
+  (`grubgen.rs`), FAT directory creation (`vfs/fat_dir.rs`), and
+  `grub-fix install` (`install.rs`): target selection (ubuntu → debian →
+  EFI/fantuan), verified `GRUBCFG.BAK`, publish + byte-compare, fallback
+  chain and NVRAM entry. The prelude split `nvram.rs`, `ahci.c`/`nvme.c` and
+  `interrupts.S` to the size rule and gave `frame::free` ownership checks.
+  Verified by a new smoke phase (backup 108 bytes, generated 336 bytes, both
+  re-read), plus `--nvme --grub-regen` and `--smm --grub-regen` (the latter
+  creates the explicit partition-level Boot#### through SetVariable).
+  Still missing (documented in §9.1): GRUB module/font installation and
+  ext4 writes.
 - **M8 (storage part)** — DONE: block-device ops registry (`drivers/c/blk.c`)
   + NVMe driver (`drivers/c/nvme.c`) behind the same ops table as AHCI;
   driver-side identity decode (ATA IDENTIFY / NVMe Identify Controller +
