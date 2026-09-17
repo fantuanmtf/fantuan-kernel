@@ -603,8 +603,8 @@ fantuan-kernel/
   output tee so the GOP framebuffer shows shell interaction on real
   hardware.
 - **M8** — linuxulator compatibility layer + Secure Boot story.
-- **M9** — RISC-V port behind the arch/ HAL (see the roadmap appendix in
-  this section once M8.1-M8.5 land).
+- **M9** — RISC-V port behind the arch/ HAL: roadmap in §14 (planned; the
+  x86_64 rescue system stays the primary target).
 
 ## 13. Governing Principles
 
@@ -627,3 +627,70 @@ fantuan-kernel/
    cheap; cleaning up a monolith later is technical debt.
 5. **Documentation first** — design changes land here before code.
 6. **English-only artifacts** — see header.
+
+## 14. RISC-V Port Roadmap (M9, planned)
+
+Status: planned, not started. The x86_64 rescue system remains the product;
+the RISC-V port proves the arch/ split and keeps the core portable. The
+reference platform is QEMU `virt` with OpenSBI (`qemu-system-riscv64`,
+`-bios default`).
+
+### 14.1 Environment facts (verified 2026-09)
+
+- `riscv64gc-unknown-none-elf` is a rustup target (not yet installed).
+- `qemu-system-riscv64` 10.2.3 is installed; **x86_64 must stay in
+  `QEMU_SOFTMMU_TARGETS`** so the primary platform's smoke suite keeps
+  running (a riscv-only rebuild removes `qemu-system-x86_64`).
+- OpenSBI `opensbi-riscv64-generic-fw_dynamic.bin` ships with QEMU.
+
+### 14.2 Why this is a port, not a recompile
+
+- The UEFI bootloader (`boot/`) is x86-specific and unused on RISC-V:
+  OpenSBI enters the kernel in S-mode with `a0 = hartid`, `a1 = DTB`, so a
+  new early entry path is required.
+- `PHYS_OFFSET` is an x86 canonical address; Sv39's high half starts at
+  `0xFFFFFFC0_00000000`. The ABI constant becomes arch-conditional at
+  compile time and the linker script/base move with it. No wire-format
+  change: BootInfo stays, but gains an arch/boot-kind discriminator.
+- No GOP, no ACPI, no SMBIOS: the console is the NS16550 MMIO UART, memory
+  comes from the FDT, and the SMBIOS-based identity/DIMM/slot diagnostics
+  degrade to FDT-reported values where they exist at all.
+- PCI is ECAM (the Rust config-space reader gains an MMIO path); QEMU virt
+  storage is `virtio-blk`, not AHCI/NVMe — a new C driver behind the
+  existing `blk_ops` registry, so VFS/diagnostics/boot repair stay
+  unchanged (the registry's payoff).
+- Interrupts are PLIC + SBI/CLINT timer; context switches save ra/sp/s0-s11;
+  syscalls use `ecall`. `kernel/src/consts.rs` (and thus `asm_defs.inc`) is
+  x86-flavored and gains arch-selected output.
+
+### 14.3 Phases
+
+1. **M9.0 — arch/ HAL, no behaviour change.** Move x86 pieces under
+   `arch/x86_64/` behind `#[cfg]`, define the interfaces (paging, irq,
+   timer, serial, cpu features, context switch, syscall entry). Pure
+   refactor commits only; the x86 smoke suite stays green throughout.
+2. **M9.1 — boot.** riscv64 build target; S-mode entry from OpenSBI;
+   FDT-lite memory map (memory + reserved-memory only); Sv39 early mapping;
+   MMIO 16550 console; boot banner and handshake validation.
+3. **M9.2 — traps and tasks.** SBI timer, PLIC external IRQs, trap frame,
+   context switch, `ecall` syscall dispatch, kernel tasks + scheduler.
+4. **M9.3 — user mode and diagnostics.** U-mode tasks with per-task page
+   tables, FDT-based CPU/RAM diagnostics, PCIe ECAM catalog.
+5. **M9.4 — storage.** virtio-blk C driver registering `blk_ops`; then the
+   VFS, probe table, SMART and boot repair run unchanged.
+6. **M9.5 — verification.** `tools/run.sh --arch riscv64` plus a smoke
+   variant on QEMU virt (bounded run, greps for the handshake and VFS).
+
+### 14.4 Risks and mitigations
+
+- **Arch refactor destabilises x86**: cfg-gate only, one subsystem per
+  commit, full x86 smoke after each; no functional changes mixed in.
+- **ABI drift**: append-only BootInfo field for the arch/boot kind;
+  `PHYS_OFFSET` stays a compile-time constant per architecture.
+- **FDT scope creep**: no general FDT library — memory/reserved nodes first,
+  more only when a consumer exists.
+- **virtio-blk complexity** (queue setup, feature negotiation): first cut is
+  polling, modern (non-legacy) transport, one queue pair — the same shape
+  as the NVMe driver.
+- **Unknown hardware behaviour**: everything is spiked on QEMU before it is
+  coded; no register offsets from memory (the M8.1 workflow).
