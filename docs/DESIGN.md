@@ -369,7 +369,7 @@ hwdiag      re-run diagnostics          lsdev   device list
 lsos        identified systems          lsmnt   mount table
 mount / umount / cat / help
 bootinfo    per-disk boot details       diskhealth [-scan]
-grub-fix    Linux boot repair (diagnose / repair modes)
+grub-fix    Linux boot repair (diagnose / repair / install)
 ```
 
 Shell roadmap: built-in minimal -> ash -> bash. (bash: C, POSIX-sh superset, smaller
@@ -517,7 +517,8 @@ fantuan-kernel/
 - **M7.8 / §10** — DONE (Minimal Shell v1): the built-in shell described in
   §10 — serial line editor, the 11 commands (help, hwdiag, lsdev, lsos,
   lsmnt, mount, umount, cat, bootinfo, diskhealth [-scan], grub-fix
-  [diagnose|repair]), surface scan with progress + 'q' cancel and the 4 GiB
+  [diagnose|repair|install]), surface scan with progress + 'q' cancel and the
+  4 GiB
   cap, confirmation-gated repair, ESP autorun script. Split across
   shell/mod.rs (input, dispatch, aliases) and shell/cmds.rs (commands) per the
   file-size rule. Deferred: ash/bash, job control, keyboard input (the input

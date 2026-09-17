@@ -15,6 +15,8 @@ pub mod bootfiles;
 pub mod esp;
 pub mod fstab;
 pub mod grub;
+pub mod grubgen;
+pub mod install;
 pub mod nvram;
 pub mod nvram_boot;
 pub mod nvram_repair;
@@ -196,7 +198,7 @@ pub fn repair(s: &mut Serial, vfs: &Vfs, runtime_services: u64) {
 /// the shim into place (the classic fallback-loader repair). The copy is
 /// chunked, so a real ~1 MiB shim works; a size mismatch aborts rather than
 /// publishing a truncated loader.
-fn fix_missing_fallback(s: &mut Serial, vfs: &Vfs) {
+pub(super) fn fix_missing_fallback(s: &mut Serial, vfs: &Vfs) {
     let fs = &vfs.fs;
     let efi = to_8_3("EFI").unwrap();
     let boot = to_8_3("BOOT").unwrap();
@@ -284,7 +286,7 @@ fn fix_missing_fallback(s: &mut Serial, vfs: &Vfs) {
 }
 
 /// Find a directory cluster by one component under a directory.
-fn find_dir(fs: &Fat32, start: u32, name: &[u8; 11]) -> Option<u32> {
+pub(super) fn find_dir(fs: &Fat32, start: u32, name: &[u8; 11]) -> Option<u32> {
     let mut found = None;
     fs.walk_dir(start, |n, attr, cluster, _| {
         if found.is_none() && eq_8_3(n, name) && attr & 0x10 != 0 {

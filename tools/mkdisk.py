@@ -23,6 +23,11 @@ TWO_FS = "--two-fs" in sys.argv
 #                 must truncate to the caller's buffer instead of panicking.
 BIGCLUSTER = "--bigcluster" in sys.argv
 LIAR = "--liar" in sys.argv
+# --grub-regen runs `grub-fix install` from the ESP script (implies the ext4
+# root so there is something to generate from).
+GRUB_REGEN = "--grub-regen" in sys.argv
+if GRUB_REGEN:
+    TWO_FS = True
 # --two-fs adds a hand-built ext4 root (mounted ro by M6.5) and an XFS-magic
 # stub that must stay probe-only.
 DISK_SECTORS = 51200 if TWO_FS else 32768  # 25 / 16 MiB
@@ -36,7 +41,7 @@ PART3_SECTORS = 8192  # 4 MiB (XFS-magic probe fixture)
 out = bytearray(SECTOR * DISK_SECTORS)
 
 BROKEN = "--broken" in sys.argv or "--broken-shim" in sys.argv
-KEYS = "--keys" in sys.argv or "--shell-repair" in sys.argv
+KEYS = "--keys" in sys.argv or "--shell-repair" in sys.argv or GRUB_REGEN
 SHELL_REPAIR = "--shell-repair" in sys.argv
 # --broken-shim: the fallback loader AND the shim are gone, so the fallback
 # copy repair has nothing to copy from (exercises the NVRAM delete path).
@@ -285,7 +290,13 @@ wsect(cluster_sector(9), UBUNTU_DIR)
 CERT = b"\x30\x82\x00\x40" + (b"FANTUAN TEST CERTIFICATE " * 4)
 # §10 shell autorun script. --shell-repair swaps in the confirmation-gated
 # repair sequence (the shell feeds the next script line as the YES answer).
-if SHELL_REPAIR:
+if GRUB_REGEN:
+    SHELL_CMD = (
+        b"grub-fix install\n"
+        b"YES\n"
+        b"cat /EFI/ubuntu/grub.cfg\n"
+    )
+elif SHELL_REPAIR:
     SHELL_CMD = (
         b"grub-fix repair\n"
         b"YES\n"

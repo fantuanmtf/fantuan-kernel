@@ -205,9 +205,23 @@ pub fn cmd_grubfix(sh: &mut Shell, s: &mut Serial, args: &[&[u8]]) {
         out!(s, "grub-fix: no filesystem mounted");
         return;
     };
+    // `install` (M7.9) regenerates the configuration; `repair` applies the
+    // ESP/NVRAM fixes; no argument is the read-only diagnosis.
+    if args.first().map(|a| *a == b"install").unwrap_or(false) {
+        out!(s, "WARNING: install regenerates the boot configuration (GRUBCFG.BAK first) — confirm by typing YES");
+        let _ = write!(s, "confirm> ");
+        if !sh.read_line(s) || sh.line_bytes() != b"YES" {
+            out!(s, "grub-fix: confirmation not YES — aborted (nothing written)");
+            return;
+        }
+        crate::vfs::enable_repair_mode();
+        out!(s, "grub-fix: repair mode ON — installing the generated configuration");
+        crate::bootrepair::install::run(s, &vfs, sh.rt);
+        return;
+    }
     let repair = args.first().map(|a| *a == b"repair").unwrap_or(false);
     if !repair {
-        out!(s, "grub-fix: diagnosis (read-only) — 'grub-fix repair' to act");
+        out!(s, "grub-fix: diagnosis (read-only) — 'grub-fix repair|install' to act");
         crate::bootrepair::diagnose(s, &vfs, sh.rt);
         return;
     }

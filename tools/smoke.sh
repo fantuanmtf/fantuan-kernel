@@ -81,6 +81,26 @@ else
   exit 1
 fi
 
+# M7.9 phase: `grub-fix install` regenerates the vendor config from the ext4
+# root — verified backup, published + re-read config, NVRAM check; the
+# autorun then cats the generated file.
+rm -f build/smoke-regen.log
+timeout --signal=KILL 150 ./tools/run.sh --grub-regen > build/smoke-regen.log 2>&1 || true
+if grep -q "install: target EFI/ubuntu/grub.cfg" build/smoke-regen.log \
+   && grep -q "install: backed up EFI/ubuntu/grub.cfg -> GRUBCFG.BAK (108 bytes, verified)" build/smoke-regen.log \
+   && grep -q "install: wrote EFI/ubuntu/grub.cfg (336 bytes, verified)" build/smoke-regen.log \
+   && grep -q "search --no-floppy --fs-uuid --set=root 12345678-1234-1234-1234-123456789abc" build/smoke-regen.log \
+   && grep -q "linux /boot/vmlinuz-6.6.0-fantuan root=UUID=12345678-1234-1234-1234-123456789abc ro quiet splash" build/smoke-regen.log \
+   && grep -q "initrd /boot/initrd.img-6.6.0-fantuan" build/smoke-regen.log \
+   && grep -q "install: done" build/smoke-regen.log; then
+  echo "SMOKE PASS (M7.9: grub-fix install — backup, regenerate, publish, verify)"
+  grep -aE "install: (target|backed|wrote|done)|search --no-floppy|linux /boot|initrd /boot" build/smoke-regen.log | head -7
+else
+  echo "SMOKE FAIL (M7.9 install) — log tail:"
+  tail -25 build/smoke-regen.log
+  exit 1
+fi
+
 # Audit phase (P2): a crafted ESP whose HELLO.TXT claims 4096 bytes while the
 # file holds 35 must not panic the boot path — read_file truncates to the
 # caller's buffer and the boot continues.

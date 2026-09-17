@@ -49,6 +49,7 @@ pub fn write_file(fs: &fat::Fat32, dir_cluster: u32, name: &[u8; 11], data: &[u8
 
 pub mod ext4;
 pub mod fat;
+pub mod fat_dir;
 pub mod fat_write;
 pub mod part;
 pub mod probe;

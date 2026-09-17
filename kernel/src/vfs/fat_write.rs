@@ -64,7 +64,7 @@ impl Fat32 {
     }
 
     /// Find a free cluster (zero FAT entry), mark it EOC, return it.
-    fn alloc_cluster(&self) -> Option<u32> {
+    pub(super) fn alloc_cluster(&self) -> Option<u32> {
         let mut sec = [0u8; 512];
         for s in 0..self.sectors_per_fat {
             let lba = self.fat_lba + s as u64;
@@ -90,7 +90,7 @@ impl Fat32 {
     /// Write one cluster's worth of data (zero-padded past the end). DATA may
     /// be shorter than the cluster; sectors entirely past its end are written
     /// as zeroes (the `start < data.len()` guard keeps the slice in range).
-    fn write_cluster(&self, n: u32, data: &[u8]) -> bool {
+    pub(super) fn write_cluster(&self, n: u32, data: &[u8]) -> bool {
         let cluster_bytes = (self.sectors_per_cluster * 512) as usize;
         let lba = self.data_lba + (n as u64 - 2) * self.sectors_per_cluster as u64;
         let mut sec = [0u8; 512];
@@ -149,8 +149,8 @@ impl Fat32 {
     /// Put an 8.3 entry into the directory: overwrite the existing entry of
     /// the same name in place, otherwise fill a deleted/end slot. Both passes
     /// are capped at the FAT chain limit, so a cyclic directory never hangs
-    /// the writer.
-    fn append_dir_entry(&self, dir_cluster: u32, name: &[u8; 11], cluster: u32, size: u32) -> bool {
+    /// the writer. ATTR is the attribute byte (0x20 file, 0x10 directory).
+    pub(super) fn append_dir_entry(&self, dir_cluster: u32, name: &[u8; 11], cluster: u32, size: u32, attr: u8) -> bool {
         // Pass 1: an entry of the same name is overwritten in place, so
         // repeated boots never create duplicates.
         let mut c = dir_cluster;
@@ -200,7 +200,7 @@ impl Fat32 {
                     if sec[off] == 0x00 || sec[off] == 0xE5 {
                         let mut e = [0u8; 32];
                         e[0..11].copy_from_slice(name);
-                        e[11] = 0x20; // archive
+                        e[11] = attr;
                         e[20..22].copy_from_slice(&((cluster >> 16) as u16).to_le_bytes());
                         e[26..28].copy_from_slice(&(cluster as u16).to_le_bytes());
                         e[28..32].copy_from_slice(&size.to_le_bytes());
@@ -247,6 +247,6 @@ impl FileWriter<'_> {
         if self.first == 0 {
             return false;
         }
-        self.fs.append_dir_entry(self.dir_cluster, &self.name, self.first, self.size)
+        self.fs.append_dir_entry(self.dir_cluster, &self.name, self.first, self.size, 0x20 /* archive */)
     }
 }

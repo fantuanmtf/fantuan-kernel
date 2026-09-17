@@ -2,7 +2,7 @@
 # fantuan-kernel — one-shot build & run in QEMU/OVMF.
 # Usage: tools/run.sh [--graphics] [--broken] [--broken-shim] [--smm]
 #                     [--no-smbios] [--two-fs] [--keys] [--shell-repair]
-#                     [--nvme] [--bigcluster] [--liar]
+#                     [--nvme] [--bigcluster] [--liar] [--grub-regen]
 #   --broken:      build the test disk with a missing EFI/BOOT/BOOTX64.EFI so
 #                  the boot-repair fallback copy can be exercised (M7.5b).
 #   --broken-shim: fallback AND shim missing — the NVRAM repair then has to
@@ -26,6 +26,7 @@ SHELL_REPAIR=0
 NVME=0
 BIGCLUSTER=0
 LIAR=0
+GRUB_REGEN=0
 for a in "$@"; do
   case "$a" in
     --graphics)    GRAPHICS=1 ;;
@@ -39,6 +40,7 @@ for a in "$@"; do
     --nvme)        NVME=1 ;;
     --bigcluster)  BIGCLUSTER=1 ;;
     --liar)        LIAR=1 ;;
+    --grub-regen)  GRUB_REGEN=1 ;;
   esac
 done
 
@@ -121,6 +123,9 @@ if [ "$BIGCLUSTER" = "1" ]; then
 fi
 if [ "$LIAR" = "1" ]; then
   MKDISK_ARGS="$MKDISK_ARGS --liar"
+fi
+if [ "$GRUB_REGEN" = "1" ]; then
+  MKDISK_ARGS="$MKDISK_ARGS --grub-regen"
 fi
 python3 tools/mkdisk.py $MKDISK_ARGS build/test.img
 # Storage attachment: AHCI (reference) or NVMe (the same blk_ops table).
