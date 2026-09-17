@@ -306,6 +306,12 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     let _ = writeln!(s, "beep: boot ok (1 long)");
 
     // --- §10 Minimal shell -------------------------------------------------
+    // M8.5b: mirror serial output onto the GOP so the shell is usable on
+    // machines without a serial port. Enabled here, after the boot logs.
+    if con.is_some() {
+        serial::enable_mirror();
+        let _ = writeln!(s, "console: serial output mirrored to GOP (keyboard + display)");
+    }
     // The interactive loop replaces the idle spin: it halts between polls, so
     // the scheduler keeps running the other tasks exactly as before.
     shell::enter(mounted, bi, bi.runtime_services);

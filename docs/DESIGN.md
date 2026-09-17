@@ -610,10 +610,24 @@ fantuan-kernel/
     `sys_write` brackets its user-pointer copy with STAC/CLAC. Tools:
     run.sh passes `-cpu max` so the features are actually exercised; smoke
     asserts "mmu: nx true smep true smap true" plus both reap lines.
-- **M8.5** — PLANNED (input): i8042 PS/2 keyboard (C driver, IRQ1, ring
-  buffer) feeding a merged serial+keyboard input source, plus the console
-  output tee so the GOP framebuffer shows shell interaction on real
-  hardware.
+- **M8.5** — DONE (input):
+  - M8.5a: i8042 PS/2 keyboard (C driver: controller bring-up, IRQ1, ring
+    buffer, set-1 translation with shift) feeding a merged serial+keyboard
+    input source (`input.rs`); the C layer uses new `k_inb`/`k_outb`
+    rust_core exports instead of raw asm. IRQ1 is unmasked after PIC init;
+    absent hardware degrades to serial-only.
+  - M8.5b: the console moved to a global state and serial output is mirrored
+    onto it once the shell starts, so shell interaction (and everything the
+    shell prints) is visible on the GOP. The console accesses the
+    framebuffer through the PHYS_OFFSET alias — with a user task's CR3 the
+    identity-mapped physical address is absent, and a mirrored sys_write
+    used to recurse through the page-fault handler; the alias is present in
+    every address space.
+  - Verified by tools/kbd_test.sh: QEMU monitor `sendkey` injects "zz" +
+    Enter after the shell starts (the shell answers the unknown command)
+    and two screendumps must differ (mirror output reached the GOP).
+    smoke.sh runs it as a phase; all QEMU invocations now get stdin from
+    /dev/null (inherited stdin was feeding the guest serial).
 - **M8** — linuxulator compatibility layer + Secure Boot story.
 - **M9** — RISC-V port behind the arch/ HAL: roadmap in §14 (planned; the
   x86_64 rescue system stays the primary target).

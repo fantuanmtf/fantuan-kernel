@@ -14,6 +14,16 @@ pub const COM1: u16 = 0x3F8;
 /// acceptable until M5's console subsystem.
 static LOCK: AtomicBool = AtomicBool::new(false);
 
+/// Mirror serial output onto the GOP console (M8.5b). Enabled once the shell
+/// starts, so boot logs (already written to the console directly) are not
+/// duplicated. IRQ-context serial writes mirror too; the console write is
+/// plain memory traffic.
+static MIRROR: AtomicBool = AtomicBool::new(false);
+
+pub fn enable_mirror() {
+    MIRROR.store(true, Ordering::Release);
+}
+
 /// Write a slice atomically with respect to other tasks.
 pub fn write_locked(buf: &[u8]) -> usize {
     while LOCK.swap(true, Ordering::Acquire) {
@@ -77,6 +87,9 @@ impl Serial {
             // Wait until the transmit holding register is empty (LSR bit 5).
             while inb(self.port + 5) & 0x20 == 0 {}
             outb(self.port, c);
+        }
+        if MIRROR.load(Ordering::Relaxed) {
+            crate::console::global_putc(c);
         }
     }
 

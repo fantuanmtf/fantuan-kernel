@@ -24,7 +24,7 @@ for d in /usr/share/edk2/x64 /usr/share/OVMF /usr/share/ovmf /usr/share/edk2-ovm
 done
 
 rm -f build/smoke.log
-timeout --signal=KILL 60 ./tools/run.sh > build/smoke.log 2>&1 || true
+timeout --signal=KILL 60 ./tools/run.sh > build/smoke.log < /dev/null 2>&1 || true
 if grep -q "handshake ok" build/smoke.log && grep -q "beep: boot ok" build/smoke.log && grep -q "frame self-test ok" build/smoke.log && grep -q "demo tasks spawned" build/smoke.log && grep -q "task 3" build/smoke.log && grep -q "userland: hello" build/smoke.log && grep -q "userland: tid 5 exiting" build/smoke.log && grep -q "ahci: LBA0 read ok" build/smoke.log && grep -q "vfs: HELLO.TXT" build/smoke.log && grep -q "vfs: INFO.TXT => 1000" build/smoke.log && grep -q "esp: EFI/BOOT/BOOTX64.EFI" build/smoke.log && grep -q "fstab PARTUUID matches partition 1" build/smoke.log && grep -q "UUID matches grub.cfg" build/smoke.log && grep -q "nvram: BootCurrent" build/smoke.log && grep -q "nvram: BootOrder" build/smoke.log && ! grep -q "repair: FIXED" build/smoke.log && ! grep -q "repair: copied" build/smoke.log && ! grep -q "repair: created Boot" build/smoke.log && ! grep -q "repair: deleted stale" build/smoke.log && grep -q "smbios: BIOS TESTCORP 1.2.3" build/smoke.log && grep -q "smbios: System TESTVENDOR TESTBOX" build/smoke.log && grep -q "smbios: DIMMs" build/smoke.log && grep -q "diskhealth: .*power-on" build/smoke.log && grep -q "fs: part 1 EFI System Partition" build/smoke.log && grep -q "bootloaders: EFI/BOOT/BOOTX64.EFI" build/smoke.log && grep -q "crypto: KATs ok (sha256 + rsa-2048)" build/smoke.log && grep -q "sched: reaped tid 4" build/smoke.log && grep -q "sched: reaped tid 5" build/smoke.log && grep -q "mmu: nx true smep true smap true" build/smoke.log; then
   echo "SMOKE PASS (boot path is read-only: no repair writes)"
   grep -E "handshake ok|frame allocator|frame self-test|syscall:|sched:|user: ELF|userland: hello|userland: tid 5|beep: boot ok" build/smoke.log | head -10
@@ -39,7 +39,7 @@ fi
 rm -f build/smoke-broken.log
 # The repair itself is consent-gated now: the shell's autorun script runs
 # `grub-fix repair` and answers YES, which is what enables repair mode.
-timeout --signal=KILL 90 ./tools/run.sh --broken --shell-repair > build/smoke-broken.log 2>&1 || true
+timeout --signal=KILL 90 ./tools/run.sh --broken --shell-repair > build/smoke-broken.log < /dev/null 2>&1 || true
 if grep -q "confirm> YES" build/smoke-broken.log \
    && grep -q "repair: repair mode ON" build/smoke-broken.log \
    && grep -q "repair: FIXED.TXT write+readback ok" build/smoke-broken.log \
@@ -58,7 +58,7 @@ fi
 # --two-fs autorun adds that command). The XFS magic on part 3 must stay
 # probe-only.
 rm -f build/smoke-ext4.log build/smoke-nosmbios.log
-timeout --signal=KILL 90 ./tools/run.sh --two-fs --keys > build/smoke-ext4.log 2>&1 || true
+timeout --signal=KILL 90 ./tools/run.sh --two-fs --keys > build/smoke-ext4.log < /dev/null 2>&1 || true
 if grep -q "ext4: mounted ro — uuid 12345678-1234-1234-1234-123456789abc, 64 blocks of 1024 B, 16 inodes" build/smoke-ext4.log \
    && grep -q "ext4: mounted ro at /mnt/root0 (part 2)" build/smoke-ext4.log \
    && grep -q "probe: part 3 XFS identified, not mounted (probe-only)" build/smoke-ext4.log \
@@ -82,7 +82,7 @@ else
   tail -25 build/smoke-ext4.log
   exit 1
 fi
-timeout --signal=KILL 60 ./tools/run.sh --no-smbios > build/smoke-nosmbios.log 2>&1 || true
+timeout --signal=KILL 60 ./tools/run.sh --no-smbios > build/smoke-nosmbios.log < /dev/null 2>&1 || true
 if grep -q "handshake ok" build/smoke-nosmbios.log && grep -q "smbios:" build/smoke-nosmbios.log; then
   echo "SMOKE PASS (no -smbios overrides: firmware defaults parsed)"
 else
@@ -95,7 +95,7 @@ fi
 # root — verified backup, published + re-read config, NVRAM check; the
 # autorun then cats the generated file.
 rm -f build/smoke-regen.log
-timeout --signal=KILL 150 ./tools/run.sh --grub-regen > build/smoke-regen.log 2>&1 || true
+timeout --signal=KILL 150 ./tools/run.sh --grub-regen > build/smoke-regen.log < /dev/null 2>&1 || true
 if grep -q "install: target EFI/ubuntu/grub.cfg" build/smoke-regen.log \
    && grep -q "install: backed up EFI/ubuntu/grub.cfg -> GRUBCFG.BAK (108 bytes, verified)" build/smoke-regen.log \
    && grep -q "install: wrote EFI/ubuntu/grub.cfg (336 bytes, verified)" build/smoke-regen.log \
@@ -115,7 +115,7 @@ fi
 # file holds 35 must not panic the boot path — read_file truncates to the
 # caller's buffer and the boot continues.
 rm -f build/smoke-liar.log
-timeout --signal=KILL 60 ./tools/run.sh --liar > build/smoke-liar.log 2>&1 || true
+timeout --signal=KILL 60 ./tools/run.sh --liar > build/smoke-liar.log < /dev/null 2>&1 || true
 if grep -q "handshake ok" build/smoke-liar.log \
    && grep -q "vfs: HELLO.TXT =>" build/smoke-liar.log \
    && grep -q "vfs: INFO.TXT => 1000" build/smoke-liar.log; then
@@ -131,7 +131,7 @@ fi
 # final chunk must zero-pad the rest of its cluster instead of indexing past
 # the buffer.
 rm -f build/smoke-bigcluster.log
-timeout --signal=KILL 90 ./tools/run.sh --bigcluster --broken --shell-repair > build/smoke-bigcluster.log 2>&1 || true
+timeout --signal=KILL 90 ./tools/run.sh --bigcluster --broken --shell-repair > build/smoke-bigcluster.log < /dev/null 2>&1 || true
 if grep -q "repair: copied EFI/ubuntu/shimx64.efi -> EFI/BOOT/BOOTX64.EFI (21 bytes, verified)" build/smoke-bigcluster.log \
    && grep -q "vfs: INFO.TXT => 1000 bytes read, all-X true" build/smoke-bigcluster.log \
    && grep -q "cat: 21 bytes" build/smoke-bigcluster.log; then
@@ -149,7 +149,7 @@ fi
 rm -f build/smoke-shell.log build/smoke-shell-repair.log
 # The idle notice needs ~30 s after the autorun scan finishes, and a TCG boot
 # can take most of the first minute: budget 150 s.
-timeout --signal=KILL 150 ./tools/run.sh --keys --broken > build/smoke-shell.log 2>&1 || true
+timeout --signal=KILL 150 ./tools/run.sh --keys --broken > build/smoke-shell.log < /dev/null 2>&1 || true
 if grep -q "shell: autorun 9 command(s)" build/smoke-shell.log \
    && grep -q "shell> help" build/smoke-shell.log \
    && grep -q "hwdiag      re-run hardware" build/smoke-shell.log \
@@ -166,7 +166,7 @@ else
   tail -25 build/smoke-shell.log
   exit 1
 fi
-timeout --signal=KILL 90 ./tools/run.sh --shell-repair --broken > build/smoke-shell-repair.log 2>&1 || true
+timeout --signal=KILL 90 ./tools/run.sh --shell-repair --broken > build/smoke-shell-repair.log < /dev/null 2>&1 || true
 if grep -q "WARNING: repair mode enables disk writes" build/smoke-shell-repair.log \
    && grep -q "confirm> YES" build/smoke-shell-repair.log \
    && grep -q "repair: repair mode ON" build/smoke-shell-repair.log \
@@ -186,7 +186,7 @@ if ./tools/kbd_test.sh; then :; else exit 1; fi
 # NVMe phase (M8): the same stack over a different transport — the driver
 # registry picks the NVMe ops table and everything above it is unchanged.
 rm -f build/smoke-nvme.log
-timeout --signal=KILL 75 ./tools/run.sh --nvme > build/smoke-nvme.log 2>&1 || true
+timeout --signal=KILL 75 ./tools/run.sh --nvme > build/smoke-nvme.log < /dev/null 2>&1 || true
 if grep -q "blk: nvme registered" build/smoke-nvme.log \
    && grep -q "storage: QEMU NVMe Ctrl" build/smoke-nvme.log \
    && grep -q "diskhealth: QEMU NVMe Ctrl  SSD" build/smoke-nvme.log \
@@ -205,7 +205,7 @@ fi
 # The keyless OVMF vars template is a plain (non-auth) store, so the firmware
 # refuses the write — the phase accepts either outcome and checks the report.
 rm -f build/smoke-sb.log
-timeout --signal=KILL 90 ./tools/run.sh --smm --shell-repair > build/smoke-sb.log 2>&1 || true
+timeout --signal=KILL 90 ./tools/run.sh --smm --shell-repair > build/smoke-sb.log < /dev/null 2>&1 || true
 if grep -q "nvram: SetupMode" build/smoke-sb.log \
    && grep -q "secureboot: PK absent" build/smoke-sb.log \
    && grep -q "secureboot: SetupMode ACTIVE" build/smoke-sb.log \
@@ -235,9 +235,9 @@ fi
 if [ -f build/ovmf-smm/OVMF_CODE_4M.ms.fd ] && [ -f build/ovmf-smm/OVMF_VARS_4M.fd ]; then
   cp build/ovmf-smm/OVMF_VARS_4M.fd build/OVMF_VARS.smm.fd
   rm -f build/smoke-smm-a.log build/smoke-smm-b.log build/smoke-smm-c.log
-  timeout --signal=KILL 90 ./tools/run.sh --smm --broken-shim --shell-repair > build/smoke-smm-a.log 2>&1 || true
-  timeout --signal=KILL 90 ./tools/run.sh --smm --broken --shell-repair > build/smoke-smm-b.log 2>&1 || true
-  timeout --signal=KILL 90 ./tools/run.sh --smm --broken --shell-repair > build/smoke-smm-c.log 2>&1 || true
+  timeout --signal=KILL 90 ./tools/run.sh --smm --broken-shim --shell-repair > build/smoke-smm-a.log < /dev/null 2>&1 || true
+  timeout --signal=KILL 90 ./tools/run.sh --smm --broken --shell-repair > build/smoke-smm-b.log < /dev/null 2>&1 || true
+  timeout --signal=KILL 90 ./tools/run.sh --smm --broken --shell-repair > build/smoke-smm-c.log < /dev/null 2>&1 || true
   A_OK=$(grep -c "repair: deleted stale Boot" build/smoke-smm-a.log)
   B_OK=$(grep -c "repair: created Boot" build/smoke-smm-b.log)
   C_OK=$(grep -c "repair: BootOrder unchanged" build/smoke-smm-c.log)
