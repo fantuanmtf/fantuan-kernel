@@ -7,9 +7,36 @@ autorun, and the M7.9 systemd-boot/UKI stubs). Split out of mkdisk.py to keep
 every file inside the size rule; not a standalone tool.
 """
 
+import base64
 import struct
 
 SECTOR = 512
+
+# EFI authenticated-variable bundle for EFI/fantuan/PK.AUTH (M8.1b): 16-byte
+# EFI_TIME + WIN_CERTIFICATE_UEFI_GUID (PKCS#7 SignedData) + the new value.
+# Generated once with OpenSSL and re-checked with Python;
+# tools/gen_auth_fixture.sh records the exact commands.
+AUTH_BLOB = base64.b64decode(
+    b"AAAAAAAAAAAAAAAAAAAAAPkEAAAAAvEOndKvSt9o7kmKqTR9N1ZlpzCCBN0GCSqGSIb3DQEHAqCCBM4wggTKAgEBMQ8wDQYJ"
+    b"YIZIAWUDBAIBBQAwMwYJKoZIhvcNAQcBoCYEJGZhbnR1YW4gYXV0aCBwYXlsb2FkICh2YXJpYWJsZSBkYXRhKaCCAxswggMX"
+    b"MIIB/6ADAgECAhQ0+2hbpAfwC8ZKF2vBt8ij/QiZETANBgkqhkiG9w0BAQsFADAbMRkwFwYDVQQDDBBGYW50dWFuIFRlc3Qg"
+    b"S0VLMB4XDTI2MDkxNzE3NDc1MFoXDTM2MDkxNDE3NDc1MFowGzEZMBcGA1UEAwwQRmFudHVhbiBUZXN0IEtFSzCCASIwDQYJ"
+    b"KoZIhvcNAQEBBQADggEPADCCAQoCggEBAI9bFoqfNTlk6nCs4rRbzL4zhnNudejeN8HFp/e5lfu7dT8CSeRhLfcgi6ipDkXK"
+    b"DxUkTm/ujMzhCMQ3CIgyrn8kaY6DTgWfdYOPkWxNiGbLatOqUDl/VRFWDK4FAspsJ9RRTTn6S/b5v3c7jv0RH7xPCz1dKN/q"
+    b"39zE4I8P69wtHaqRUEpGPmy9JhUfGOmqOQ20fWWNFYBANrNmm2Si3YRh9UrpK4OhhkhE7hB22D9bmgPflt/I1G5AtgSLTJ/R"
+    b"GCg2CxTx/HObvUhCl4Z4l4f4Wp4/CN1fQsaTcfVC2ib3SiI4VEeKxCfCu0avtlVuNlukd/rEiolUxyBIm4LiI7kCAwEAAaNT"
+    b"MFEwHQYDVR0OBBYEFOePBrs7uOio4fGcq4jK576rhs/mMB8GA1UdIwQYMBaAFOePBrs7uOio4fGcq4jK576rhs/mMA8GA1Ud"
+    b"EwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAI1f994bVuubKRRaXr+aDXPzBqwtPD6FGTVCYq9+kJDPMgjgLPz578Gg"
+    b"531o40Y3Qsuyg0W0/EvwqxKdndDI0pLoCdkGlXAgXAi81ZHX72T+DmsbeXT1QEG9QOlodJTpF+ZhpUA1d1L5TTkOUKKdQTqX"
+    b"cAoHARSBf2Qv74Od0hp4rRryAvFCsulz/+lLMB0BSrZkVW91TYivCEoMapOdYncl9Dzf9hOYksky5LtZJokmu0KlKyw16pgi"
+    b"uBs+3gacVxu5veV1iFiGu9BUAa9kmYRq3txD5fLy0AshOUvYHYgl587aWOGr+zB/8IQ4fZyBgfqX/jV7crAGmDwGcMl/IfIx"
+    b"ggFeMIIBWgIBATAzMBsxGTAXBgNVBAMMEEZhbnR1YW4gVGVzdCBLRUsCFDT7aFukB/ALxkoXa8G3yKP9CJkRMA0GCWCGSAFl"
+    b"AwQCAQUAMA0GCSqGSIb3DQEBAQUABIIBAHZOiyVXDpR684QaRzWtgSvJrDBgarENb+2KR6p/rxoma0LAgxeTT2RSeXYiEas3"
+    b"/NWiRtFFwU3ZnehFX0jn4rbOKlfo81fahXINhw4Lgji4z3Nic+aPgMFwyl7tRFS83aZ1oxqwK4lkHbvNwScyxH0h0Mod/lQM"
+    b"6PVhm+CccnqtHO4JlIW2H6fN1yBmpOMtzldK81+6MV/lIqg5Ib2Yci5/M+jvPYxe1baYE/6SR3jeQW/eQysnT+P++ZsQb/C9"
+    b"5sR3qJdJ11CR1x/YvvLWV267WjdX8yVyVOFo25lrLcVPs3H7xwbCdpEbqyRL77UlzN5SgjhxFrckjB5LPh2e/u1mYW50dWFu"
+    b"IGF1dGggcGF5bG9hZCAodmFyaWFibGUgZGF0YSk="
+)
 
 
 def build(out, part_lba, part_sectors, flags, fstab):
@@ -61,10 +88,17 @@ def build(out, part_lba, part_sectors, flags, fstab):
     fat[3 * 4:3 * 4 + 4] = b"\xFF\xFF\xFF\x0F"      # cluster 3 = EOC (HELLO.TXT)
     fat[5 * 4:5 * 4 + 4] = struct.pack('<I', 6)          # 5 -> 6
     fat[6 * 4:6 * 4 + 4] = b"\xFF\xFF\xFF\x0F"      # 6 = EOC (INFO.TXT chain)
-    for n in range(7, 25):                          # 7..24 = ESP/systemd/UKI structure, all EOC
+    for n in range(7, 28):                          # 7..27 = ESP/systemd/UKI/auth structure, all EOC
         fat[n * 4:n * 4 + 4] = b"\xFF\xFF\xFF\x0F"
-    wsect(part_lba + RESERVED, fat)
-    wsect(part_lba + RESERVED + SPF, fat)
+    if keys:
+        # PK.AUTH spans clusters 25..27 (the M8.1b .auth fixture).
+        fat[25 * 4:25 * 4 + 4] = struct.pack('<I', 26)
+        fat[26 * 4:26 * 4 + 4] = struct.pack('<I', 27)
+    # The FAT spans many sectors: write it directly. wsect() would SPLICE a
+    # longer payload into the bytearray and silently grow the disk image.
+    for base in (part_lba + RESERVED, part_lba + RESERVED + SPF):
+        start = base * SECTOR
+        out[start:start + len(fat)] = fat
 
     def cluster_sector(n):
         return DATA_START + (n - 2) * SPC
@@ -89,6 +123,10 @@ def build(out, part_lba, part_sectors, flags, fstab):
         sec = bytearray(SECTOR)
         sec[0:len(data)] = data
         wsect(cluster_sector(cluster), sec)
+
+    def put_file_chain(clusters, data):
+        for i, c in enumerate(clusters):
+            put_file(c, data[i * SECTOR:(i + 1) * SECTOR])
 
     HELLO = b"Hello from the fantuan-kernel VFS!\n"
     INFO = b"X" * 1000
@@ -215,11 +253,14 @@ def build(out, part_lba, part_sectors, flags, fstab):
         FANTUAN_DIR[96:128] = dent("KEK", "CER", 17, len(CERT))
         FANTUAN_DIR[128:160] = dent("DB", "CER", 18, len(CERT))
         FANTUAN_DIR[160:192] = dent("SHELL", "CMD", 19, len(SHELL_CMD))
+        # 8.3 short alias of "PK.auth" (extensions are 3 chars on FAT).
+        FANTUAN_DIR[192:224] = dent("PK", "AUT", 25, len(AUTH_BLOB))
         wsect(cluster_sector(15), FANTUAN_DIR)
         put_file(16, CERT)
         put_file(17, CERT)
         put_file(18, CERT)
         put_file(19, SHELL_CMD)
+        put_file_chain([25, 26, 27], AUTH_BLOB)
 
     if not broken:
         put_file(10, BOOTX64)

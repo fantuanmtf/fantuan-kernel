@@ -196,13 +196,16 @@ timeout --signal=KILL 90 ./tools/run.sh --smm --shell-repair > build/smoke-sb.lo
 if grep -q "nvram: SetupMode" build/smoke-sb.log \
    && grep -q "secureboot: PK absent" build/smoke-sb.log \
    && grep -q "secureboot: SetupMode ACTIVE" build/smoke-sb.log \
-   && grep -q "enrolling PK from EFI/fantuan/PK.cer" build/smoke-sb.log; then
+   && grep -q "enrolling PK from EFI/fantuan/PK.cer" build/smoke-sb.log \
+   && grep -q "secureboot: PK.AUT descriptor ok, PKCS#7 self-verified" build/smoke-sb.log \
+   && grep -q "secureboot: PK.AUT signer certificate self-signed: true" build/smoke-sb.log \
+   && grep -q "secureboot: PK write sts=" build/smoke-sb.log; then
   if grep -q "secureboot: PK write sts=0x0" build/smoke-sb.log; then
     echo "SMOKE PASS (Secure Boot: platform key enrolled)"
     grep -E "secureboot: (PK write|WARNING)" build/smoke-sb.log
   else
-    echo "SMOKE PASS (Secure Boot: enrollment attempted; firmware store rejects authenticated variables)"
-    grep -E "secureboot: (PK write|enrollment refused)" build/smoke-sb.log
+    echo "SMOKE PASS (Secure Boot: .auth verified, firmware store rejects authenticated variables)"
+    grep -aE "secureboot: (PK write|PK.AUT|enrollment refused)" build/smoke-sb.log | head -6
   fi
 else
   echo "SMOKE FAIL (Secure Boot keys) — log tail:"

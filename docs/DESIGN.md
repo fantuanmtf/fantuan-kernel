@@ -570,7 +570,7 @@ fantuan-kernel/
   `--bigcluster` (4 KiB clusters, short cluster write) fixtures. Deferred to a
   later cleanup: splitting `nvme.c`/`ahci.c`/`interrupts.S` to the §13.4a size
   rule, and ownership validation in `frame::free`.
-- **M8.1** — IN PROGRESS (crypto stack + authenticated variables): the
+- **M8.1** — DONE (crypto stack + authenticated variables): the
   self-contained crypto needed to apply operator-provided `.auth` bundles
   when a platform key already exists (the firmware enforces the real chain;
   the kernel only proves internal consistency before writing).
@@ -581,13 +581,19 @@ fantuan-kernel/
     openssl-generated RSA-2048 signature vector embedded in
     `crypto/vectors.rs` (positive + corrupted-signature negative).
   - `crypto/{der,x509,pkcs7}.rs` (minimal DER, SPKI extraction/self-verify,
-    SignedData parse) and `bootrepair/secureboot_auth.rs`: scan
-    `EFI/fantuan/*.auth` (EFI_VARIABLE_AUTHENTICATION_2), verify the
-    PKCS#7 signature against its embedded certificate, apply with
-    TIME_BASED_AUTHENTICATED_WRITE_ACCESS, then re-read and report.
-  - Verification levels are reported explicitly: structure checked in the
-    kernel, chain trust decided by firmware. No keyless (.cer) enrollment
-    change; Setup-Mode behavior stays as in M7.7.
+    SignedData parse) and `bootrepair/secureboot_auth.rs`: scan the ESP for
+    `PK/KEK/DB` `.auth` bundles (FAT exposes them as `PK.AUT` etc. — 8.3
+    short aliases), parse EFI_VARIABLE_AUTHENTICATION_2 (EFI_TIME +
+    WIN_CERTIFICATE_UEFI_GUID), verify the PKCS#7 signature against the
+    embedded certificate and the appended payload, then apply with
+    TIME_BASED_AUTHENTICATED_WRITE_ACCESS and report the firmware status.
+  - Verification levels are explicit: structure and self-consistency are
+    checked in the kernel; chain trust is decided by firmware. The smoke
+    `--smm` phase asserts descriptor parse, PKCS#7 self-verify, self-signed
+    signer certificate, and the honest rejection on a plain variable store.
+    `tools/gen_auth_fixture.sh` regenerates the fixture blob (OpenSSL,
+    development-time only); the UEFI layout was confirmed against EDK2
+    AuthService.c (descriptor followed by the new variable value).
 - **M8.3** — PLANNED (kernel hardening): frame-allocator spinlock first
   (reaping runs from the IRQ0 scheduler path), then task reaping (kernel
   stack + user page-table walk), then NX/W^X and SMEP/SMAP with STAC/CLAC

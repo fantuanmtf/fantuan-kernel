@@ -9,8 +9,11 @@
 //! variable is written.
 
 pub mod bigint;
+pub mod der;
+pub mod pkcs7;
 pub mod rsa;
 pub mod sha256;
+pub mod x509;
 mod vectors;
 
 use core::fmt::Write;

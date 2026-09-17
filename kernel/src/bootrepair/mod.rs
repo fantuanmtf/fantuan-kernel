@@ -22,6 +22,7 @@ pub mod nvram_boot;
 pub mod nvram_repair;
 pub mod nvram_report;
 pub mod secureboot;
+pub mod secureboot_auth;
 
 // The FAT 8.3 name helpers are FAT-domain logic and live in vfs (M5.5 probe
 // reuses them); re-exported here so the bootrepair submodules keep working.
@@ -190,6 +191,8 @@ pub fn repair(s: &mut Serial, vfs: &Vfs, runtime_services: u64) {
         nvram_repair::repair(s, &rt, vfs);
         secureboot::report(s, &rt);
         secureboot::enroll(s, &rt, vfs);
+        // M8.1b: operator-provided authenticated bundles (PK/KEK/db .auth).
+        secureboot_auth::apply(s, &rt, vfs);
     }
     let _ = writeln!(s, "repair: done");
 }
