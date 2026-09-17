@@ -56,9 +56,17 @@ if grep -q "ext4: mounted ro — uuid 12345678-1234-1234-1234-123456789abc, 64 b
    && grep -q "bootrepair: fstab read from the ext4 root (/etc/fstab, 147 bytes)" build/smoke-ext4.log \
    && grep -q "bootrepair: grub.cfg search.fs_uuid matches the ext4 root UUID (consistent)" build/smoke-ext4.log \
    && grep -q "cat: 147 bytes" build/smoke-ext4.log \
-   && grep -q "UUID=12345678-1234-1234-1234-123456789abc / ext4" build/smoke-ext4.log; then
-  echo "SMOKE PASS (M6.5: ext4 mounted ro, real /etc/fstab, XFS probe-only)"
-  grep -aE "ext4: mounted|probe: part 3|fstab read|cat: 147" build/smoke-ext4.log | head -6
+   && grep -q "UUID=12345678-1234-1234-1234-123456789abc / ext4" build/smoke-ext4.log \
+   && grep -q "bootfiles: /boot: 1 kernel(s), 1 initrd(s)" build/smoke-ext4.log \
+   && grep -q "bootfiles: kernel vmlinuz-6.6.0-fantuan" build/smoke-ext4.log \
+   && grep -q "bootfiles: initrd initrd.img-6.6.0-fantuan" build/smoke-ext4.log \
+   && grep -q "bootfiles: os-release ID=fantuan" build/smoke-ext4.log \
+   && grep -q "bootfiles: cmdline \"quiet splash\"" build/smoke-ext4.log \
+   && grep -q "esp: EFI/Linux/… — EFI-stub / UKI boot entry" build/smoke-ext4.log \
+   && grep -q "esp: /loader/ present" build/smoke-ext4.log \
+   && grep -q "esp: /loader/entries/: 1 8.3 .conf entry(ies)" build/smoke-ext4.log; then
+  echo "SMOKE PASS (M6.5+M7.9b: ext4 root, real fstab, /boot inventory, systemd/UKI)"
+  grep -aE "ext4: mounted|bootfiles:|esp: (/loader|EFI/Linux)|fstab read|cat: 147" build/smoke-ext4.log | head -10
 else
   echo "SMOKE FAIL (M6.5 ext4) — log tail:"
   tail -25 build/smoke-ext4.log

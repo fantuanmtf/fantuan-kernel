@@ -145,7 +145,7 @@ fat[2 * 4:2 * 4 + 4] = b"\xFF\xFF\xFF\x0F"      # cluster 2 = EOC (root dir)
 fat[3 * 4:3 * 4 + 4] = b"\xFF\xFF\xFF\x0F"      # cluster 3 = EOC (HELLO.TXT)
 fat[5 * 4:5 * 4 + 4] = struct.pack('<I', 6)          # 5 -> 6
 fat[6 * 4:6 * 4 + 4] = b"\xFF\xFF\xFF\x0F"      # 6 = EOC (INFO.TXT chain)
-for n in range(7, 20):                                # 7..19 = ESP structure, all EOC
+for n in range(7, 25):                                # 7..24 = ESP/systemd/UKI structure, all EOC
     fat[n * 4:n * 4 + 4] = b"\xFF\xFF\xFF\x0F"
 wsect(PART_LBA + RESERVED, fat)
 wsect(PART_LBA + RESERVED + SPF, fat)
@@ -169,6 +169,13 @@ def dent(name8, ext3, cluster, size, attrs=0x20):
 HELLO = b"Hello from the fantuan-kernel VFS!\n"
 INFO = b"X" * 1000
 HELLO_EXT4 = b"hello from the ext4 root\n"
+# M7.9 ext4 root fixture: /boot + os-release + default/grub feed the repair
+# inventory and the grub.cfg generator.
+OSREL = b'ID=fantuan\nVERSION_ID="6.6"\nPRETTY_NAME="Fantuan Test Linux"\n'
+GRUB_DEFAULT = b'GRUB_DEFAULT=0\nGRUB_CMDLINE_LINUX="quiet splash"\n'
+VMLINUZ = b"FANTUAN TEST KERNEL IMAGE\n" * 4
+INITRD = b"FANTUAN TEST INITRD IMAGE\n" * 4
+FANTUAN_CONF = b"title Fantuan test entry\nlinux /boot/vmlinuz-6.6.0-fantuan\n"
 
 # M7 boot-repair fixture: the PARTUUID in fstab must equal the GPT unique
 # GUID of the FAT32 partition, in the text form Linux uses.
@@ -199,6 +206,9 @@ root[0:32] = dent("HELLO", "TXT", 3, HELLO_SIZE)
 root[32:64] = dent("INFO", "TXT", 5, len(INFO))
 root[64:96] = dent("EFI", "   ", 7, 0, attrs=0x10)
 root[96:128] = dent("FSTAB", "   ", 14, len(FSTAB))
+if TWO_FS:
+    # systemd-boot config lives at the ESP root (M7.9 detection fixture).
+    root[128:160] = dent("loader", "   ", 22, 0, attrs=0x10)
 wsect(cluster_sector(2), root)
 
 hello = bytearray(SECTOR)
@@ -244,6 +254,10 @@ EFI_DIR[64:96] = dent("BOOT", "   ", 8, 0, attrs=0x10)
 EFI_DIR[96:128] = dent("ubuntu", "   ", 9, 0, attrs=0x10)
 if KEYS:
     EFI_DIR[128:160] = dent("fantuan", "   ", 15, 0, attrs=0x10)
+if TWO_FS:
+    # EFI-stub / UKI fixture (M7.9): EFI/Linux/ holds bootable EFI images.
+    off = 160 if KEYS else 128
+    EFI_DIR[off:off + 32] = dent("Linux", "   ", 20, 0, attrs=0x10)
 wsect(cluster_sector(7), EFI_DIR)
 
 BOOT_DIR = bytearray(SECTOR)
@@ -317,6 +331,27 @@ if not NOSHIM:
 put_file(13, GRUBX64)
 put_file(14, FSTAB)
 
+if TWO_FS:
+    # systemd-boot config tree (M7.9): /loader/entries/FANTUAN.CON stands in
+    # for a *.conf entry's 8.3 alias; EFI/Linux/FANTUAN.EFI is a UKI stub.
+    LOADER_DIR = bytearray(SECTOR)
+    LOADER_DIR[0:32] = self_entry(22)
+    LOADER_DIR[32:64] = dotdot(0)
+    LOADER_DIR[64:96] = dent("entries", "   ", 23, 0, attrs=0x10)
+    wsect(cluster_sector(22), LOADER_DIR)
+    ENTRIES_DIR = bytearray(SECTOR)
+    ENTRIES_DIR[0:32] = self_entry(23)
+    ENTRIES_DIR[32:64] = dotdot(22)
+    ENTRIES_DIR[64:96] = dent("FANTUAN", "CON", 24, len(FANTUAN_CONF))
+    wsect(cluster_sector(23), ENTRIES_DIR)
+    put_file(24, FANTUAN_CONF)
+    LINUX_DIR = bytearray(SECTOR)
+    LINUX_DIR[0:32] = self_entry(20)
+    LINUX_DIR[32:64] = dotdot(7)
+    LINUX_DIR[64:96] = dent("FANTUAN", "EFI", 21, len(BOOTX64))
+    wsect(cluster_sector(20), LINUX_DIR)
+    put_file(21, BOOTX64)
+
 def wblock(lba, data):
     """Write a multi-sector block at LBA (wsect is 512 bytes only)."""
     out[lba * SECTOR:lba * SECTOR + len(data)] = data
@@ -324,14 +359,18 @@ def wblock(lba, data):
 
 def build_ext4(part_lba):
     """Hand-built minimal ext4: 1 KiB blocks, one group, extent trees on every
-    inode, root with /etc/fstab and /hello.txt. No journal, no checksums, no
-    backup superblocks — just enough for the read-only rescue driver."""
+    inode, root with /etc/fstab, /etc/os-release, /etc/default/grub,
+    /hello.txt and /boot/vmlinuz+initrd (the M7.9 repair inventory). No
+    journal, no checksums, no backup superblocks — just enough for the
+    read-only rescue driver."""
     BLK = 1024
     N_BLOCKS = 64
     N_INODES = 16
     # Block plan (blocks are 1 KiB, i.e. 2 sectors).
-    B_SB, B_GDT, B_BBITMAP, B_IBITMAP, B_ITABLE, B_ROOT, B_ETC, B_FSTAB, B_HELLO = 1, 2, 3, 4, 5, 7, 8, 9, 10
-    USED = 11  # blocks 0..10
+    (B_SB, B_GDT, B_BBITMAP, B_IBITMAP, B_ITABLE, B_ROOT, B_ETC, B_FSTAB,
+     B_HELLO, B_BOOT, B_VMLINUZ, B_INITRD, B_OSREL, B_ETCDEF, B_DEFGRUB) = (
+        1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+    USED = 17  # blocks 0..16
 
     def w16(b, o, v):
         b[o:o + 2] = struct.pack('<H', v)
@@ -343,7 +382,7 @@ def build_ext4(part_lba):
     w32(sb, 0x00, N_INODES)
     w32(sb, 0x04, N_BLOCKS)
     w32(sb, 0x0C, N_BLOCKS - USED)
-    w32(sb, 0x10, N_INODES - 5)
+    w32(sb, 0x10, N_INODES - 11)
     w32(sb, 0x14, 1)            # first_data_block (1 KiB blocks)
     w32(sb, 0x18, 0)            # log_block_size -> 1024
     w32(sb, 0x20, N_BLOCKS)     # blocks_per_group
@@ -366,8 +405,8 @@ def build_ext4(part_lba):
     w32(gdt, 0x04, B_IBITMAP)
     w32(gdt, 0x08, B_ITABLE)
     w16(gdt, 0x0C, N_BLOCKS - USED)
-    w16(gdt, 0x0E, N_INODES - 5)
-    w16(gdt, 0x10, 2)           # used_dirs (root + etc)
+    w16(gdt, 0x0E, N_INODES - 11)
+    w16(gdt, 0x10, 4)           # used_dirs (root, etc, boot, default)
     wblock(part_lba + B_GDT * 2, gdt)
 
     bbitmap = bytearray(BLK)
@@ -376,7 +415,7 @@ def build_ext4(part_lba):
     wblock(part_lba + B_BBITMAP * 2, bbitmap)
 
     ibitmap = bytearray(BLK)
-    for i in range(1, 6):       # inodes 1..5 used
+    for i in range(1, 12):      # inodes 1..11 used
         ibitmap[(i - 1) // 8] |= 1 << ((i - 1) % 8)
     wblock(part_lba + B_IBITMAP * 2, ibitmap)
 
@@ -405,6 +444,12 @@ def build_ext4(part_lba):
     inode(3, 0x41ED, BLK, 2, B_ETC)
     inode(4, 0x81A4, len(FSTAB), 1, B_FSTAB)
     inode(5, 0x81A4, len(HELLO_EXT4), 1, B_HELLO)
+    inode(6, 0x41ED, BLK, 2, B_BOOT)          # /boot
+    inode(7, 0x81A4, len(VMLINUZ), 1, B_VMLINUZ)
+    inode(8, 0x81A4, len(INITRD), 1, B_INITRD)
+    inode(9, 0x81A4, len(OSREL), 1, B_OSREL)
+    inode(10, 0x41ED, BLK, 2, B_ETCDEF)       # /etc/default
+    inode(11, 0x81A4, len(GRUB_DEFAULT), 1, B_DEFGRUB)
     wblock(part_lba + B_ITABLE * 2, itable)
 
     def dent(ino, name, rec_len, ftype):
@@ -427,14 +472,33 @@ def build_ext4(part_lba):
         w16(blk, o + 4, BLK - o)  # inode-0 entry spanning the remainder
         return blk
 
-    wblock(part_lba + B_ROOT * 2, dir_block([(2, b".", 2), (2, b"..", 2), (3, b"etc", 2), (5, b"hello.txt", 1)]))
-    wblock(part_lba + B_ETC * 2, dir_block([(3, b".", 2), (2, b"..", 2), (4, b"fstab", 1)]))
+    wblock(part_lba + B_ROOT * 2, dir_block([
+        (2, b".", 2), (2, b"..", 2), (3, b"etc", 2), (5, b"hello.txt", 1), (6, b"boot", 2)]))
+    wblock(part_lba + B_ETC * 2, dir_block([
+        (3, b".", 2), (2, b"..", 2), (4, b"fstab", 1), (9, b"os-release", 1), (10, b"default", 2)]))
+    wblock(part_lba + B_BOOT * 2, dir_block([
+        (6, b".", 2), (2, b"..", 2),
+        (7, b"vmlinuz-6.6.0-fantuan", 1), (8, b"initrd.img-6.6.0-fantuan", 1)]))
+    wblock(part_lba + B_ETCDEF * 2, dir_block([
+        (10, b".", 2), (2, b"..", 2), (11, b"grub", 1)]))
     data = bytearray(BLK)
     data[0:len(FSTAB)] = FSTAB
     wblock(part_lba + B_FSTAB * 2, data)
     data = bytearray(BLK)
     data[0:len(HELLO_EXT4)] = HELLO_EXT4
     wblock(part_lba + B_HELLO * 2, data)
+    data = bytearray(BLK)
+    data[0:len(OSREL)] = OSREL
+    wblock(part_lba + B_OSREL * 2, data)
+    data = bytearray(BLK)
+    data[0:len(GRUB_DEFAULT)] = GRUB_DEFAULT
+    wblock(part_lba + B_DEFGRUB * 2, data)
+    data = bytearray(BLK)
+    data[0:len(VMLINUZ)] = VMLINUZ
+    wblock(part_lba + B_VMLINUZ * 2, data)
+    data = bytearray(BLK)
+    data[0:len(INITRD)] = INITRD
+    wblock(part_lba + B_INITRD * 2, data)
 
 
 if TWO_FS:

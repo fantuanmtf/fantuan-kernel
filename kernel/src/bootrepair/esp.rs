@@ -27,6 +27,12 @@ fn classify(s: &mut Serial, vendor: &[u8], file: &[u8]) {
         (b"systemd", b"SYSTEMD-BOOTX64.EFI") => {
             let _ = writeln!(s, "  esp: EFI/systemd/systemd-bootx64.efi — systemd-boot");
         }
+        (b"linux", _) => {
+            let _ = writeln!(s, "  esp: EFI/Linux/… — EFI-stub / UKI boot entry (no GRUB involved)");
+        }
+        (b"refind", b"REFIND_X64.EFI") => {
+            let _ = writeln!(s, "  esp: EFI/refind/refind_x64.efi — rEFInd (refind_linux.conf uses long names)");
+        }
         (b"microsoft", b"BOOTMGFW.EFI") => {
             let _ = writeln!(s, "  esp: EFI/Microsoft/bootmgfw.efi — Windows (identified, not repaired)");
         }
@@ -104,4 +110,38 @@ pub fn scan(s: &mut Serial, fs: &Fat32) {
             classify(s, vendor, &file[..flen]);
         }
     }
+
+    // systemd-boot lives at the ESP root: /loader/entries/*.conf. The 8.3
+    // reader can only enumerate short names; long entry names are counted as
+    // "present but not enumerable" via the directory presence alone.
+    let Some(loader_name) = to_8_3("loader") else { return };
+    let mut loader: Option<u32> = None;
+    fs.walk_dir(fs.root_cluster, |name, attr, cluster, _size| {
+        if loader.is_none() && eq_8_3(name, &loader_name) && attr & 0x10 != 0 {
+            loader = Some(cluster);
+        }
+    });
+    let Some(loader) = loader else {
+        let _ = writeln!(s, "  esp: /loader/ absent (no systemd-boot config)");
+        return;
+    };
+    let _ = writeln!(s, "  esp: /loader/ present (systemd-boot config directory)");
+    let Some(entries_name) = to_8_3("entries") else { return };
+    let mut entries: Option<u32> = None;
+    fs.walk_dir(loader, |name, attr, cluster, _size| {
+        if entries.is_none() && eq_8_3(name, &entries_name) && attr & 0x10 != 0 {
+            entries = Some(cluster);
+        }
+    });
+    let Some(entries) = entries else {
+        let _ = writeln!(s, "  esp: /loader/entries/ absent");
+        return;
+    };
+    let mut confs = 0usize;
+    fs.walk_dir(entries, |name, _attr, _cluster, _size| {
+        if &name[8..11] == b"CON" {
+            confs += 1;
+        }
+    });
+    let _ = writeln!(s, "  esp: /loader/entries/: {} 8.3 .conf entry(ies)", confs);
 }

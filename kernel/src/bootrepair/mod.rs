@@ -11,6 +11,7 @@ use crate::serial::Serial;
 use crate::vfs::fat::Fat32;
 use crate::vfs::Vfs;
 
+pub mod bootfiles;
 pub mod esp;
 pub mod fstab;
 pub mod grub;
@@ -71,6 +72,15 @@ pub fn diagnose(s: &mut Serial, vfs: &Vfs, runtime_services: u64) {
 
     // 1. ESP scan: what bootloaders live in EFI/?
     esp::scan(s, &vfs.fs);
+
+    // 1.5 /boot inventory from the ext4 root (feeds the M7.9 generator).
+    let _inventory = match vfs.root.as_ref() {
+        Some(root) => bootfiles::scan(s, root),
+        None => {
+            let _ = writeln!(s, "bootrepair: no ext4 root — /boot inventory skipped");
+            bootfiles::Inventory::new()
+        }
+    };
 
     // 2. grub.cfg (on the ESP, Ubuntu-style).
     let grub = grub::parse(s, &vfs.fs);
