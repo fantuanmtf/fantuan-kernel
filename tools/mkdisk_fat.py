@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+"""mkdisk_fat.py — FAT32 ESP fixture writer for tools/mkdisk.py.
+
+Builds the BPB, both FAT copies, the HELLO/INFO demo files and the
+boot-repair ESP fixture (EFI tree, fstab/grub.cfg, Secure Boot certs, shell
+autorun, and the M7.9 systemd-boot/UKI stubs). Split out of mkdisk.py to keep
+every file inside the size rule; not a standalone tool.
+"""
+
+import struct
+
+SECTOR = 512
+
+
+def build(out, part_lba, part_sectors, flags, fstab):
+    """Write the FAT32 partition into OUT; returns (spc, spf, clusters)."""
+    broken = flags["broken"]
+    noshim = flags["noshim"]
+    keys = flags["keys"]
+    two_fs = flags["two_fs"]
+    shell_repair = flags["shell_repair"]
+    grub_regen = flags["grub_regen"]
+
+    def wsect(lba, data):
+        out[lba * SECTOR:(lba + 1) * SECTOR] = data
+
+    RESERVED = 32
+    N_FATS = 2
+    # --bigcluster uses 4 KiB clusters; the FAT is sized to cover the data area.
+    SPC = 8 if flags["bigcluster"] else 1
+    SPF = 30 if flags["bigcluster"] else 240
+    CLUSTERS = (part_sectors - RESERVED - N_FATS * SPF) // SPC
+    DATA_START = part_lba + RESERVED + N_FATS * SPF
+
+    bpb = bytearray(SECTOR)
+    bpb[0:3] = b"\xEB\x58\x90"
+    bpb[3:11] = b"FANTUAN1"
+    bpb[11:13] = struct.pack('<H', SECTOR)
+    bpb[13] = SPC
+    bpb[14:16] = struct.pack('<H', RESERVED)
+    bpb[16] = N_FATS
+    bpb[19:21] = struct.pack('<H', 0)          # root entries (FAT32: 0)
+    bpb[21] = 0xF8
+    bpb[28:32] = struct.pack('<I', 0)          # hidden sectors
+    bpb[32:36] = struct.pack('<I', part_sectors)
+    bpb[36:40] = struct.pack('<I', SPF)
+    bpb[44:48] = struct.pack('<I', 2)          # root cluster
+    bpb[0x52:0x5A] = b"FAT32   "               # filesystem type string
+    bpb[48:50] = struct.pack('<H', 1)          # FSInfo sector
+    bpb[50:52] = struct.pack('<H', 6)          # backup boot sector
+    bpb[64] = 0x80
+    bpb[66] = 0x29
+    bpb[510:512] = b"\x55\xAA"
+    wsect(part_lba, bpb)
+
+    # FATs (identical copies)
+    fat = bytearray(SPF * SECTOR)
+    fat[0:4] = b"\xF8\xFF\xFF\x0F"
+    fat[4:8] = b"\xFF\xFF\xFF\x0F"
+    fat[2 * 4:2 * 4 + 4] = b"\xFF\xFF\xFF\x0F"      # cluster 2 = EOC (root dir)
+    fat[3 * 4:3 * 4 + 4] = b"\xFF\xFF\xFF\x0F"      # cluster 3 = EOC (HELLO.TXT)
+    fat[5 * 4:5 * 4 + 4] = struct.pack('<I', 6)          # 5 -> 6
+    fat[6 * 4:6 * 4 + 4] = b"\xFF\xFF\xFF\x0F"      # 6 = EOC (INFO.TXT chain)
+    for n in range(7, 25):                          # 7..24 = ESP/systemd/UKI structure, all EOC
+        fat[n * 4:n * 4 + 4] = b"\xFF\xFF\xFF\x0F"
+    wsect(part_lba + RESERVED, fat)
+    wsect(part_lba + RESERVED + SPF, fat)
+
+    def cluster_sector(n):
+        return DATA_START + (n - 2) * SPC
+
+    def dent(name8, ext3, cluster, size, attrs=0x20):
+        e = bytearray(32)
+        e[0:8] = name8.ljust(8).encode()
+        e[8:11] = ext3.ljust(3).encode()
+        e[11] = attrs
+        e[20:22] = struct.pack('<H', (cluster >> 16) & 0xFFFF)
+        e[26:28] = struct.pack('<H', cluster & 0xFFFF)
+        e[28:32] = struct.pack('<I', size)
+        return e
+
+    def dotdot(parent):
+        return dent(".", "   ", parent if parent else 0, 0, attrs=0x10)
+
+    def self_entry(cluster):
+        return dent(".", "   ", cluster, 0, attrs=0x10)
+
+    def put_file(cluster, data):
+        sec = bytearray(SECTOR)
+        sec[0:len(data)] = data
+        wsect(cluster_sector(cluster), sec)
+
+    HELLO = b"Hello from the fantuan-kernel VFS!\n"
+    INFO = b"X" * 1000
+    FANTUAN_CONF = b"title Fantuan test entry\nlinux /boot/vmlinuz-6.6.0-fantuan\n"
+
+    # M7 boot-repair fixture: grub.cfg copy + boot payloads.
+    GRUBCFG = (
+        b"search.fs_uuid 12345678-1234-1234-1234-123456789abc root\n"
+        b"set prefix=($root)'/boot/grub'\n"
+        b"set root='hd0,gpt1'\n"
+    )
+    BOOTX64 = b"FANTUAN FALLBACK EFI APP (dummy)\n"
+    SHIM = b"FANTUAN SHIM (dummy)\n"
+    GRUBX64 = b"FANTUAN GRUB (dummy)\n"
+
+    root = bytearray(SECTOR)
+    HELLO_SIZE = 4096 if flags["liar"] else len(HELLO)
+    root[0:32] = dent("HELLO", "TXT", 3, HELLO_SIZE)
+    root[32:64] = dent("INFO", "TXT", 5, len(INFO))
+    root[64:96] = dent("EFI", "   ", 7, 0, attrs=0x10)
+    root[96:128] = dent("FSTAB", "   ", 14, len(fstab))
+    if two_fs:
+        # systemd-boot config lives at the ESP root (M7.9 detection fixture).
+        root[128:160] = dent("loader", "   ", 22, 0, attrs=0x10)
+    wsect(cluster_sector(2), root)
+
+    hello = bytearray(SECTOR)
+    hello[0:len(HELLO)] = HELLO
+    wsect(cluster_sector(3), hello)
+
+    i0 = bytearray(SECTOR)
+    i0[0:512] = INFO[0:512]
+    wsect(cluster_sector(5), i0)
+    i1 = bytearray(SECTOR)
+    i1[0:488] = INFO[512:1000]
+    if SPC == 1:
+        # One sector per cluster: the second half lives in the next cluster.
+        wsect(cluster_sector(6), i1)
+    else:
+        # Both halves fit the same cluster (the 5->6 chain stays unused).
+        wsect(cluster_sector(5) + 1, i1)
+
+    # --- ESP structure (M7 boot-repair fixture) ---------------------------
+    # Cluster map: 7=EFI/ 8=EFI/BOOT/ 9=EFI/ubuntu/ 10=BOOTX64.EFI 11=grub.cfg
+    # 12=shimx64.efi 13=grubx64.efi 14=fstab
+    # --keys adds 15=EFI/fantuan/ 16=PK.cer 17=KEK.cer 18=db.cer 19=SHELL.CMD
+    # (M7.7 keys + §10 shell autorun script)
+
+    EFI_DIR = bytearray(SECTOR)
+    EFI_DIR[0:32] = self_entry(7)
+    EFI_DIR[32:64] = dotdot(0)
+    EFI_DIR[64:96] = dent("BOOT", "   ", 8, 0, attrs=0x10)
+    EFI_DIR[96:128] = dent("ubuntu", "   ", 9, 0, attrs=0x10)
+    if keys:
+        EFI_DIR[128:160] = dent("fantuan", "   ", 15, 0, attrs=0x10)
+    if two_fs:
+        # EFI-stub / UKI fixture (M7.9): EFI/Linux/ holds bootable EFI images.
+        off = 160 if keys else 128
+        EFI_DIR[off:off + 32] = dent("Linux", "   ", 20, 0, attrs=0x10)
+    wsect(cluster_sector(7), EFI_DIR)
+
+    BOOT_DIR = bytearray(SECTOR)
+    BOOT_DIR[0:32] = self_entry(8)
+    BOOT_DIR[32:64] = dotdot(7)
+    if broken:
+        BOOT_DIR[64] = 0xE5  # deleted: simulate a missing fallback loader
+    else:
+        BOOT_DIR[64:96] = dent("BOOTX64", "EFI", 10, len(BOOTX64))
+    wsect(cluster_sector(8), BOOT_DIR)
+
+    UBUNTU_DIR = bytearray(SECTOR)
+    UBUNTU_DIR[0:32] = self_entry(9)
+    UBUNTU_DIR[32:64] = dotdot(7)
+    UBUNTU_DIR[64:96] = dent("GRUB", "CFG", 11, len(GRUBCFG))
+    if noshim:
+        UBUNTU_DIR[96] = 0xE5  # deleted: simulate a missing shim
+    else:
+        UBUNTU_DIR[96:128] = dent("SHIMX64", "EFI", 12, len(SHIM))
+    UBUNTU_DIR[128:160] = dent("GRUBX64", "EFI", 13, len(GRUBX64))
+    wsect(cluster_sector(9), UBUNTU_DIR)
+
+    # M7.7: platform-key fixtures for the Setup-Mode enrollment path. The blob
+    # is a dummy DER-ish certificate — Setup Mode accepts it unauthenticated.
+    CERT = b"\x30\x82\x00\x40" + (b"FANTUAN TEST CERTIFICATE " * 4)
+    # §10 shell autorun script. --shell-repair swaps in the confirmation-gated
+    # repair sequence (the shell feeds the next script line as the YES answer);
+    # --grub-regen runs the M7.9 install path instead.
+    if grub_regen:
+        SHELL_CMD = (
+            b"grub-fix install\n"
+            b"YES\n"
+            b"cat /EFI/ubuntu/grub.cfg\n"
+        )
+    elif shell_repair:
+        SHELL_CMD = (
+            b"grub-fix repair\n"
+            b"YES\n"
+            b"cat /EFI/BOOT/BOOTX64.EFI\n"
+        )
+    else:
+        cmds = [
+            b"help",
+            b"lsdev",
+            b"lsos",
+            b"lsmnt",
+            b"cat /HELLO.TXT",
+            b"bootinfo",
+            b"diskhealth",
+        ]
+        if two_fs:
+            # Ext4 phase: keep the script fast and deterministic (the surface
+            # scan would eat the phase budget on the 25 MiB disk); the scan
+            # itself is covered by the default --keys phase.
+            cmds.append(b"cat /etc/fstab")
+        else:
+            cmds.append(b"diskhealth --scan")
+        SHELL_CMD = b"".join(c + b"\n" for c in cmds)
+    if keys:
+        FANTUAN_DIR = bytearray(SECTOR)
+        FANTUAN_DIR[0:32] = self_entry(15)
+        FANTUAN_DIR[32:64] = dotdot(7)
+        FANTUAN_DIR[64:96] = dent("PK", "CER", 16, len(CERT))
+        FANTUAN_DIR[96:128] = dent("KEK", "CER", 17, len(CERT))
+        FANTUAN_DIR[128:160] = dent("DB", "CER", 18, len(CERT))
+        FANTUAN_DIR[160:192] = dent("SHELL", "CMD", 19, len(SHELL_CMD))
+        wsect(cluster_sector(15), FANTUAN_DIR)
+        put_file(16, CERT)
+        put_file(17, CERT)
+        put_file(18, CERT)
+        put_file(19, SHELL_CMD)
+
+    if not broken:
+        put_file(10, BOOTX64)
+    put_file(11, GRUBCFG)
+    if not noshim:
+        put_file(12, SHIM)
+    put_file(13, GRUBX64)
+    put_file(14, fstab)
+
+    if two_fs:
+        # systemd-boot config tree (M7.9): /loader/entries/FANTUAN.CON stands
+        # in for a *.conf entry's 8.3 alias; EFI/Linux/FANTUAN.EFI is a UKI.
+        LOADER_DIR = bytearray(SECTOR)
+        LOADER_DIR[0:32] = self_entry(22)
+        LOADER_DIR[32:64] = dotdot(0)
+        LOADER_DIR[64:96] = dent("entries", "   ", 23, 0, attrs=0x10)
+        wsect(cluster_sector(22), LOADER_DIR)
+        ENTRIES_DIR = bytearray(SECTOR)
+        ENTRIES_DIR[0:32] = self_entry(23)
+        ENTRIES_DIR[32:64] = dotdot(22)
+        ENTRIES_DIR[64:96] = dent("FANTUAN", "CON", 24, len(FANTUAN_CONF))
+        wsect(cluster_sector(23), ENTRIES_DIR)
+        put_file(24, FANTUAN_CONF)
+        LINUX_DIR = bytearray(SECTOR)
+        LINUX_DIR[0:32] = self_entry(20)
+        LINUX_DIR[32:64] = dotdot(7)
+        LINUX_DIR[64:96] = dent("FANTUAN", "EFI", 21, len(BOOTX64))
+        wsect(cluster_sector(20), LINUX_DIR)
+        put_file(21, BOOTX64)
+
+    return SPC, SPF, CLUSTERS
