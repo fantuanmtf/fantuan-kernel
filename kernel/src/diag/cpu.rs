@@ -8,29 +8,7 @@ use core::fmt::Write;
 use super::Severity;
 use crate::serial::Serial;
 
-#[inline]
-fn cpuid(leaf: u32, subleaf: u32) -> (u32, u32, u32, u32) {
-    let mut a = leaf;
-    let mut c = subleaf;
-    let b: u32;
-    let d: u32;
-    unsafe {
-        // rbx is reserved for LLVM's own use, so save/restore it around the
-        // instruction (the canonical hand-rolled CPUID pattern).
-        core::arch::asm!(
-            "push rbx",
-            "cpuid",
-            "mov {b:e}, ebx",
-            "pop rbx",
-            inout("eax") a,
-            inout("ecx") c,
-            b = out(reg) b,
-            out("edx") d,
-            options(preserves_flags),
-        );
-    }
-    (a, b, c, d)
-}
+use crate::cpu::cpuid;
 
 /// Read an MSR (e.g. IA32_BIOS_SIGN_ID = 0x8B for the microcode revision).
 #[inline]

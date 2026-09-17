@@ -159,12 +159,13 @@ pub fn spawn_user(elf_image: &[u8]) -> Option<u64> {
         return None;
     };
     let ustack_base = USER_STACK_TOP - USER_STACK_PAGES * frame::FRAME_SIZE;
+    // The user stack is data: writable, user, non-executable (M8.3c).
     for i in 0..USER_STACK_PAGES {
         user::map_page(
             cr3,
             ustack_base + i * frame::FRAME_SIZE,
             ustack_phys + i * frame::FRAME_SIZE,
-            user::P_PRESENT | user::P_WRITABLE | user::P_USER,
+            user::P_PRESENT | user::P_WRITABLE | user::P_USER | user::P_NX,
         );
     }
 

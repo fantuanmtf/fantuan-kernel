@@ -12,6 +12,8 @@ pub const P_PRESENT: u64 = 1;
 pub const P_WRITABLE: u64 = 1 << 1;
 pub const P_USER: u64 = 1 << 2;
 const P_HUGE: u64 = 1 << 7;
+/// No-execute (requires EFER.NXE, enabled in M8.3c before any user mapping).
+pub const P_NX: u64 = 1 << 63;
 
 const ADDR_MASK: u64 = 0x000F_FFFF_FFFF_F000;
 

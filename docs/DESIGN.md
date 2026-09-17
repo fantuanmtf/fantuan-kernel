@@ -594,10 +594,22 @@ fantuan-kernel/
     `tools/gen_auth_fixture.sh` regenerates the fixture blob (OpenSSL,
     development-time only); the UEFI layout was confirmed against EDK2
     AuthService.c (descriptor followed by the new variable value).
-- **M8.3** — PLANNED (kernel hardening): frame-allocator spinlock first
-  (reaping runs from the IRQ0 scheduler path), then task reaping (kernel
-  stack + user page-table walk), then NX/W^X and SMEP/SMAP with STAC/CLAC
-  around the syscall user-pointer copy.
+- **M8.3** — DONE (kernel hardening):
+  - M8.3a `mm/lock.rs`: every mutating frame-allocator entry point takes an
+    IrqLock (spinlock acquired with interrupts disabled), the prerequisite
+    for freeing frames from the IRQ0 scheduler path.
+  - M8.3b task reaping (`task/reap.rs`): schedule() frees the kernel stack
+    of every Exited task except the caller's own slot and tears down its
+    user address space via `mm::user::free_user_pml4` (user half only, the
+    shared kernel PML4 entry untouched); the slot returns to Unused. Closes
+    the M4 "exited tasks leak stacks + page tables" note.
+  - M8.3c W^X + SMEP/SMAP: EFER.NXE is enabled before the ELF loader maps
+    anything; PT_LOAD protections come from `p_flags` (writable only with
+    PF_W, NX unless PF_X; shared pages take the union of rights), the user
+    stack is NX, and CR4.SMEP/SMAP are set when CPUID advertises them.
+    `sys_write` brackets its user-pointer copy with STAC/CLAC. Tools:
+    run.sh passes `-cpu max` so the features are actually exercised; smoke
+    asserts "mmu: nx true smep true smap true" plus both reap lines.
 - **M8.5** — PLANNED (input): i8042 PS/2 keyboard (C driver, IRQ1, ring
   buffer) feeding a merged serial+keyboard input source, plus the console
   output tee so the GOP framebuffer shows shell interaction on real

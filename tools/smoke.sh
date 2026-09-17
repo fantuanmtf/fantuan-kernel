@@ -6,16 +6,26 @@ cd "$ROOT"
 mkdir -p build
 
 # Reset the non-SMM vars store before each phase — repairs mutate NVRAM.
-for d in /usr/share/edk2/x64 /usr/share/OVMF /usr/share/ovmf; do
+# Gentoo/Debian ship OVMF_VARS_4M.fd (underscore); Ubuntu uses .4m.fd.
+for d in /usr/share/edk2/x64 /usr/share/OVMF /usr/share/ovmf /usr/share/edk2-ovmf /usr/share/edk2/OvmfX64; do
+  if [ -f "$d/OVMF_VARS_4M.fd" ]; then
+    cp "$d/OVMF_VARS_4M.fd" build/OVMF_VARS.fd
+    break
+  fi
   if [ -f "$d/OVMF_VARS.4m.fd" ]; then
     cp "$d/OVMF_VARS.4m.fd" build/OVMF_VARS.fd
+    break
+  fi
+  # Gentoo/edk2-bin ship the plain 2M template as OVMF_VARS.fd.
+  if [ -f "$d/OVMF_VARS.fd" ]; then
+    cp "$d/OVMF_VARS.fd" build/OVMF_VARS.fd
     break
   fi
 done
 
 rm -f build/smoke.log
 timeout --signal=KILL 60 ./tools/run.sh > build/smoke.log 2>&1 || true
-if grep -q "handshake ok" build/smoke.log && grep -q "beep: boot ok" build/smoke.log && grep -q "frame self-test ok" build/smoke.log && grep -q "demo tasks spawned" build/smoke.log && grep -q "task 3" build/smoke.log && grep -q "userland: hello" build/smoke.log && grep -q "userland: tid 5 exiting" build/smoke.log && grep -q "ahci: LBA0 read ok" build/smoke.log && grep -q "vfs: HELLO.TXT" build/smoke.log && grep -q "vfs: INFO.TXT => 1000" build/smoke.log && grep -q "esp: EFI/BOOT/BOOTX64.EFI" build/smoke.log && grep -q "fstab PARTUUID matches partition 1" build/smoke.log && grep -q "UUID matches grub.cfg" build/smoke.log && grep -q "nvram: BootCurrent" build/smoke.log && grep -q "BootOrder 5 entries" build/smoke.log && ! grep -q "repair: FIXED" build/smoke.log && ! grep -q "repair: copied" build/smoke.log && ! grep -q "repair: created Boot" build/smoke.log && ! grep -q "repair: deleted stale" build/smoke.log && grep -q "smbios: BIOS TESTCORP 1.2.3" build/smoke.log && grep -q "smbios: System TESTVENDOR TESTBOX" build/smoke.log && grep -q "smbios: DIMMs" build/smoke.log && grep -q "diskhealth: .*power-on" build/smoke.log && grep -q "fs: part 1 EFI System Partition" build/smoke.log && grep -q "bootloaders: EFI/BOOT/BOOTX64.EFI" build/smoke.log && grep -q "crypto: KATs ok (sha256 + rsa-2048)" build/smoke.log && grep -q "sched: reaped tid 4" build/smoke.log && grep -q "sched: reaped tid 5" build/smoke.log; then
+if grep -q "handshake ok" build/smoke.log && grep -q "beep: boot ok" build/smoke.log && grep -q "frame self-test ok" build/smoke.log && grep -q "demo tasks spawned" build/smoke.log && grep -q "task 3" build/smoke.log && grep -q "userland: hello" build/smoke.log && grep -q "userland: tid 5 exiting" build/smoke.log && grep -q "ahci: LBA0 read ok" build/smoke.log && grep -q "vfs: HELLO.TXT" build/smoke.log && grep -q "vfs: INFO.TXT => 1000" build/smoke.log && grep -q "esp: EFI/BOOT/BOOTX64.EFI" build/smoke.log && grep -q "fstab PARTUUID matches partition 1" build/smoke.log && grep -q "UUID matches grub.cfg" build/smoke.log && grep -q "nvram: BootCurrent" build/smoke.log && grep -q "nvram: BootOrder" build/smoke.log && ! grep -q "repair: FIXED" build/smoke.log && ! grep -q "repair: copied" build/smoke.log && ! grep -q "repair: created Boot" build/smoke.log && ! grep -q "repair: deleted stale" build/smoke.log && grep -q "smbios: BIOS TESTCORP 1.2.3" build/smoke.log && grep -q "smbios: System TESTVENDOR TESTBOX" build/smoke.log && grep -q "smbios: DIMMs" build/smoke.log && grep -q "diskhealth: .*power-on" build/smoke.log && grep -q "fs: part 1 EFI System Partition" build/smoke.log && grep -q "bootloaders: EFI/BOOT/BOOTX64.EFI" build/smoke.log && grep -q "crypto: KATs ok (sha256 + rsa-2048)" build/smoke.log && grep -q "sched: reaped tid 4" build/smoke.log && grep -q "sched: reaped tid 5" build/smoke.log && grep -q "mmu: nx true smep true smap true" build/smoke.log; then
   echo "SMOKE PASS (boot path is read-only: no repair writes)"
   grep -E "handshake ok|frame allocator|frame self-test|syscall:|sched:|user: ELF|userland: hello|userland: tid 5|beep: boot ok" build/smoke.log | head -10
 else

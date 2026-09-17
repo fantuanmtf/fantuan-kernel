@@ -58,9 +58,12 @@ fn sys_write(ptr: u64, len: u64) -> u64 {
     if ptr == 0 {
         return ERR_INVAL;
     }
-    // M4: user pointers are validated by the page tables (a bad address
-    // faults and kills the task); SMAP/SMEP hardening arrives later.
+    // User pointers are validated by the page tables (a bad address faults
+    // and kills the task). With SMAP enabled (M8.3c) supervisor access to
+    // user pages requires the AC flag: stac/clac bracket the copy.
+    crate::cpu::stac();
     let buf = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
     let _ = serial::write_locked(buf);
+    crate::cpu::clac();
     OK
 }

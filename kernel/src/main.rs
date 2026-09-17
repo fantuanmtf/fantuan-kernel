@@ -223,6 +223,15 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     task::spawn(demo::demo_3);
     let _ = writeln!(s, "sched: 3 kernel demo tasks spawned (quantum 100 ms)");
 
+    // --- M8.3c: memory hardening (NX + SMEP/SMAP) --------------------------
+    // NX must be live before the ELF loader sets P_NX entries. Missing
+    // features are reported and skipped (the default qemu64 CPU lacks
+    // SMEP/SMAP; tools/run.sh passes -cpu max so smoke exercises them).
+    let nx = cpu::enable_nxe();
+    let smep = cpu::enable_smep();
+    let smap = cpu::enable_smap();
+    let _ = writeln!(s, "mmu: nx {} smep {} smap {} (unsupported features skipped)", nx, smep, smap);
+
     // --- M4: user mode ------------------------------------------------------
     let u1 = task::spawn_user(USER_ELF);
     let u2 = task::spawn_user(USER_ELF);

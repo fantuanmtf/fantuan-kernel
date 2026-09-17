@@ -141,6 +141,9 @@ if [ "$GRAPHICS" = "1" ]; then SERIAL_OPT="-serial stdio"; fi
 # Argument arrays (no line-continuation gymnastics).
 QEMU_ARGS=(
   -m 512M
+  # -cpu max exposes NX/SMEP/SMAP (and modern CPUID leaves) so the M8.3c
+  # hardening path is actually exercised; the default qemu64 lacks SMEP/SMAP.
+  -cpu max
   -drive "if=pflash,format=raw,readonly=on,file=$OVMF_CODE"
   -drive "if=pflash,format=raw,file=$OVMF_VARS"
   -drive format=raw,file=fat:rw:build/esp
