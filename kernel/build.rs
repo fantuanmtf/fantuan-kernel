@@ -14,6 +14,7 @@ fn main() {
     println!("cargo:rerun-if-changed={dir}/link.ld");
     println!("cargo:rerun-if-changed={dir}/src/consts.rs");
     println!("cargo:rerun-if-changed={dir}/src/asm/interrupts.S");
+    println!("cargo:rerun-if-changed={dir}/src/asm/isr_stubs.S");
     println!("cargo:rerun-if-changed={dir}/src/asm/switch.S");
     println!("cargo:rerun-if-changed={dir}/src/asm/syscall.S");
     println!("cargo:rerun-if-changed={dir}/../boot/entry.S");
@@ -65,18 +66,25 @@ fn main() {
     // model (0xFFFF8000... addresses) and no red zone (interrupts may push a
     // frame below rsp at any time).
     println!("cargo:rerun-if-changed={dir}/../drivers/c/ahci.c");
+    println!("cargo:rerun-if-changed={dir}/../drivers/c/ahci.h");
+    println!("cargo:rerun-if-changed={dir}/../drivers/c/ahci_io.c");
     println!("cargo:rerun-if-changed={dir}/../drivers/c/blk.c");
     println!("cargo:rerun-if-changed={dir}/../drivers/c/nvme.c");
+    println!("cargo:rerun-if-changed={dir}/../drivers/c/nvme.h");
+    println!("cargo:rerun-if-changed={dir}/../drivers/c/nvme_io.c");
     println!("cargo:rerun-if-changed={dir}/../drivers/c/include/rust_core.h");
     println!("cargo:rerun-if-changed={dir}/../drivers/c/include/driver.h");
     cc::Build::new()
         .file(format!("{dir}/../boot/entry.S"))
         .file(format!("{dir}/src/asm/interrupts.S"))
+        .file(format!("{dir}/src/asm/isr_stubs.S"))
         .file(format!("{dir}/src/asm/switch.S"))
         .file(format!("{dir}/src/asm/syscall.S"))
         .file(format!("{dir}/../drivers/c/ahci.c"))
+        .file(format!("{dir}/../drivers/c/ahci_io.c"))
         .file(format!("{dir}/../drivers/c/blk.c"))
         .file(format!("{dir}/../drivers/c/nvme.c"))
+        .file(format!("{dir}/../drivers/c/nvme_io.c"))
         .flag("-mcmodel=large")
         .flag("-mno-red-zone")
         .flag("-ffreestanding")
