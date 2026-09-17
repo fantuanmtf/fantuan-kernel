@@ -11,15 +11,17 @@
 #![no_main]
 
 use core::fmt::Write;
-use core::panic::PanicInfo;
 
 use fantuan_abi::{BootInfo, BOOT_MAGIC, BOOT_VERSION};
+
+use bootlog::{halt_forever, print_memmap_summary, serial};
 
 // The first userland program, embedded at build time (tools/build.sh builds
 // the user crate first; kernel/build.rs bakes the ELF in).
 include!(concat!(env!("OUT_DIR"), "/user_program.rs"));
 
 mod bootrepair;
+mod bootlog;
 mod console;
 mod consts;
 mod cpu;
@@ -36,6 +38,7 @@ mod input;
 mod interrupts;
 mod kbd;
 mod mm;
+mod panic;
 mod pci;
 mod pic;
 mod pit;
@@ -49,43 +52,6 @@ mod task;
 mod timer;
 mod tsc;
 mod vfs;
-
-fn serial() -> serial::Serial {
-    serial::Serial::new(serial::COM1)
-}
-
-fn print_memmap_summary(s: &mut serial::Serial, bi: &BootInfo) {
-    let n = bi.memmap.count;
-    let mut conv_pages: u64 = 0;
-    let mut other_pages: u64 = 0;
-    unsafe {
-        let mut ptr = bi.memmap.ptr;
-        for _ in 0..n {
-            let d = &*ptr;
-            if d.type_ == fantuan_abi::MEMORY_TYPE_CONVENTIONAL {
-                conv_pages += d.number_of_pages;
-            } else {
-                other_pages += d.number_of_pages;
-            }
-            ptr = (ptr as *const u8).add(bi.memmap.desc_size) as *const _;
-        }
-    }
-    let _ = writeln!(
-        s,
-        "memory map: {} descriptors, conventional {} MiB, other {} MiB",
-        n,
-        conv_pages * 4 / 1024,
-        other_pages * 4 / 1024
-    );
-}
-
-fn halt_forever() -> ! {
-    loop {
-        unsafe {
-            core::arch::asm!("hlt", options(nomem, nostack));
-        }
-    }
-}
 
 #[no_mangle]
 pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
@@ -315,13 +281,4 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     // The interactive loop replaces the idle spin: it halts between polls, so
     // the scheduler keeps running the other tasks exactly as before.
     shell::enter(mounted, bi, bi.runtime_services);
-}
-
-#[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    // No allocation, no console dependency: raw bytes to COM1, then beeps.
-    let mut s = serial();
-    let _ = writeln!(s, "\nPANIC: {}", info);
-    pit::beep_n(4, pit::BeepLen::Short);
-    halt_forever()
 }
