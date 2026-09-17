@@ -142,6 +142,14 @@ pub fn cmd_umount(sh: &mut Shell, s: &mut Serial, args: &[&[u8]]) {
     }
 }
 
+pub fn cmd_crypto(_sh: &mut Shell, s: &mut Serial, _args: &[&[u8]]) {
+    if crate::crypto::selftest(s, true) {
+        out!(s, "crypto: all known-answer tests passed");
+    } else {
+        out!(s, "crypto: FAILURES above — do not trust authenticated bundles");
+    }
+}
+
 pub fn cmd_bootinfo(sh: &mut Shell, s: &mut Serial, _args: &[&[u8]]) {
     let bi = sh.bi;
     out!(s, "  magic {:#010x}  version {}", bi.magic, bi.version);

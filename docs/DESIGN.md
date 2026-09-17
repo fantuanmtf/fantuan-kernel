@@ -373,6 +373,7 @@ lsos        identified systems          lsmnt   mount table
 mount / umount / cat / help
 bootinfo    per-disk boot details       diskhealth [-scan]
 grub-fix    Linux boot repair (diagnose / repair / install)
+crypto-selftest  SHA-256/RSA known-answer tests (M8.1)
 ```
 
 Shell roadmap: built-in minimal -> ash -> bash. (bash: C, POSIX-sh superset, smaller
@@ -519,10 +520,10 @@ fantuan-kernel/
   SECURE_BOOT_ENABLE=TRUE and an empty auth store (or the same on real
   hardware) — the code is written for exactly that case.
 - **M7.8 / §10** — DONE (Minimal Shell v1): the built-in shell described in
-  §10 — serial line editor, the 11 commands (help, hwdiag, lsdev, lsos,
-  lsmnt, mount, umount, cat, bootinfo, diskhealth [-scan], grub-fix
-  [diagnose|repair|install]), surface scan with progress + 'q' cancel and the
-  4 GiB
+  §10 — serial line editor, the initial 11 commands (help, hwdiag, lsdev,
+  lsos, lsmnt, mount, umount, cat, bootinfo, diskhealth [-scan], grub-fix
+  [diagnose|repair|install]; crypto-selftest joined in M8.1), surface scan
+  with progress + 'q' cancel and the 4 GiB
   cap, confirmation-gated repair, ESP autorun script. Split across
   shell/mod.rs (input, dispatch, aliases) and shell/cmds.rs (commands) per the
   file-size rule. Deferred: ash/bash, job control, keyboard input (the input
@@ -569,8 +570,35 @@ fantuan-kernel/
   `--bigcluster` (4 KiB clusters, short cluster write) fixtures. Deferred to a
   later cleanup: splitting `nvme.c`/`ahci.c`/`interrupts.S` to the §13.4a size
   rule, and ownership validation in `frame::free`.
+- **M8.1** — IN PROGRESS (crypto stack + authenticated variables): the
+  self-contained crypto needed to apply operator-provided `.auth` bundles
+  when a platform key already exists (the firmware enforces the real chain;
+  the kernel only proves internal consistency before writing).
+  - `crypto/sha256.rs` (FIPS 180-4), `crypto/bigint.rs` (fixed-limb
+    Montgomery arithmetic, modexp), `crypto/rsa.rs` (PKCS#1 v1.5 SHA-256
+    verification). Known-answer tests run at boot and via the
+    `crypto-selftest` shell command: FIPS hash vectors plus an
+    openssl-generated RSA-2048 signature vector embedded in
+    `crypto/vectors.rs` (positive + corrupted-signature negative).
+  - `crypto/{der,x509,pkcs7}.rs` (minimal DER, SPKI extraction/self-verify,
+    SignedData parse) and `bootrepair/secureboot_auth.rs`: scan
+    `EFI/fantuan/*.auth` (EFI_VARIABLE_AUTHENTICATION_2), verify the
+    PKCS#7 signature against its embedded certificate, apply with
+    TIME_BASED_AUTHENTICATED_WRITE_ACCESS, then re-read and report.
+  - Verification levels are reported explicitly: structure checked in the
+    kernel, chain trust decided by firmware. No keyless (.cer) enrollment
+    change; Setup-Mode behavior stays as in M7.7.
+- **M8.3** — PLANNED (kernel hardening): frame-allocator spinlock first
+  (reaping runs from the IRQ0 scheduler path), then task reaping (kernel
+  stack + user page-table walk), then NX/W^X and SMEP/SMAP with STAC/CLAC
+  around the syscall user-pointer copy.
+- **M8.5** — PLANNED (input): i8042 PS/2 keyboard (C driver, IRQ1, ring
+  buffer) feeding a merged serial+keyboard input source, plus the console
+  output tee so the GOP framebuffer shows shell interaction on real
+  hardware.
 - **M8** — linuxulator compatibility layer + Secure Boot story.
-- **M9** — RISC-V port behind the arch/ HAL.
+- **M9** — RISC-V port behind the arch/ HAL (see the roadmap appendix in
+  this section once M8.1-M8.5 land).
 
 ## 13. Governing Principles
 

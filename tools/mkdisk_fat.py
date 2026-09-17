@@ -205,6 +205,7 @@ def build(out, part_lba, part_sectors, flags, fstab):
             cmds.append(b"cat /etc/fstab")
         else:
             cmds.append(b"diskhealth --scan")
+        cmds.append(b"crypto-selftest")
         SHELL_CMD = b"".join(c + b"\n" for c in cmds)
     if keys:
         FANTUAN_DIR = bytearray(SECTOR)

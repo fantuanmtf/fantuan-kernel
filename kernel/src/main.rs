@@ -23,6 +23,7 @@ mod bootrepair;
 mod console;
 mod consts;
 mod cpu;
+mod crypto;
 mod demo;
 mod diag;
 mod drivers;
@@ -203,6 +204,15 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         core::arch::asm!("int 0", options(nomem, nostack));
     }
     let _ = writeln!(s, "demo: #DE handled (no error code path)");
+
+    // --- M8.1: crypto known-answer tests (SHA-256 + RSA-2048) --------------
+    // Failure does not halt the boot: crypto is only needed to apply
+    // operator-provided .auth bundles (the shell can re-run the tests).
+    if crypto::selftest(&mut s, false) {
+        let _ = writeln!(s, "crypto: KATs ok (sha256 + rsa-2048)");
+    } else {
+        let _ = writeln!(s, "crypto: KATs FAILED — authenticated variable updates unavailable");
+    }
 
     // --- M3: kernel tasks + syscall ABI ------------------------------------
     let abi = syscall::syscall(syscall::SYS_VERSION, 0, 0, 0, 0, 0);

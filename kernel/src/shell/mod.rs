@@ -269,7 +269,7 @@ pub fn enter(vfs: Option<Vfs>, bi: &BootInfo, rt: u64) -> ! {
 
 pub type Handler = fn(&mut Shell, &mut Serial, &[&[u8]]);
 
-pub static COMMANDS: [(&str, &str, Handler); 11] = [
+pub static COMMANDS: [(&str, &str, Handler); 12] = [
     ("help", "this table", cmds::cmd_help),
     ("hwdiag", "re-run hardware + storage diagnostics", cmds::cmd_hwdiag),
     ("lsdev", "list PCI storage/display devices + drive ID", cmds::cmd_lsdev),
@@ -280,5 +280,6 @@ pub static COMMANDS: [(&str, &str, Handler); 11] = [
     ("cat", "cat <path> — print a file (FAT or ext4, 4 KiB max)", cat::cmd_cat),
     ("bootinfo", "boot handover details", cmds::cmd_bootinfo),
     ("diskhealth", "disk health [--scan]", cmds::cmd_diskhealth),
-    ("grub-fix", "boot repair [diagnose|repair]", cmds::cmd_grubfix),
+    ("grub-fix", "boot repair [diagnose|repair|install]", cmds::cmd_grubfix),
+    ("crypto-selftest", "run the SHA-256/RSA known-answer tests", cmds::cmd_crypto),
 ];

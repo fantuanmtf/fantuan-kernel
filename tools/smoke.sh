@@ -15,7 +15,7 @@ done
 
 rm -f build/smoke.log
 timeout --signal=KILL 60 ./tools/run.sh > build/smoke.log 2>&1 || true
-if grep -q "handshake ok" build/smoke.log && grep -q "beep: boot ok" build/smoke.log && grep -q "frame self-test ok" build/smoke.log && grep -q "demo tasks spawned" build/smoke.log && grep -q "task 3" build/smoke.log && grep -q "userland: hello" build/smoke.log && grep -q "userland: tid 5 exiting" build/smoke.log && grep -q "ahci: LBA0 read ok" build/smoke.log && grep -q "vfs: HELLO.TXT" build/smoke.log && grep -q "vfs: INFO.TXT => 1000" build/smoke.log && grep -q "esp: EFI/BOOT/BOOTX64.EFI" build/smoke.log && grep -q "fstab PARTUUID matches partition 1" build/smoke.log && grep -q "UUID matches grub.cfg" build/smoke.log && grep -q "nvram: BootCurrent" build/smoke.log && grep -q "BootOrder 5 entries" build/smoke.log && ! grep -q "repair: FIXED" build/smoke.log && ! grep -q "repair: copied" build/smoke.log && ! grep -q "repair: created Boot" build/smoke.log && ! grep -q "repair: deleted stale" build/smoke.log && grep -q "smbios: BIOS TESTCORP 1.2.3" build/smoke.log && grep -q "smbios: System TESTVENDOR TESTBOX" build/smoke.log && grep -q "smbios: DIMMs" build/smoke.log && grep -q "diskhealth: .*power-on" build/smoke.log && grep -q "fs: part 1 EFI System Partition" build/smoke.log && grep -q "bootloaders: EFI/BOOT/BOOTX64.EFI" build/smoke.log; then
+if grep -q "handshake ok" build/smoke.log && grep -q "beep: boot ok" build/smoke.log && grep -q "frame self-test ok" build/smoke.log && grep -q "demo tasks spawned" build/smoke.log && grep -q "task 3" build/smoke.log && grep -q "userland: hello" build/smoke.log && grep -q "userland: tid 5 exiting" build/smoke.log && grep -q "ahci: LBA0 read ok" build/smoke.log && grep -q "vfs: HELLO.TXT" build/smoke.log && grep -q "vfs: INFO.TXT => 1000" build/smoke.log && grep -q "esp: EFI/BOOT/BOOTX64.EFI" build/smoke.log && grep -q "fstab PARTUUID matches partition 1" build/smoke.log && grep -q "UUID matches grub.cfg" build/smoke.log && grep -q "nvram: BootCurrent" build/smoke.log && grep -q "BootOrder 5 entries" build/smoke.log && ! grep -q "repair: FIXED" build/smoke.log && ! grep -q "repair: copied" build/smoke.log && ! grep -q "repair: created Boot" build/smoke.log && ! grep -q "repair: deleted stale" build/smoke.log && grep -q "smbios: BIOS TESTCORP 1.2.3" build/smoke.log && grep -q "smbios: System TESTVENDOR TESTBOX" build/smoke.log && grep -q "smbios: DIMMs" build/smoke.log && grep -q "diskhealth: .*power-on" build/smoke.log && grep -q "fs: part 1 EFI System Partition" build/smoke.log && grep -q "bootloaders: EFI/BOOT/BOOTX64.EFI" build/smoke.log && grep -q "crypto: KATs ok (sha256 + rsa-2048)" build/smoke.log; then
   echo "SMOKE PASS (boot path is read-only: no repair writes)"
   grep -E "handshake ok|frame allocator|frame self-test|syscall:|sched:|user: ELF|userland: hello|userland: tid 5|beep: boot ok" build/smoke.log | head -10
 else
@@ -140,15 +140,17 @@ rm -f build/smoke-shell.log build/smoke-shell-repair.log
 # The idle notice needs ~30 s after the autorun scan finishes, and a TCG boot
 # can take most of the first minute: budget 150 s.
 timeout --signal=KILL 150 ./tools/run.sh --keys --broken > build/smoke-shell.log 2>&1 || true
-if grep -q "shell: autorun 8 command(s)" build/smoke-shell.log \
+if grep -q "shell: autorun 9 command(s)" build/smoke-shell.log \
    && grep -q "shell> help" build/smoke-shell.log \
    && grep -q "hwdiag      re-run hardware" build/smoke-shell.log \
    && grep -q "part 1: EFI System Partition" build/smoke-shell.log \
    && grep -q "cat: 35 bytes" build/smoke-shell.log \
    && grep -q "scan: done" build/smoke-shell.log \
+   && grep -q "crypto: sha256 abc ok" build/smoke-shell.log \
+   && grep -q "crypto: all known-answer tests passed" build/smoke-shell.log \
    && grep -q "idle on serial" build/smoke-shell.log; then
-  echo "SMOKE PASS (shell: autorun commands + surface scan + idle notice)"
-  grep -aE "shell: (ready|autorun|idle)|cat: |scan: done" build/smoke-shell.log | head -6
+  echo "SMOKE PASS (shell: autorun commands + surface scan + crypto KATs + idle notice)"
+  grep -aE "shell: (ready|autorun|idle)|cat: |scan: done|crypto:" build/smoke-shell.log | head -8
 else
   echo "SMOKE FAIL (shell autorun) — log tail:"
   tail -25 build/smoke-shell.log
