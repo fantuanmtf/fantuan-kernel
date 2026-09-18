@@ -35,9 +35,7 @@ mod input;
 mod kbd;
 mod mm;
 mod panic;
-mod pci;
 mod runtime;
-mod serial;
 mod shell;
 mod smbios;
 mod task;
@@ -46,7 +44,9 @@ mod vfs;
 
 // The arch layer keeps the historical crate::<module> paths for the
 // generic core (M9.0); riscv64 gets its own implementations in M9.1.
-pub use arch::x86_64::{cpu, exceptions, gdt, idt, interrupts, pic, pit, port, syscall, tsc};
+pub use arch::x86_64::{
+    cpu, exceptions, gdt, idt, interrupts, pci, pic, pit, port, serial, syscall, tsc,
+};
 
 #[no_mangle]
 pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
