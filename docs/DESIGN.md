@@ -307,8 +307,12 @@ nvme0n1p4   unknown   Windows data (by GPT GUID)    -> not mounted
   entries via Runtime `SetVariable`; native `grub-install` equivalent.
 - **BSD (diagnosis only)**: UFS read-only inspection. ZFS pools => explicit
   "ZFS boot repair not supported" report.
-- **Windows**: deferred entirely (closed source). NTFS driver deferred as well;
-  GUID-based identification still works without it.
+- **Windows**: NOT SUPPORTED for boot repair. The Windows boot chain is closed
+  source and cannot be reverse-engineered reliably, so this project diagnoses
+  and repairs Linux and BSD boot chains only; for Windows the documentation
+  recommends WinPE (see USAGE.md). NTFS arrives as read-only mounting in M12
+  for manual inspection — never as a repair path. GUID-based identification
+  already works without a driver.
 - **UEFI/BIOS settings health check** (report only in v1): Secure Boot state (RT
   `GetVariable`), SATA mode = RAID/RST, stale NVRAM boot entries, CSM/legacy
   mismatch, firmware version (SMBIOS).
@@ -628,9 +632,17 @@ fantuan-kernel/
     and two screendumps must differ (mirror output reached the GOP).
     smoke.sh runs it as a phase; all QEMU invocations now get stdin from
     /dev/null (inherited stdin was feeding the guest serial).
-- **M8** — linuxulator compatibility layer + Secure Boot story.
-- **M9** — RISC-V port behind the arch/ HAL: roadmap in §14 (planned; the
-  x86_64 rescue system stays the primary target).
+- **M8** — DONE (as shipped): hardening (W^X, SMEP/SMAP), crypto KATs and
+  authenticated variables, PS/2 + GOP console mirror, NVMe driver. The
+  originally planned linuxulator layer moved to M14 (see the roadmap).
+- **M9** — DONE: RISC-V port behind the arch/ HAL (see §14 and
+  `M9_KERNEL_v0.0.1.md`); v0.0.1 released.
+- **M10–M16** — planned: legacy BIOS boot + i686 (M10), ARM64 + full
+  TCP/HTTPS (M11), disk imaging + NTFS read-only + AMD probe + virtualization
+  detection (M12), graphics/input and interface freeze (M13), Linux userspace
+  + in-system bootstrap + hypervisor V2 (M14), XFCE/Qt + disk-service VM +
+  MinGW script (M15), finalize (M16). Design documents:
+  `ROADMAP_v0.0.2+.md`, `M10_BOOT_32BIT.md`, `M14_LINUXUSERS.md`.
 
 ## 13. Governing Principles
 
@@ -760,3 +772,20 @@ core portable. The reference platform is QEMU `virt` with OpenSBI
   as the NVMe driver.
 - **Unknown hardware behaviour**: everything is spiked on QEMU before it is
   coded; no register offsets from memory (the M8.1 workflow).
+
+## 15. Beyond v0.0.1 (planned)
+
+The v0.0.2 -> v1.0.0 roadmap is `docs/ROADMAP_v0.0.2+.md` (milestones M10–M16,
+cross-cutting foundations F1–F9, the virtualization compatibility matrix and
+the licensing policy). Two designs are written ahead of their code, per
+governing principle 5:
+
+- `docs/M10_BOOT_32BIT.md` — the self-written BIOS boot chain and the i686
+  port (BootInfo `arch = 3`, E820, VBE/serial, 32-bit memory model,
+  `int 0x80`, ELF32, pointer-width audit).
+- `docs/M14_LINUXUSERS.md` — the POSIX syscall surface, musl port, the seed
+  -> self-host -> build toolchain chain (C++ seed as a recorded exception)
+  and hypervisor V2.
+
+Policy notes: the kernel and base image remain BSD/MIT/Apache-only (no GPL),
+and Windows boot repair is permanently out of scope (WinPE is recommended).

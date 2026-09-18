@@ -19,6 +19,9 @@ All repository artifacts are in English. The authoritative design lives in
 | [docs/DESIGN.md](docs/DESIGN.md) | the design of record (read before code changes) |
 | [docs/M9_KERNEL_v0.0.1.md](docs/M9_KERNEL_v0.0.1.md) | the M9 milestone plan and release checklist |
 | [docs/M9_AUDIT.md](docs/M9_AUDIT.md) | the v0.0.1 technical-debt and vulnerability audit |
+| [docs/ROADMAP_v0.0.2+.md](docs/ROADMAP_v0.0.2+.md) | the v0.0.2 -> v1.0.0 roadmap (M10–M16) |
+| [docs/M10_BOOT_32BIT.md](docs/M10_BOOT_32BIT.md) | design: BIOS boot chain + i686 port (v0.0.2) |
+| [docs/M14_LINUXUSERS.md](docs/M14_LINUXUSERS.md) | design: Linux userspace, bootstrap chain, hypervisor V2 (v0.1.0) |
 
 ## Current state: v0.0.1 — M9 complete (RISC-V port + shared core)
 

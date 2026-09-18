@@ -82,6 +82,10 @@ core now runs on two architectures.
    windows — remember stacks are only 16 KiB.
 6. **300-line files, English, docs-first, zero warnings** (see
    [DEVELOPMENT.md](DEVELOPMENT.md) §1).
+7. **BSD-3 license**: the kernel, drivers and base image stay BSD/MIT/
+   Apache-only. No GPL code in them (no Linux `net/`, no busybox/GNU make).
+   Copyleft developer-image programs (XFCE, Qt, tcc as a tool) are aggregated
+   as separate executables with sources; see `THIRD_PARTY.md`.
 
 ## 5. Milestone history (where the bodies are buried)
 
@@ -114,14 +118,22 @@ From `docs/M9_AUDIT.md` (all non-blocking for v0.0.1):
 
 ## 7. Roadmap
 
-1. **M10 — chroot compatibility (design first)**: a linuxulator-style
-   Linux ELF + syscall translation layer and a BSD-ABI path so the rescue
-   system can chroot into the target and run its own tools. The first
-   deliverable is a design document (`docs/M10_CHROOT.md`): scope, ABI
-   risks, ELF/syscall surface, staging. No code before it.
-2. **Post-v0.0.1**: documented in `docs/M9_KERNEL_v0.0.1.md` §12 —
-   authenticated Secure Boot on riscv, real-board support, SMP,
-   networking, USB, richer graphics.
+The full post-v0.0.1 plan is `docs/ROADMAP_v0.0.2+.md` (M10–M16):
+
+1. **M10 — v0.0.2**: self-written BIOS boot chain + i686 port;
+   design: `M10_BOOT_32BIT.md`. Windows boot repair is permanently out of
+   scope (WinPE recommended).
+2. **M11 — v0.0.3**: ARM64 (QEMU virt) + `net_ops` + full TCP/HTTPS
+   (smoltcp + mbedTLS; no Linux net/ code — license).
+3. **M12 — v0.0.4**: disk imager, NTFS read-only, AMD GPU probe,
+   virtualization V1 detection.
+4. **M13 — v0.0.5**: graphics/input API and the KMS-like + repair-IPC
+   contracts.
+5. **M14 — v0.1.0**: POSIX layer, musl port, in-system bootstrap
+   (design: `M14_LINUXUSERS.md`), hypervisor V2.
+6. **M15 — v0.1.5**: XFCE/Qt, disk-service VM (isolated mounting with a
+   physical-mount fallback), the MinGW bootstrap script.
+7. **M16 — v0.5.0/v1.0.0**: final compatibility matrix, audit, freeze.
 
 ## 8. First week checklist
 

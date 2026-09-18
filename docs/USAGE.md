@@ -120,3 +120,30 @@ values.
 - `diskhealth` reports SMART as unsupported for virtio (honest).
 - Userland tasks run in U-mode with per-task Sv39 page tables; a fault in
   user mode kills and reaps the task, never the kernel.
+
+## 8. Windows is not supported — use WinPE
+
+fantuan-kernel diagnoses and repairs **Linux and BSD** boot chains only. The
+Windows boot chain is closed source and cannot be reverse-engineered
+reliably, so there are deliberately no Windows repair tools here. For a
+broken Windows installation, boot the vendor's **WinPE** / Windows
+installation media and use its built-in Startup Repair.
+
+This kernel can still help indirectly (planned, see
+[ROADMAP_v0.0.2+.md](ROADMAP_v0.0.2+.md)): the disk imager takes a full
+backup before you touch anything, NTFS read-only mounting lets you inspect
+files, and the firmware/boot-entry diagnostics tell you whether the
+ESP/NVRAM state is sane.
+
+## 9. Support matrix (v0.0.1 now, roadmap planned)
+
+| Area | now (v0.0.1) | planned |
+|---|---|---|
+| Firmware | UEFI (x86_64), OpenSBI (riscv64) | BIOS (v0.0.2) |
+| Architecture | x86_64, riscv64 | i686 (v0.0.2), arm64 (v0.0.3) |
+| Storage | AHCI, NVMe, virtio-mmio | more drivers (v0.0.4) |
+| Filesystems | FAT32 (write-gated), ext4 (ro), others probe-only | NTFS read-only (v0.0.4) |
+| Network | none | full TCP/HTTPS (v0.0.3) |
+| Graphics | serial + GOP console | framebuffer/KMS API (v0.0.5), XFCE/Qt (v0.1.5) |
+| Virtualization | none | detect (v0.0.4), minimal hypervisor (v0.1.0), isolated mounting (v0.1.5) |
+| Windows boot repair | not supported | not supported — use WinPE |

@@ -28,7 +28,8 @@ through M9.5:
    matrix.
 
 Non-goals for v0.0.1: SMP, networking, USB, graphics, real-hardware RISC-V
-boards, authenticated Secure Boot on RISC-V, chroot/linuxulator (M10).
+boards, authenticated Secure Boot on RISC-V, chroot/linuxulator (now M14,
+see `ROADMAP_v0.0.2+.md`).
 
 ## 2. Content standards (binding)
 
@@ -219,15 +220,16 @@ prescan, and the riscv smoke gap list (see the audit).
 4. Run the full test matrix one final time on a clean build.
 5. Tag `v0.0.1`; keep the tag local until an explicit push is requested.
 
-## 12. Deferred / M10
+## 12. Deferred / next milestones
 
-- **M10 — chroot compatibility (design first)**: linuxulator-style Linux
-  ELF + syscall translation and a BSD-ABI path, so the rescue system can
-  chroot into the target and run its own tools. Deliverable before code:
-  `docs/M10_CHROOT.md` (scope, ABI risks, ELF/syscall surface, staging).
-  Not part of v0.0.1.
-- Secure Boot authenticated updates on RISC-V, real-board support, SMP,
-  networking, USB, graphics: post-v0.0.1.
+- The full post-v0.0.1 plan lives in `docs/ROADMAP_v0.0.2+.md` (M10–M16):
+  BIOS boot + i686, ARM64 + networking, disk tooling/NTFS/GPU, graphics,
+  Linux userspace with the in-system bootstrap chain, XFCE/Qt, virtualization
+  isolation and the MinGW bootstrap script.
+- The originally sketched "M10 chroot" is now **M14**
+  (`docs/M14_LINUXUSERS.md`), covering both the native musl/POSIX route and
+  an optional Linux compat layer.
+- Still excluded: Windows boot repair (use WinPE), ARM32.
 
 ## 13. Risk register (with mitigations already in force)
 
