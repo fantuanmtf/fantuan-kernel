@@ -654,12 +654,15 @@ fantuan-kernel/
 5. **Documentation first** — design changes land here before code.
 6. **English-only artifacts** — see header.
 
-## 14. RISC-V Port Roadmap (M9, planned)
+## 14. RISC-V Port Roadmap (M9)
 
-Status: planned, not started. The x86_64 rescue system remains the product;
-the RISC-V port proves the arch/ split and keeps the core portable. The
-reference platform is QEMU `virt` with OpenSBI (`qemu-system-riscv64`,
-`-bios default`).
+Status: in progress — M9.0 (arch consolidation), M9.1/M9.2 (boot, Sv39,
+traps, timer, scheduler, `kernel-core`) and M9.3 (U-mode, per-task roots,
+ecall syscalls, fault kill/reap, FDT diagnostics) are DONE; M9.4 (storage)
+and M9.5 (audit) remain before kernel v0.0.1. The x86_64 rescue system
+remains the product; the RISC-V port proves the arch/ split and keeps the
+core portable. The reference platform is QEMU `virt` with OpenSBI
+(`qemu-system-riscv64`, `-bios default`).
 
 ### 14.1 Environment facts (verified 2026-09)
 
@@ -702,7 +705,7 @@ reference platform is QEMU `virt` with OpenSBI (`qemu-system-riscv64`,
 
 ### 14.3 Phases
 
-1. **M9.0 — arch/ HAL, no behaviour change (IN PROGRESS).** Moved under
+1. **M9.0 — arch/ HAL, no behaviour change (DONE).** Moved under
    `kernel/src/arch/x86_64/` with crate-root re-exports so no call site
    changed: cpu, exceptions, gdt, idt, interrupts, pic, pit, port, syscall,
    tsc, serial, pci, and the x86 page tables (`paging`/`user`, still
@@ -712,17 +715,26 @@ reference platform is QEMU `virt` with OpenSBI (`qemu-system-riscv64`,
    the C input driver (i8042, port I/O), runtime/SMBIOS/UEFI boot. The
    explicit trait interfaces are deferred until a second implementation
    forces their shape.
-2. **M9.1 — boot.** Kickoff checklist (spike-verified): riscv64 build
+2. **M9.1 — boot (DONE).** Kickoff checklist (spike-verified): riscv64 build
    target, link at `0x80200000` with a riscv linker script and `.cargo`
    rustflags, `_start` that first writes the MMIO UART banner (proving the
    handoff), then FDT-lite memory map (memory + reserved-memory only),
    Sv39 early mapping and a riscv BootInfo (arch discriminator, DTB-based
    memmap, no framebuffer/ACPI). The x86 smoke suite must stay green in the
    same tree via `#[cfg(target_arch)]`.
-3. **M9.2 — traps and tasks.** SBI timer, PLIC external IRQs, trap frame,
-   context switch, `ecall` syscall dispatch, kernel tasks + scheduler.
-4. **M9.3 — user mode and diagnostics.** U-mode tasks with per-task page
-   tables, FDT-based CPU/RAM diagnostics, PCIe ECAM catalog.
+3. **M9.2 — traps and tasks (DONE).** SBI timer, trap frame, context switch,
+   `ecall` syscall dispatch (M9.3), kernel tasks + scheduler. PLIC external
+   IRQs are still unused (no device drivers yet; virtio-mmio arrives in
+   M9.4 and can stay polled).
+4. **M9.3 — user mode and diagnostics (DONE; PCIe ECAM deferred).** U-mode
+   tasks with per-task Sv39 roots, FDT-based CPU/RAM diagnostics. Address-
+   space policy: the kernel is linked at 0x80200000 and executed through the
+   PHYS_OFFSET alias, so absolute pointers (switch jump tables, hook
+   function pointers) hold link addresses; kernel code therefore always runs
+   on the kernel root, and a task root is entered only for U-mode (user
+   entry asm and trap exit) or around the user-copy bridge. The PCIe ECAM
+   catalog stays out of v0.0.1 because virtio-mmio is the storage path; it
+   remains an optional post-release diagnostic.
 5. **M9.4 — storage.** virtio-blk C driver registering `blk_ops`; then the
    VFS, probe table, SMART and boot repair run unchanged.
 6. **M9.5 — verification.** `tools/run.sh --arch riscv64` plus a smoke

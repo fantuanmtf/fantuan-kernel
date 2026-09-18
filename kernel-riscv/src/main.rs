@@ -20,7 +20,7 @@ use fantuan_abi::{
 
 mod cpu;
 mod uart;
-pub(crate) use uart::{park, put_dec, put_hex, puts, uart_putc};
+pub(crate) use uart::{park, put_bytes, put_dec, put_hex, puts, uart_putc};
 mod demo;
 mod fdt;
 mod paging;
@@ -155,6 +155,13 @@ pub extern "C" fn rust_entry(hartid: usize, dtb: usize) -> ! {
         put_hex(mem.mem[i].base + mem.mem[i].size);
         puts("\n");
     }
+    puts("cpu: ");
+    put_dec(mem.harts as u64);
+    puts(" hart(s), isa=");
+    put_bytes(&mem.isa[..mem.isa_len]);
+    puts(", model=");
+    put_bytes(&mem.model[..mem.model_len]);
+    puts("\n");
 
     // Shared allocator (kernel-core): install the IRQ hooks first.
     kernel_core::arch::set_irq_ops(cpu::irq_save, cpu::irq_restore);

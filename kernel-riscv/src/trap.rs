@@ -198,13 +198,17 @@ pub extern "C" fn trap_dispatch(tf: *mut TrapFrame, scause: u64, stval: u64) {
         }
         _ if from_user || crate::syscall::in_user_copy() => {
             crate::syscall::clear_user_copy();
-            puts("trap: user fault scause=");
+            puts("exc ");
+            put_dec(code);
+            puts(" [user] scause=");
             put_hex(scause);
             puts(" stval=");
             put_hex(stval);
             puts(" sepc=");
             put_hex(tf.sepc);
-            puts(" - killing task\n");
+            puts("\n  killing user task ");
+            put_dec(kernel_core::task::current_id());
+            puts("\n");
             // exit() schedules; its hook pointers are link addresses.
             crate::paging::set_root(crate::paging::kernel_root());
             kernel_core::task::exit(1);

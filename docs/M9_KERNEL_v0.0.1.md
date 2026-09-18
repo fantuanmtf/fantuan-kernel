@@ -5,9 +5,11 @@
 > the RISC-V bring-up (M9.0–M9.5) and the v0.0.1 release; DESIGN.md §14 holds
 > the architectural roadmap this plan implements.
 >
-> Progress: M9.0 (arch consolidation) and M9.1/M9.2 (riscv boot, Sv39, FDT,
-> frame allocator, traps, SBI timer, scheduler + kernel-core extraction) are
-> DONE and committed; M9.3–M9.5 and the v0.0.1 release remain.
+> Progress: M9.0 (arch consolidation), M9.1/M9.2 (riscv boot, Sv39, FDT,
+> frame allocator, traps, SBI timer, scheduler + kernel-core extraction) and
+> M9.3 (U-mode tasks, per-task Sv39 roots, ecall, fault kill/reap, FDT
+> diagnostics) are DONE and committed; M9.4–M9.5 and the v0.0.1 release
+> remain.
 
 ## 1. Purpose and scope
 
@@ -127,6 +129,15 @@ Out of scope: user mode, storage.
 | M9.3-5 | FDT CPU/RAM diagnostics (model, hart count, ISA string), no SMBIOS; RAM pattern test reuses the generic check | riscv `hwdiag`-equivalent output | `cpu: … riscv-virtio` + RAM result |
 | M9.3-6 | (Optional) PCIe ECAM catalog at `0x30000000` | device list on virt | catalog lines |
 | M9.3-7 | x86 regression: full smoke | `tools/smoke.sh` | 13/13 PASS |
+
+Status: DONE (commits 50ed70b, 258fe9e, 609cb5c and the M9.3d diagnostics).
+Evidence: riscv smoke PASS — kernel tasks plus two user tasks (`userland:
+hello from tid 3/4`), one clean `SYS_EXIT` and one deliberate fault
+(`exc 15 [user] … killing user task 4`), both reaped; `cpu: 2 hart(s),
+isa=rv64imafdch_…, model=riscv-virtio,qemu`. M9.3-6 (PCIe ECAM) is deferred:
+virtio-mmio is the v0.0.1 storage path and ECAM stays an optional
+post-release diagnostic. M9.3-7 evidence is the full x86 smoke run recorded
+in the M9.3d commit.
 
 ## 8. M9.4 — Storage and the rescue stack on RISC-V
 

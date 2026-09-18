@@ -22,6 +22,20 @@ pub struct MemInfo {
     pub totalsize: usize,
     /// /cpus timebase-frequency in Hz (10 MHz fallback for QEMU virt).
     pub timebase: u64,
+    /// Root /model string (truncated).
+    pub model: [u8; 64],
+    pub model_len: usize,
+    /// First CPU's riscv,isa string (truncated).
+    pub isa: [u8; 48],
+    pub isa_len: usize,
+    /// Harts found under /cpus.
+    pub harts: usize,
+}
+
+fn copy_str(dst: &mut [u8], src: &[u8]) -> usize {
+    let n = src.len().min(dst.len());
+    dst[..n].copy_from_slice(&src[..n]);
+    n
 }
 
 const FDT_MAGIC: u32 = 0xd00d_feed;
@@ -75,6 +89,11 @@ pub fn parse(dtb: usize) -> Option<MemInfo> {
         reserved_n: 0,
         totalsize,
         timebase: 10_000_000,
+        model: [0; 64],
+        model_len: 0,
+        isa: [0; 48],
+        isa_len: 0,
+        harts: 0,
     };
 
     // memreserve map: (base, size) pairs, terminated by (0, 0).
@@ -109,6 +128,8 @@ pub fn parse(dtb: usize) -> Option<MemInfo> {
                 if depth == 2 {
                     is_memory = name.starts_with(b"memory");
                     is_cpus = name.starts_with(b"cpus");
+                } else if depth == 3 && is_cpus && name.starts_with(b"cpu") {
+                    info.harts += 1;
                 }
             }
             FDT_END_NODE => {
@@ -125,6 +146,9 @@ pub fn parse(dtb: usize) -> Option<MemInfo> {
                 let len = be32(d, p) as usize;
                 let nameoff = be32(d, p + 4) as usize;
                 p += 8;
+                if p + len > totalsize {
+                    return None;
+                }
                 let name = cstr(d, off_strings + nameoff, 32);
                 if depth == 1 && name == b"#address-cells" && len >= 4 {
                     addr_cells = be32(d, p) as usize;
@@ -132,6 +156,10 @@ pub fn parse(dtb: usize) -> Option<MemInfo> {
                     size_cells = be32(d, p) as usize;
                 } else if is_cpus && name == b"timebase-frequency" && len >= 4 {
                     info.timebase = be32(d, p) as u64;
+                } else if depth == 1 && name == b"model" {
+                    info.model_len = copy_str(&mut info.model, &d[p..p + len]);
+                } else if depth == 3 && is_cpus && name == b"riscv,isa" {
+                    info.isa_len = copy_str(&mut info.isa, &d[p..p + len]);
                 } else if is_memory && name == b"reg" {
                     let cells = addr_cells + size_cells;
                     if cells > 0 && cells <= 8 {

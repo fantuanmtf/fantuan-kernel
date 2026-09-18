@@ -134,8 +134,15 @@ pub extern "C" fn user_main() -> ! {
     let mut off = 0;
     off = push_str(&mut buf, off, "userland: tid ");
     off = push_u64(&mut buf, off, tid);
-    off = push_str(&mut buf, off, " exiting\n");
+    let even = tid % 2 == 0;
+    off = push_str(&mut buf, off, if even { " fault test\n" } else { " exiting\n" });
     syscall(fantuan_abi::SYS_WRITE, buf.as_ptr() as u64, off as u64, 0, 0, 0);
+
+    if even {
+        // M9.3d: deliberate store to an unmapped user address; the kernel
+        // must classify the fault, kill this task and reap it.
+        unsafe { core::ptr::write_volatile(0x500000 as *mut u8, 0x41) };
+    }
     syscall(fantuan_abi::SYS_EXIT, 0, 0, 0, 0, 0);
     loop {
         core::hint::spin_loop();

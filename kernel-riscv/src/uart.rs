@@ -22,6 +22,13 @@ pub fn puts(s: &str) {
     }
 }
 
+/// Print raw bytes (FDT strings).
+pub fn put_bytes(s: &[u8]) {
+    for &b in s {
+        uart_putc(b);
+    }
+}
+
 pub fn put_hex(mut v: u64) {
     const HEX: &[u8] = b"0123456789abcdef";
     puts("0x");
