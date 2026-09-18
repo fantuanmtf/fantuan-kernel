@@ -9,11 +9,13 @@ fn main() {
     // The 48 ISR stubs are plain assembly; clang assembles them for the
     // custom target (same toolchain the riscv C drivers use).
     println!("cargo:rerun-if-changed={dir}/src/isr_stubs.S");
+    println!("cargo:rerun-if-changed={dir}/src/context.S");
     cc::Build::new()
         .compiler("clang")
         .archiver("llvm-ar")
         .flag("--target=i686-unknown-none-elf")
         .flag("-m32")
         .file(format!("{dir}/src/isr_stubs.S"))
+        .file(format!("{dir}/src/context.S"))
         .compile("isrobj");
 }

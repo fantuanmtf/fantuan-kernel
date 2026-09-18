@@ -263,6 +263,27 @@ Still missing on i686 (M10-4b2+): GDT/IDT/PIC/PIT and interrupts, the
 kernel's own page tables (stage2's tables stay active), scheduler/user mode
 (ELF32, `int 0x80`) and VFS.
 
+### 7.7 i686 scheduler bring-up: codegen investigation (M10-4b2b, open)
+
+The 32-bit context switch and task glue are written
+(`kernel-i686/src/{task,demo}.rs` and `context.S`) but **not wired** yet:
+
+- Symptom A: with the target JSON's `stack-probes: inline`, the kernel
+  writes kernel-image bytes (ISR table, core panic strings) to the serial,
+  and `kernel_core::task::init` executes with `ESP=0x20000` (the page
+  directory page) and faults on the next push.
+- Symptom B: `stack-probes: none` removes the wild ESP and the scheduler
+  runs to completion (two tasks interleave, 500 ticks, "scheduler
+  complete"), but residual binary noise still appears early in the log.
+- Leading suspect: the hand-written `targets/i686-fantuan-none.json`
+  spec (ABI/codegen fields). Next steps: diff against a known-good
+  bare-metal i686 spec, try `rustc-abi: softfloat`,
+  `main-needs-argc-argv: false`, and bisect spec fields with a minimal
+  binary; also check whether the kernel's `_start`/`rust_entry` split
+  needs `force-frame-pointers`.
+- M10-4b2a (IDT/PIC/PIT, exception resume) is unaffected and verified;
+  the scheduler is the remaining blocker before M10-4b3 (ELF32, ring 3).
+
 ## 8. Verification
 
 - **QEMU**: `qemu-system-i386 -machine pc` (SeaBIOS) for i686 and

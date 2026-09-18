@@ -44,7 +44,9 @@ done, M10 is half implemented).
       remap, PIT 100 Hz, exception demo with resume; `iretd`/iret-width and
       iret-frame bugs fixed — verify `tools/smoke-bios.sh` phase 2
 - [ ] M10-4b2b i686 core: GDT/TSS, kernel-owned page tables, scheduler
-      (32-bit context switch)
+      (32-bit context switch) — **BLOCKED on a custom-target codegen/stack
+      issue**, see "Known issues" below; the glue is written
+      (`kernel-i686/src/{task,demo}.rs`, `context.S`) but not wired.
 - [ ] M10-4b3 i686 user mode (ELF32, `int 0x80`)
 - [ ] M10-4a2 harden the 81 `as usize` sites for >4 GiB on-disk values
       (filesystem/ELF bounds checks; see `M10_BOOT_32BIT.md` 7.5)
@@ -128,7 +130,22 @@ Design: `M14_LINUXUSERS.md`.
 | 2026-09 | riscv smoke (3 phases incl. repair YES/NO) | PASS |
 | 2026-09 | x86 full suite `tools/smoke.sh` 13/13 | PASS (at v0.0.1) |
 
-## Known intermittent issue
+## Known issues
+
+- **i686 scheduler (M10-4b2b) blocked**: with the target's default
+  `stack-probes: inline`, the kernel dumps kernel-image bytes to the serial
+  and `kernel_core::task::init` runs with ESP=0x20000 (the page-directory
+  page), faulting on push. Setting `stack-probes: none` removes the wild ESP
+  and the scheduler then runs to completion (tasks interleave, 500 ticks),
+  but residual binary noise still appears early in the log. Leading suspect:
+  the hand-written `i686-fantuan-none.json` target spec (ABI/codegen
+  fields); next steps: compare against a known-good bare-metal i686 target
+  JSON (e.g. a build-std `x86_64` variant downcast, or add
+  `rustc-abi: softfloat`, `main-needs-argc-argv: false`), and bisect the
+  spec fields with a minimal binary. M10-4b2a (IDT/PIC/PIT) is unaffected
+  and verified.
+- **riscv `uart::log_bytes` fault (one-off)**: one repair run (of three)
+  crashed with `scause=0xd stval=0x766`; not reproduced since. Watch item.
 
 - riscv repair phase B crashed once (of three runs) with a load fault in
   `kernel_riscv::uart::log_bytes` (`scause=0xd stval=0x766 sepc=0x80200c00`)
