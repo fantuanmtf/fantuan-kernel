@@ -23,6 +23,8 @@ All repository artifacts are in English. The authoritative design lives in
 | [docs/M10_BOOT_32BIT.md](docs/M10_BOOT_32BIT.md) | design: BIOS boot chain + i686 port (v0.0.2) |
 | [docs/M14_LINUXUSERS.md](docs/M14_LINUXUSERS.md) | design: Linux userspace, bootstrap chain, hypervisor V2 (v0.1.0) |
 | [docs/M11_NET.md](docs/M11_NET.md) | design: NetBSD-derived network stack (v0.0.3) |
+| [docs/M12_TOOLS_HW.md](docs/M12_TOOLS_HW.md) | design: disk imager, NTFS read-only, GPU probe, virt detection (v0.0.4) |
+| [docs/M13_GRAPHICS.md](docs/M13_GRAPHICS.md) | design: framebuffer/input, KMS-like + repair-IPC contracts (v0.0.5) |
 | [THIRD_PARTY.md](THIRD_PARTY.md) | third-party components, licenses and origin register |
 
 ## Current state: v0.0.1 — M9 complete (RISC-V port + shared core)

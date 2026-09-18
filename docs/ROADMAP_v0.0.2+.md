@@ -177,5 +177,7 @@ self-written hypervisor above.
 
 Every milestone updates: `DESIGN.md` (design of record), the support matrix
 (`USAGE.md`), the test matrix (`OPERATIONS.md`), and adds/extends its design
-documents before code (M10, M14 here; M13 API contracts; M11 net layering;
-M12 GPU/NTFS notes).
+documents before code. The design set is now complete for M10-M14:
+`M10_BOOT_32BIT.md`, `M11_NET.md`, `M12_TOOLS_HW.md`, `M13_GRAPHICS.md`
+(plus `GRAPHICS_API.md`/`REPAIR_IPC.md` frozen in M13), and
+`M14_LINUXUSERS.md`.
