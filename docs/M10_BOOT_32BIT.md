@@ -211,6 +211,12 @@ Rules:
    alias physical addresses >= 1 GiB.
 5. `abi::PHYS_OFFSET` gains an `i686` cfg arm (`0xC000_0000`).
 
+Audit result (M10-4a): after adding the i686 `PHYS_OFFSET` arm and making
+the UEFI `RT_BUFFER_TOO_SMALL` constant width-adaptive
+(`(1usize << (usize::BITS - 1)) | 5`), `kernel-core` **compiles clean for
+the custom 32-bit target** (nightly `-Z build-std=core -Z json-target-spec`)
+and the x86_64/riscv64 builds plus the UEFI boot are unchanged.
+
 Inventory (counts at the audit commit): 81 `as usize` sites in 23
 `kernel-core` files, concentrated in `vfs/ext4/{dir,sb,extents}.rs`,
 `vfs/fat*.rs`, `elf.rs`, `bootrepair/*`, `frame.rs`. The filesystem/ELF

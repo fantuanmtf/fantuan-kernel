@@ -18,6 +18,10 @@ pub const PHYS_OFFSET: u64 = 0xFFFF_8000_0000_0000; // -2 GiB, Linux-style
 /// Sv39's canonical high half (bits 63:39 sign-extend bit 38).
 #[cfg(target_arch = "riscv64")]
 pub const PHYS_OFFSET: u64 = 0xFFFF_FFC0_0000_0000;
+/// i686 (M10): 3G/1G split; the direct map covers the first 1 GiB of RAM
+/// (see docs/M10_BOOT_32BIT.md 7.5).
+#[cfg(target_arch = "x86")]
+pub const PHYS_OFFSET: u64 = 0xC000_0000;
 
 /// Pages of initial kernel stack allocated by the bootloader.
 pub const BOOT_STACK_PAGES: u64 = 16;

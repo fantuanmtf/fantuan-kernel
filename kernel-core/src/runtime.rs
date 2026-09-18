@@ -10,7 +10,9 @@ pub type Status = usize;
 pub const RT_SUCCESS: Status = 0;
 /// The buffer was too small; the firmware wrote the required size into
 /// *data_size — for a presence check this still proves the variable exists.
-pub const RT_BUFFER_TOO_SMALL: Status = 0x8000_0000_0000_0005;
+/// EFI_BUFFER_TOO_SMALL: the error bit plus code 5, expressed at the
+/// pointer width so IA32 and x86_64 both get the right value.
+pub const RT_BUFFER_TOO_SMALL: Status = (1usize << (usize::BITS - 1)) | 5;
 
 pub const RT_SIGNATURE: u64 = 0x5652_4553_544e_5552; // "RUNT SERV"
 

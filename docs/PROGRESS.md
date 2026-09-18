@@ -10,7 +10,7 @@
 | Version | Milestone | Progress | Verified by |
 |---|---|---|---|
 | v0.0.1 | M0-M9 (x86_64 rescue + RISC-V port) | `[##########] 100%` | tag `v0.0.1` (local) |
-| v0.0.2 | M10 legacy BIOS boot + i686 | `[#####-----] 50%` | `smoke-bios.sh`, UEFI smoke |
+| v0.0.2 | M10 legacy BIOS boot + i686 | `[######----] 55%` | `smoke-bios.sh`, UEFI smoke |
 | v0.0.3 | M11 ARM64 + full TCP/HTTPS | `[#---------] 10%` | design only |
 | v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[#---------] 10%` | design only |
 | v0.0.5 | M13 graphics/input + interface freeze | `[#---------] 10%` | design only |
@@ -32,10 +32,15 @@ done, M10 is half implemented).
       - commit `83db01a`; verify `tools/smoke-bios.sh` (default CPU)
 - [x] M10-4 prep i686 toolchain decision + `targets/i686-fantuan-none.json`
       - commit `32da9a3`; verify probe build on nightly
-- [ ] M10-4a kernel-core pointer-width audit (F1; behavior-neutral, both
-      smokes green)
+- [x] M10-4a kernel-core pointer-width audit (F1) — the crate now compiles
+      clean for `targets/i686-fantuan-none.json` (nightly build-std);
+      ABI gained the i686 `PHYS_OFFSET` (0xC000_0000) and the UEFI status
+      constant became width-adaptive. Remaining cast hardening for >4 GiB
+      on-disk values is tracked as M10-4a2 under M10-4c
 - [ ] M10-4b `kernel-i686` crate bring-up (32-bit paging, GDT/IDT/PIC/PIT,
       serial, scheduler)
+- [ ] M10-4a2 harden the 81 `as usize` sites for >4 GiB on-disk values
+      (filesystem/ELF bounds checks; see `M10_BOOT_32BIT.md` 7.5)
 - [ ] M10-4c i686 user mode (ELF32, `int 0x80`) + VFS on the test disk
 - [ ] M10-5 VBE framebuffer console on BIOS (optional; serial is the base)
 - [ ] M10-6 hybrid ISO image builder with the 1 GB size check
@@ -104,6 +109,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | `kernel-core` 32-bit target build (nightly build-std) | PASS |
 | 2026-09 | `tools/smoke-bios.sh` (M10-3, default no-SMAP CPU) | PASS |
 | 2026-09 | `tools/run.sh` x86_64 UEFI main phase (SMAP active) | PASS |
 | 2026-09 | riscv smoke (3 phases incl. repair YES/NO) | PASS |
@@ -111,7 +117,6 @@ Design: `M14_LINUXUSERS.md`.
 
 ## Next action
 
-**M10-4a**: pointer-width audit of `kernel-core` (F1). Inventory and rules
-are in `docs/M10_BOOT_32BIT.md` §7.5; the audit lands as a behavior-neutral
-commit with `smoke.sh` (main phase) and both riscv phases still green,
-before the `kernel-i686` crate exists.
+**M10-4b**: create the `kernel-i686` crate (pinned nightly, custom target)
+with 32-bit paging, GDT/IDT/PIC/PIT and serial bring-up, then extend stage2
+to enter protected mode and hand over a 32-bit BootInfo (`arch = 3`).
