@@ -8,3 +8,4 @@ __pycache__/
 
 # IDE agent scaffolding (Trae) — not project artifacts
 .trae/
+/target
