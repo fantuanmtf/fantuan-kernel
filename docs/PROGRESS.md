@@ -24,14 +24,14 @@ done, M10 is half implemented).
 ## v0.0.2 - M10 (BIOS boot + i686)
 
 - [x] M10-1 self-written BIOS stage1/stage2 spike (MBR, int 0x13 LBA, E820)
-      - commit `e146a27`; verify `tools/smoke-bios.sh`
+      - commit `c278097`; verify `tools/smoke-bios.sh`
 - [x] M10-2 long-mode transition + 64-bit stub (identity tables, EFER)
-      - commit `8b6a3af`; verify `tools/smoke-bios.sh`
+      - commit `669707f`; verify `tools/smoke-bios.sh`
 - [x] M10-3 BIOS handoff to the real x86_64 kernel (BootInfo arch=3,
       ATA PIO kernel load, jump); old-CPU `stac/clac` #UD fix
-      - commit `83db01a`; verify `tools/smoke-bios.sh` (default CPU)
+      - commit `dfaabab`; verify `tools/smoke-bios.sh` (default CPU)
 - [x] M10-4 prep i686 toolchain decision + `targets/i686-fantuan-none.json`
-      - commit `32da9a3`; verify probe build on nightly
+      - commit `7fd3836`; verify probe build on nightly
 - [x] M10-4a kernel-core pointer-width audit (F1) — the crate now compiles
       clean for `targets/i686-fantuan-none.json` (nightly build-std);
       ABI gained the i686 `PHYS_OFFSET` (0xC000_0000) and the UEFI status

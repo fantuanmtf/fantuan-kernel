@@ -129,7 +129,7 @@ Out of scope: user mode, storage.
 | M9.3-6 | (Optional) PCIe ECAM catalog at `0x30000000` | device list on virt | catalog lines |
 | M9.3-7 | x86 regression: full smoke | `tools/smoke.sh` | 13/13 PASS |
 
-Status: DONE (commits 50ed70b, 258fe9e, 609cb5c and the M9.3d diagnostics).
+Status: DONE (commits 75b2273, 29950b5, 2a5e8e0 and the M9.3d diagnostics).
 Evidence: riscv smoke PASS — kernel tasks plus two user tasks (`userland:
 hello from tid 3/4`), one clean `SYS_EXIT` and one deliberate fault
 (`exc 15 [user] … killing user task 4`), both reaped; `cpu: 2 hart(s),
@@ -149,7 +149,7 @@ in the M9.3d commit.
 | M9.4-5 | `diskhealth` degrades honestly on virtio (no ATA SMART): explicit "SMART unsupported for this transport" | riscv smoke | that line, no fake values |
 | M9.4-6 | `run.sh --arch riscv64 --disk` attaches the mkdisk image | run | disk visible to the kernel |
 
-Status: DONE (commits 9478af5, ae5c4ed and the M9.4-2 extraction). Evidence:
+Status: DONE (commits 8cd56d3, 492f04a and the M9.4-2 extraction). Evidence:
 the riscv smoke feeds the shell through the serial console and asserts
 `blk: virtio registered`, FAT32 mount + `vfs: HELLO.TXT => "Hello from the
 fantuan-kernel VFS!\n"`, `ext4: mounted ro at /mnt/root0`, the XFS

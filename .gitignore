@@ -1,4 +1,5 @@
 /target
+/kernel-i686/target/
 /build
 /kernel/user_program.bin
 /kernel-riscv/user_program.bin
@@ -8,4 +9,3 @@ __pycache__/
 
 # IDE agent scaffolding (Trae) — not project artifacts
 .trae/
-/target
