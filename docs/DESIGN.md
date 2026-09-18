@@ -671,11 +671,14 @@ reference platform is QEMU `virt` with OpenSBI (`qemu-system-riscv64`,
 - OpenSBI `opensbi-riscv64-generic-fw_dynamic.bin` ships with QEMU
   (`-bios default`, OpenSBI v1.7 reported).
 - Verified by an out-of-tree spike (2026-09): an ELF linked at
-  `0x80200000` (medany) boots with
+  `0x80200000` (rustc code model medium = LLVM medany) boots with
   `qemu-system-riscv64 -machine virt -bios default -kernel hello.elf
-  -nographic`, and the NS16550 MMIO UART at `0x10000000` prints. The
-  handoff register convention (a0 = hartid, a1 = DTB) is the next thing to
-  confirm when M9.1 starts.
+  -nographic`, and the NS16550 MMIO UART at `0x10000000` prints.
+- Measured in-tree (M9.1): a0 = hartid = 0, a1 = DTB = 0x87e00000 (DTB near
+  the top of the 128 MiB RAM), `/memory` node = 0x80000000..0x88000000;
+  OpenSBI reserves its runtime via the DT memreserve block. Sv39's
+  canonical high half starts at 0xFFFFFFC0_00000000; the kernel builds
+  identity + alias with 2 MiB leaves and enters the high half.
 
 ### 14.2 Why this is a port, not a recompile
 

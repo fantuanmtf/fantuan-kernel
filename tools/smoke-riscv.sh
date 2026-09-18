@@ -17,9 +17,13 @@ timeout --signal=KILL 30 ./tools/run.sh --arch riscv64 < /dev/null > "$LOG" 2>&1
 
 if grep -q "fantuan (riscv64) M9.1" "$LOG" \
    && grep -q "boot: hartid=" "$LOG" \
-   && grep -q "dtb=0x" "$LOG"; then
-  echo "SMOKE PASS (riscv64: OpenSBI S-mode handoff + UART banner)"
-  grep -aE "fantuan \(riscv64\)|boot: hartid" "$LOG" | head -3
+   && grep -q "dtb=0x" "$LOG" \
+   && grep -q "fdt: memory 0x80000000" "$LOG" \
+   && grep -q "paging: Sv39 tables built" "$LOG" \
+   && grep -q "high half online" "$LOG" \
+   && grep -q "mm: frame self-test ok" "$LOG"; then
+  echo "SMOKE PASS (riscv64: OpenSBI handoff, FDT memory, Sv39 high half, frame self-test)"
+  grep -aE "fantuan \(riscv64|fdt: memory|mm: usable|mm: frame self-test|paging: Sv39" "$LOG" | head -8
 else
   echo "SMOKE FAIL (riscv64) — log tail:"
   tail -20 "$LOG"
