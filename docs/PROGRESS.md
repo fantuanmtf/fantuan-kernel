@@ -122,6 +122,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | virt detection on UEFI: vendor/VMX/SVM/IOMMU + fallback verdict | PASS |
 | 2026-09 | ACPI walker on UEFI: 5 tables, fadt/madt, cpus=1 | PASS |
 | 2026-09 | `tools/smoke-bios.sh` phase 2 (i686 interrupts: IDT/PIC/PIT) | PASS |
 | 2026-09 | serial heartbeats stop after 30 s; interactive shell clean | PASS |

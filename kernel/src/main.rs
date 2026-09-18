@@ -241,7 +241,9 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         smbios::init(0xF_0000, 0x1_0000);
     }
     // M12-1: ACPI tables (read-only; absent on the BIOS path for now).
-    acpi::init(bi.rsdp);
+    let acpi = acpi::init(bi.rsdp);
+    // M12-7: virtualization capability report (CPUID + ACPI IOMMU tables).
+    diag::virt::report(acpi.as_ref());
 
     let stage1: [diag::Check; 3] = [
         diag::Check { name: "cpu", run: diag::cpu::check },
