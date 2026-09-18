@@ -691,10 +691,16 @@ reference platform is QEMU `virt` with OpenSBI (`qemu-system-riscv64`,
 
 ### 14.3 Phases
 
-1. **M9.0 — arch/ HAL, no behaviour change.** Move x86 pieces under
-   `arch/x86_64/` behind `#[cfg]`, define the interfaces (paging, irq,
-   timer, serial, cpu features, context switch, syscall entry). Pure
-   refactor commits only; the x86 smoke suite stays green throughout.
+1. **M9.0 — arch/ HAL, no behaviour change (IN PROGRESS).** Moved under
+   `kernel/src/arch/x86_64/` with crate-root re-exports so no call site
+   changed: cpu, exceptions, gdt, idt, interrupts, pic, pit, port, syscall,
+   tsc, serial, pci, and the x86 page tables (`paging`/`user`, still
+   reachable as `crate::mm::paging`/`crate::mm::user`). Every slice keeps
+   the full smoke suite green. Still x86-shaped and to be cfg-split when
+   riscv64 lands: task entry/TSS/iretq, the ELF loader's PHYS_OFFSET use,
+   the C input driver (i8042, port I/O), runtime/SMBIOS/UEFI boot. The
+   explicit trait interfaces are deferred until a second implementation
+   forces their shape.
 2. **M9.1 — boot.** riscv64 build target; S-mode entry from OpenSBI;
    FDT-lite memory map (memory + reserved-memory only); Sv39 early mapping;
    MMIO 16550 console; boot banner and handshake validation.

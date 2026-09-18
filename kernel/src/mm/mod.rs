@@ -3,5 +3,7 @@
 
 pub mod frame;
 pub mod lock;
-pub mod paging;
-pub mod user;
+
+// Page tables are ISA-specific (x86_64 4-level here; Sv39 in M9.1) and stay
+// reachable as crate::mm::paging / crate::mm::user.
+pub use crate::arch::x86_64::{paging, user};
