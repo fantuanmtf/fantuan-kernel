@@ -56,8 +56,13 @@ done, M10 is half implemented).
 - [ ] M10-4b3b i686 user mode (ELF32): `EM_386` in the shared loader,
       per-task page directories, the shared user crate built for i686,
       user faults kill the task instead of halting
-- [ ] M10-4a2 harden the 81 `as usize` sites for >4 GiB on-disk values
-      (filesystem/ELF bounds checks; see `M10_BOOT_32BIT.md` 7.5)
+- [x] M10-4a2 pointer-width hardening: `mem::to_usize` helper; 14
+      on-disk/ELF narrowing sites converted in `elf.rs`, `frame.rs`,
+      `ext4/{dir,extents,mod}.rs`, `shell/cat.rs` (checks now run on the
+      u64 before narrowing); the remaining 67 are masked/index casts
+      classified as safe in the audit - three-target builds zero warnings,
+      UEFI boot + BIOS/riscv smokes PASS (13-phase suite at the final
+      checkpoint)
 - [ ] M10-4c i686 VFS on the test disk (after b3)
 - [ ] M10-5 VBE framebuffer console on BIOS (optional; serial is the base)
 - [ ] M10-6 hybrid ISO image builder with the 1 GB size check
@@ -146,6 +151,7 @@ Design: `M14_LINUXUSERS.md`.
 | 2026-09 | riscv smoke (3 phases incl. repair YES/NO) | PASS |
 | 2026-09 | i686 scheduler after the ISR `popad` fix (2 tasks, 500 ticks, quiet) | PASS |
 | 2026-09 | i686 ring 3 via `iretd` + `int 0x80` (built-in stub writes and exits) | PASS |
+| 2026-09 | W1/M10-4a2 hardening: three-target builds + BIOS/riscv smokes after the `to_usize` pass | PASS |
 | 2026-09 | x86 full suite `tools/smoke.sh` 13/13 | PASS (at v0.0.1) |
 
 ## Known issues

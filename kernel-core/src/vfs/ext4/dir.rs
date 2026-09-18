@@ -1,5 +1,7 @@
 //! ext4 path lookup, directory scan and file reads (linear; no htree search).
 
+use crate::mem::to_usize;
+
 use super::{le16, le32, Ext4, Inode, HOLE_BLOCK, MAX_BLOCK_SIZE};
 
 impl Ext4 {
@@ -70,7 +72,7 @@ impl Ext4 {
         if !inode.is_file() && !inode.is_dir() {
             return None;
         }
-        let want = (inode.size as usize).min(buf.len());
+        let want = to_usize(inode.size).map_or(buf.len(), |n| n.min(buf.len()));
         let bs = self.block_size as u64;
         let mut got = 0usize;
         let mut blk = [0u8; MAX_BLOCK_SIZE as usize];

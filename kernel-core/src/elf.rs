@@ -10,6 +10,7 @@
 use fantuan_abi::PHYS_OFFSET;
 
 use crate::frame;
+use crate::mem::to_usize;
 use crate::user::{self, Prot};
 
 const ELF_MAGIC: [u8; 4] = [0x7F, b'E', b'L', b'F'];
@@ -52,6 +53,7 @@ pub fn load(elf: &[u8]) -> Option<(u64, u64)> {
         (ops.log)("elf: program headers outside the image");
         return None;
     }
+    let phoff = to_usize(phoff)?;
     // The entry point is a user address too.
     if entry >= PHYS_OFFSET {
         (ops.log)("elf: entry in the kernel half");
@@ -69,12 +71,12 @@ pub fn load(elf: &[u8]) -> Option<(u64, u64)> {
     let mut mapped_n = 0;
 
     for i in 0..phnum {
-        let ph = &elf[phoff as usize + i * phentsize..][..phentsize];
+        let ph = &elf[phoff + i * phentsize..][..phentsize];
         if u32::from_le_bytes([ph[0], ph[1], ph[2], ph[3]]) != PT_LOAD {
             continue;
         }
         let p_flags = u32::from_le_bytes([ph[4], ph[5], ph[6], ph[7]]);
-        let p_offset = u64::from_le_bytes(ph[8..16].try_into().ok()?) as usize;
+        let p_offset = u64::from_le_bytes(ph[8..16].try_into().ok()?);
         let p_vaddr = u64::from_le_bytes(ph[16..24].try_into().ok()?);
         let p_filesz = u64::from_le_bytes(ph[32..40].try_into().ok()?);
         let p_memsz = u64::from_le_bytes(ph[40..48].try_into().ok()?);
@@ -83,7 +85,7 @@ pub fn load(elf: &[u8]) -> Option<(u64, u64)> {
             (ops.log)("elf: PT_LOAD overflows the user half");
             return None;
         }
-        if p_offset.checked_add(p_filesz as usize)? > elf.len() || p_filesz > p_memsz {
+        if p_offset.checked_add(p_filesz)? > elf.len() as u64 || p_filesz > p_memsz {
             (ops.log)("elf: PT_LOAD file bytes outside the image");
             return None;
         }
@@ -94,7 +96,8 @@ pub fn load(elf: &[u8]) -> Option<(u64, u64)> {
             (false, true) => Prot::Rx,
             (true, true) => Prot::Rwx,
         };
-        let p_filesz = p_filesz as usize;
+        let p_offset = to_usize(p_offset)?;
+        let p_filesz = to_usize(p_filesz)?;
         let page_start = p_vaddr & !0xFFF;
         let seg_end = p_vaddr + p_memsz;
         let mut page = page_start;
@@ -125,7 +128,7 @@ pub fn load(elf: &[u8]) -> Option<(u64, u64)> {
                     f
                 }
             };
-            let seg_off = ((page + head as u64) - p_vaddr) as usize; // offset into the segment
+            let seg_off = to_usize((page + head as u64) - p_vaddr)?; // offset into the segment
             let dst = (ops.phys_to_virt)(f) as *mut u8;
             if seg_off < p_filesz {
                 let copy = (p_filesz - seg_off).min(4096 - head);

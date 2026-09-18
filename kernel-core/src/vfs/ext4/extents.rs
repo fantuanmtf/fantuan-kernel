@@ -3,6 +3,8 @@
 //! filesystems without the extents feature. An uninitialised extent maps to
 //! HOLE_BLOCK (reads as zeroes), never to disk data.
 
+use crate::mem::to_usize;
+
 use super::{le16, le32, Ext4, Inode, HOLE_BLOCK};
 
 const EXTENT_MAGIC: u16 = 0xF30A;
@@ -81,10 +83,11 @@ impl Ext4 {
         if indirect == 0 {
             return None;
         }
-        let idx = (logical - 12) as usize;
-        if (idx + 1) * 4 > self.block_size as usize {
+        let idx = logical - 12;
+        if (idx + 1) * 4 > self.block_size as u64 {
             return None;
         }
+        let idx = to_usize(idx)?;
         let mut blk = [0u8; 4096];
         if !self.read_block(indirect, &mut blk) {
             return None;

@@ -21,3 +21,9 @@ pub fn phys_to_virt(p: u64) -> u64 {
     let f: fn(u64) -> u64 = unsafe { core::mem::transmute(f) };
     f(p)
 }
+
+/// Narrow an on-disk/ELF value to usize; None when it cannot be addressed
+/// on this target (i686: values above 4 GiB).
+pub fn to_usize(v: u64) -> Option<usize> {
+    usize::try_from(v).ok()
+}

@@ -23,6 +23,7 @@ use core::ffi::c_void;
 use core::fmt::Write;
 
 use crate::log::Log;
+use crate::mem::to_usize;
 
 extern "C" {
     fn blk_read(dev: *mut c_void, lba: u64, buf: *mut c_void, sectors: usize) -> i32;
@@ -105,7 +106,7 @@ impl Ext4 {
     fn read_blocks(&self, block: u64, count: u32, buf: &mut [u8]) -> bool {
         let block_sectors = self.block_size as u64 / 512;
         let lba = self.part_lba + block * block_sectors;
-        let sectors = (count as u64 * block_sectors) as usize;
+        let Some(sectors) = to_usize(count as u64 * block_sectors) else { return false };
         if buf.len() < sectors * 512 {
             return false;
         }

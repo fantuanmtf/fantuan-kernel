@@ -20,6 +20,7 @@ use core::sync::atomic::AtomicBool;
 use fantuan_abi::BootInfo;
 
 use crate::arch::IrqLock;
+use crate::mem::to_usize;
 
 pub const FRAME_SIZE: u64 = 4096;
 const BITMAP_MAX: u64 = 4 * 1024 * 1024 * 1024; // 4 GiB
@@ -119,8 +120,10 @@ impl FrameAllocator {
     /// Set the bit for frames in [begin, end). Range-clamped, frame-aligned
     /// outward; frames below the 1 MiB cutoff are never touched.
     fn mark_range(&mut self, begin: u64, end: u64, free: bool) {
-        let first = ((begin.max(LOW_MEMORY_CUTOFF)) / FRAME_SIZE) as usize;
-        let last = ((end.min(BITMAP_MAX) + FRAME_SIZE - 1) / FRAME_SIZE) as usize;
+        let Some(first) = to_usize(begin.max(LOW_MEMORY_CUTOFF) / FRAME_SIZE) else { return };
+        let Some(last) = to_usize((end.min(BITMAP_MAX) + FRAME_SIZE - 1) / FRAME_SIZE) else {
+            return;
+        };
         for idx in first..last.min(BITMAP_BYTES * 8) {
             let mask = 1u8 << (idx % 8);
             let byte = idx / 8;
@@ -170,7 +173,7 @@ impl FrameAllocator {
     }
 
     fn free_unlocked(&mut self, phys: u64) {
-        let idx = (phys / FRAME_SIZE) as usize;
+        let Some(idx) = to_usize(phys / FRAME_SIZE) else { return };
         if idx >= BITMAP_BYTES * 8 {
             return; // outside bitmap coverage
         }
@@ -196,7 +199,7 @@ impl FrameAllocator {
     }
 
     fn reclaim_unlocked(&mut self, phys: u64) {
-        let idx = (phys / FRAME_SIZE) as usize;
+        let Some(idx) = to_usize(phys / FRAME_SIZE) else { return };
         if idx >= BITMAP_BYTES * 8 {
             return;
         }

@@ -4,6 +4,7 @@
 use core::fmt::Write;
 
 use crate::log::Log;
+use crate::mem::to_usize;
 use crate::vfs;
 
 use super::Shell;
@@ -90,9 +91,9 @@ pub fn cmd_cat(sh: &mut Shell, s: &mut Log, args: &[&[u8]]) {
             out!(s, "cat: not a regular file");
             return;
         }
-        let want = (inode.size as usize).min(buf.len());
+        let want = to_usize(inode.size).map_or(buf.len(), |n| n.min(buf.len()));
         match root.read_file(&inode, &mut buf[..want]) {
-            Some(got) => dump_ascii(s, &buf[..got], inode.size as usize),
+            Some(got) => dump_ascii(s, &buf[..got], to_usize(inode.size).unwrap_or(usize::MAX)),
             None => out!(s, "cat: read failed"),
         }
         return;
