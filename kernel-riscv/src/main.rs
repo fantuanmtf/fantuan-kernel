@@ -19,6 +19,8 @@ use fantuan_abi::{
 };
 
 mod cpu;
+mod uart;
+pub(crate) use uart::{park, put_dec, put_hex, puts, uart_putc};
 mod demo;
 mod fdt;
 mod paging;
@@ -27,8 +29,7 @@ mod task;
 mod timer;
 mod trap;
 
-/// QEMU virt NS16550 UART (DESIGN §14.1, spike-verified).
-const UART_BASE: usize = 0x1000_0000;
+const UART_BASE: usize = uart::UART_BASE;
 /// QEMU virt RAM base and the OpenSBI kernel load address (link.ld).
 const RAM_BASE: u64 = 0x8000_0000;
 const KERNEL_BASE: u64 = 0x8020_0000;
@@ -124,65 +125,6 @@ fn build_bootinfo(mem: &fdt::MemInfo, hartid: usize, dtb: usize) -> &'static Boo
         bi.hartid = hartid as u64;
         bi.dtb = dtb as u64;
         &*core::ptr::addr_of!(BOOT_INFO)
-    }
-}
-
-// --- UART helpers ----------------------------------------------------------
-
-fn uart_putc(c: u8) {
-    unsafe { core::ptr::write_volatile(UART_BASE as *mut u8, c) }
-}
-
-fn puts(s: &str) {
-    for b in s.bytes() {
-        if b == b'\n' {
-            uart_putc(b'\r');
-        }
-        uart_putc(b);
-    }
-}
-
-fn put_hex(mut v: u64) {
-    const HEX: &[u8] = b"0123456789abcdef";
-    puts("0x");
-    let mut buf = [0u8; 16];
-    let mut n = 0;
-    if v == 0 {
-        uart_putc(b'0');
-        return;
-    }
-    while v > 0 {
-        buf[n] = HEX[(v & 0xF) as usize];
-        v >>= 4;
-        n += 1;
-    }
-    while n > 0 {
-        n -= 1;
-        uart_putc(buf[n]);
-    }
-}
-
-fn put_dec(mut v: u64) {
-    let mut buf = [0u8; 20];
-    let mut n = 0;
-    if v == 0 {
-        uart_putc(b'0');
-        return;
-    }
-    while v > 0 {
-        buf[n] = b'0' + (v % 10) as u8;
-        v /= 10;
-        n += 1;
-    }
-    while n > 0 {
-        n -= 1;
-        uart_putc(buf[n]);
-    }
-}
-
-fn park() -> ! {
-    loop {
-        unsafe { asm!("wfi") }
     }
 }
 
