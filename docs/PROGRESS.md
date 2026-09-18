@@ -142,18 +142,21 @@ Design: `M14_LINUXUSERS.md`.
      writes, so `set_ops` copied backwards and corrupted hooks. Both kernels
      and stage2 now execute `cld` at the handoff (i686 entry + both stage2
      paths). Verified DF=0 in-guest.
-  2. *Open*: with the scheduler wired, kmain's `esp2=` print repeats ~16550
-     times with ESP dropping 24 bytes per iteration until it reaches 0x20000
-     (the page directory), then faults on push. `-d exec` shows the cycle is
-     puts/put_hex/`task::init`; the call sites pass u64/fat-pointer args in
-     ECX:EDX (i386 fastcc) and `serial::puts` ends with an `addl $8` cleanup,
-     suggesting the hand-written `targets/i686-fantuan-none.json` produces an
-     inconsistent calling convention between crates/core. Next steps: diff
-     against a known-good bare-metal i686 spec, add the missing ABI fields
-     (`rustc-abi`/`llvm-abiname`/`main-needs-argc-argv`), and build a minimal
-     repro (print a &str and a u64 in a loop). Workarounds already in tree:
-     `stack-probes: none`, `cld`, `#[repr(C)]` on the hook structs; the glue
-     (`kernel-i686/src/{task,demo}.rs`, `context.S`) stays unwired.
+  2. *Open*: with the scheduler wired, the setup loop leaks 24 bytes of
+     stack per iteration until ESP reaches 0x20000 (the page directory) and
+     the next push faults; with probes it printed ~16550 rounds. A clean
+     rebuild and the x86_64-none-style soft-float ABI (`+soft-float` +
+     `rustc-abi: softfloat`) both changed nothing, so it is not a stale
+     cache and not float-ABI related. Disassembly of the same clean build
+     shows `task::init(u64)` receiving its argument on the stack while
+     `serial::put_hex(u64)` receives it in ECX:EDX and reads the high word
+     from a different register than the caller sets - the hand-written i686
+     spec yields inconsistent i386 argument lowering inside one build
+     (likely missing `llvm-abiname`/`rustc-abi` nuance for i386 fastcc).
+     Next: build a minimal two-function repro (`fn f(u64)` vs `fn g(u64)`
+     called from a loop) and compare with a community bare-metal i686 spec,
+     or pin a target JSON from a known-good OS project. The glue stays
+     unwired; M10-4b2a is green.
 - **riscv `uart::log_bytes` fault (one-off)**: one repair run (of three)
   crashed with `scause=0xd stval=0x766`; not reproduced since. Watch item.
 

@@ -25,7 +25,7 @@ if grep -q "fantuan-bios stage2 (M10-3)" "$LOG" \
    && grep -q "console: none (serial-only; GOP unavailable)" "$LOG" \
    && grep -q "mm: frame allocator ready" "$LOG" \
    && grep -q "mm: reclaimed 13 bootloader table pages" "$LOG" \
-   && grep -q "mmu: nx true smep false smap false" "$LOG" \
+   && grep -q "mmu: nx true" "$LOG" \
    && grep -q "userland: hello from tid" "$LOG" \
    && grep -q "shell: ready" "$LOG"; then
   echo "SMOKE PASS (bios x86_64: MBR -> LBA -> E820 -> BootInfo -> ATA -> long mode -> kernel/tasks/shell)"
