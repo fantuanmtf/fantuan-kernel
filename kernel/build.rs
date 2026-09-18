@@ -2,7 +2,7 @@
 //!   1. parse kernel/src/consts.rs -> OUT_DIR/asm_defs.inc (single source of
 //!      truth for assembly constants),
 //!   2. generate OUT_DIR/isr_table.rs (extern stubs + address table),
-//!   3. compile boot/entry.S + kernel/src/asm/interrupts.S via cc (the host
+//!   3. compile boot/entry.S + kernel/src/arch/x86_64/asm/interrupts.S via cc (the host
 //!      driver preprocesses them, so they can #include asm_defs.inc).
 //! Also tracks link.ld so cargo relinks when it changes.
 
@@ -13,10 +13,10 @@ fn main() {
     let dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     println!("cargo:rerun-if-changed={dir}/link.ld");
     println!("cargo:rerun-if-changed={dir}/src/consts.rs");
-    println!("cargo:rerun-if-changed={dir}/src/asm/interrupts.S");
-    println!("cargo:rerun-if-changed={dir}/src/asm/isr_stubs.S");
-    println!("cargo:rerun-if-changed={dir}/src/asm/switch.S");
-    println!("cargo:rerun-if-changed={dir}/src/asm/syscall.S");
+    println!("cargo:rerun-if-changed={dir}/src/arch/x86_64/asm/interrupts.S");
+    println!("cargo:rerun-if-changed={dir}/src/arch/x86_64/asm/isr_stubs.S");
+    println!("cargo:rerun-if-changed={dir}/src/arch/x86_64/asm/switch.S");
+    println!("cargo:rerun-if-changed={dir}/src/arch/x86_64/asm/syscall.S");
     println!("cargo:rerun-if-changed={dir}/../boot/entry.S");
     println!("cargo:rustc-link-arg=-T{dir}/link.ld");
 
@@ -77,10 +77,10 @@ fn main() {
     println!("cargo:rerun-if-changed={dir}/../drivers/c/include/driver.h");
     cc::Build::new()
         .file(format!("{dir}/../boot/entry.S"))
-        .file(format!("{dir}/src/asm/interrupts.S"))
-        .file(format!("{dir}/src/asm/isr_stubs.S"))
-        .file(format!("{dir}/src/asm/switch.S"))
-        .file(format!("{dir}/src/asm/syscall.S"))
+        .file(format!("{dir}/src/arch/x86_64/asm/interrupts.S"))
+        .file(format!("{dir}/src/arch/x86_64/asm/isr_stubs.S"))
+        .file(format!("{dir}/src/arch/x86_64/asm/switch.S"))
+        .file(format!("{dir}/src/arch/x86_64/asm/syscall.S"))
         .file(format!("{dir}/../drivers/c/ahci.c"))
         .file(format!("{dir}/../drivers/c/ahci_io.c"))
         .file(format!("{dir}/../drivers/c/blk.c"))

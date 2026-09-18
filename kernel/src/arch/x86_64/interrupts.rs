@@ -41,7 +41,7 @@ pub(crate) struct CpuFrame {
     pub(crate) rflags: u64,
 }
 
-pub fn cpu_frame(frame: &InterruptFrame) -> &CpuFrame {
+pub(crate) fn cpu_frame(frame: &InterruptFrame) -> &CpuFrame {
     unsafe {
         &*((frame as *const InterruptFrame as *const u8)
             .add(size_of::<InterruptFrame>()) as *const CpuFrame)

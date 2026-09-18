@@ -21,37 +21,32 @@ use bootlog::{halt_forever, print_memmap_summary, serial};
 include!(concat!(env!("OUT_DIR"), "/user_program.rs"));
 
 mod bootrepair;
+mod arch;
 mod bootlog;
 mod console;
 mod consts;
-mod cpu;
 mod crypto;
 mod demo;
 mod diag;
 mod drivers;
 mod elf;
-mod exceptions;
 mod font;
-mod gdt;
-mod idt;
 mod input;
-mod interrupts;
 mod kbd;
 mod mm;
 mod panic;
 mod pci;
-mod pic;
-mod pit;
-mod port;
 mod runtime;
 mod serial;
 mod shell;
 mod smbios;
-mod syscall;
 mod task;
 mod timer;
-mod tsc;
 mod vfs;
+
+// The arch layer keeps the historical crate::<module> paths for the
+// generic core (M9.0); riscv64 gets its own implementations in M9.1.
+pub use arch::x86_64::{cpu, exceptions, gdt, idt, interrupts, pic, pit, port, syscall, tsc};
 
 #[no_mangle]
 pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
