@@ -18,7 +18,7 @@ rm -f "$LOG"
 (sleep 5; printf 'diskhealth\ncat HELLO.TXT\n'; sleep 70) \
   | timeout --signal=KILL 60 ./tools/run.sh --arch riscv64 --disk --two-fs > "$LOG" 2>&1 || true
 
-if grep -q "fantuan (riscv64) M9" "$LOG" \
+if grep -q "fantuan v0.0.1 (riscv64)" "$LOG" \
    && grep -q "boot: hartid=" "$LOG" \
    && grep -q "dtb=0x" "$LOG" \
    && grep -q "fdt: memory 0x80000000" "$LOG" \
@@ -49,7 +49,7 @@ if grep -q "fantuan (riscv64) M9" "$LOG" \
    && grep -q "SMART unsupported for this transport (virtio)" "$LOG" \
    && grep -q "Hello from the fantuan-kernel VFS!" "$LOG"; then
   echo "SMOKE PASS (riscv64: boot, Sv39, traps, timer, userland+X, virtio-blk, VFS, shell)"
-  grep -aE "fantuan \(riscv64|mm: frame self-test|trap: |timer: |tick: |sched: |task [12] |user: |userland: |cpu: |^exc |blk: |vfs: |ext4: |probe: |bootrepair: |shell|SMART|Hello from" "$LOG" | head -40 || true
+  grep -aE "fantuan v0.0.1 \(riscv64|mm: frame self-test|trap: |timer: |tick: |sched: |task [12] |user: |userland: |cpu: |^exc |blk: |vfs: |ext4: |probe: |bootrepair: |shell|SMART|Hello from" "$LOG" | head -40 || true
 else
   echo "SMOKE FAIL (riscv64) — log tail:"
   tail -20 "$LOG"

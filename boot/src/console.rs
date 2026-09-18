@@ -67,3 +67,13 @@ pub fn println_hex(con: *mut SimpleTextOutput, label: &str, v: u64) {
     write_hex64(&mut buf, &mut off, v);
     output_line(con, &mut buf, off);
 }
+
+/// Boot splash lines (ASCII logo + release signature).
+pub const LOGO: [&str; 6] = [
+    "  __                _",
+    " / _| __ _ _ __  | |_ _   _  __ _ _ __",
+    "| |_ / _` | '  \\| __| | | |/ _` | '  \\",
+    "|  _| (_| | | | | |_| |_| | (_| | | | |",
+    "|_|  \\__,_|_| |_|\\__|\\__,_|\\__,_|_| |_|",
+    "  fantuan v0.0.1 - fantuan-is-mtf",
+];

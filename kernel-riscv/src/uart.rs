@@ -13,6 +13,16 @@ pub fn uart_putc(c: u8) {
     unsafe { core::ptr::write_volatile(base as *mut u8, c) }
 }
 
+/// Boot splash: ASCII logo plus the release signature line.
+pub const LOGO: &str = concat!(
+    "  __                _\n",
+    " / _| __ _ _ __  | |_ _   _  __ _ _ __\n",
+    "| |_ / _` | '  \\| __| | | |/ _` | '  \\\n",
+    "|  _| (_| | | | | |_| |_| | (_| | | | |\n",
+    "|_|  \\__,_|_| |_|\\__|\\__,_|\\__,_|_| |_|\n",
+    "  fantuan v0.0.1 - fantuan-is-mtf\n",
+);
+
 /// Non-blocking byte read (LSR bit 0 = data ready, RBR at offset 0).
 pub fn getc() -> Option<u8> {
     let base = UART_BASE as u64 + crate::paging::access_base();

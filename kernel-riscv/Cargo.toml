@@ -1,6 +1,6 @@
 [package]
 name = "kernel-riscv"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 description = "fantuan kernel — RISC-V (M9.1)"
 

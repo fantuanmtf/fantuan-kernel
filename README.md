@@ -7,7 +7,7 @@ BSD diagnosis, Windows deferred.
 All repository artifacts are in English. The authoritative design lives in
 [docs/DESIGN.md](docs/DESIGN.md) — change it before changing code.
 
-## Current state: M9.4 — RISC-V port and the shared core
+## Current state: v0.0.1 — M9 complete (RISC-V port + shared core)
 
 M9 brings up a second architecture and splits the portable half of the
 kernel into `kernel-core`: the riscv64 kernel boots under OpenSBI (QEMU

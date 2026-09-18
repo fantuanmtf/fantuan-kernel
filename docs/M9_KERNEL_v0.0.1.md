@@ -5,9 +5,9 @@
 > the RISC-V bring-up (M9.0–M9.5) and the v0.0.1 release; DESIGN.md §14 holds
 > the architectural roadmap this plan implements.
 >
-> Progress: M9.0–M9.5 are DONE and committed; only the v0.0.1 release
-> (version bump + tag) remains. The M9.5 audit is recorded in
-> docs/M9_AUDIT.md.
+> Progress: RELEASED — kernel v0.0.1 (workspace crates bumped, banners
+> updated, full test matrix green, tag v0.0.1). The M9.5 audit is recorded
+> in docs/M9_AUDIT.md.
 
 ## 1. Purpose and scope
 

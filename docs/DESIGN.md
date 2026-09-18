@@ -656,11 +656,12 @@ fantuan-kernel/
 
 ## 14. RISC-V Port Roadmap (M9)
 
-Status: in progress — M9.0 (arch consolidation), M9.1/M9.2 (boot, Sv39,
-traps, timer, scheduler, `kernel-core`), M9.3 (U-mode, per-task roots,
-ecall syscalls, fault kill/reap, FDT diagnostics) and M9.4 (virtio-mmio
-storage, shared VFS/diag/boot-repair/shell on RISC-V) are DONE; M9.5
-(audit) remains before kernel v0.0.1. The x86_64 rescue system
+Status: DONE (kernel v0.0.1 released) — M9.0 (arch consolidation),
+M9.1/M9.2 (boot, Sv39, traps, timer, scheduler, `kernel-core`), M9.3
+(U-mode, per-task roots, ecall syscalls, fault kill/reap, FDT
+diagnostics), M9.4 (virtio-mmio storage, shared VFS/diag/boot-repair/
+shell on RISC-V) and M9.5 (audit, docs/M9_AUDIT.md). M10 (Linux/BSD
+guest-ABI layer) remains design-first. The x86_64 rescue system
 remains the product; the RISC-V port proves the arch/ split and keeps the
 core portable. The reference platform is QEMU `virt` with OpenSBI
 (`qemu-system-riscv64`, `-bios default`).

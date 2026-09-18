@@ -1,6 +1,6 @@
 [package]
 name = "kernel-core"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 description = "fantuan kernel — code shared by the x86_64 and riscv64 kernels"
 
