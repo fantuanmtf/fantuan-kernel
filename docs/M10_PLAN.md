@@ -75,16 +75,22 @@ tools, so write a minimal ISO9660 + El Torito builder:
 - Risk: ISO9660 correctness - keep the image minimal and validate with
   QEMU's CD-ROM path (`-cdrom`).
 
-## W5 - M10-5 VBE framebuffer console (stretch, optional)
+## W5 - M10-5 VBE framebuffer console (in scope)
+
+Owner decision 2026-09: do it now to lay the firmware/graphics
+foundation early instead of accumulating a deferral.
 
 Scope: VBE mode information via stage2 (VBE 2.0 info block), set one
 linear framebuffer mode (e.g. 1024x768x32) and bring up a text console on
 it in `kernel-i686`; serial stays the base and the fallback.
 
-- Verify: QEMU `-vga std` boot shows the console; without VBE the kernel
-  falls back to serial and all smokes stay green.
-- Decision: if the VBE spike is unstable, defer to M12 with a documented
-  reason; this item is marked optional in the tracker.
+- Files: `boot-bios/stage2*.{asm,inc}` (mode query + set + BootInfo fb
+  fields), `kernel-i686/src/fb.rs` (console), `main.rs` wiring.
+- Verify: QEMU `-vga std` boot shows the console over the framebuffer and
+  still passes every serial smoke; without VBE the kernel falls back to
+  serial. BootInfo keeps the append-only ABI (new fields only).
+- Risk: firmware VBE differences - keep the mode list conservative and
+  always fall back cleanly.
 
 ## W6 - M10-7 docs + v0.0.2 release prep
 
@@ -94,15 +100,20 @@ test matrix in `OPERATIONS.md`, `DESIGN.md` updates, version strings to
 0.0.2, README index, `PROGRESS.md` final ticks and snapshot rows.
 
 - Verify: doc hash references valid (`git log` scan), three smokes green,
-  `--help` texts consistent; tag prepared but created only on request.
+  `--help` texts consistent.
+- Release: the owner pushes the reviewed commits and creates the local
+  `v0.0.2` tag for easy rollback; this repo does not create or push tags.
 
 ## Order and checkpoints
 
 1. W1 (hardening) - independent, unblocks nothing but closes the audit.
+   The audit rules and the 23-file/81-site inventory live in
+   `M10_BOOT_32BIT.md` 7.5; convert through a checked `usize` helper after a
+   range check.
 2. W2 (ELF32) - the last big i686 kernel feature.
 3. W3 (VFS) - depends on W2 only for the smoke harness.
 4. W4 (ISO) - independent; can run in parallel after W1.
-5. W5 (VBE) - stretch after W3.
+5. W5 (VBE) - after W3, in scope by owner decision.
 6. W6 (docs/release) - after all builds are green.
 
 Checkpoint after each workstream: build all three kernels, run the

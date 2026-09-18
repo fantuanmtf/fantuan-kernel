@@ -178,8 +178,8 @@ verification and commit checkpoints for each workstream.
 
 ## Next action
 
-**M10-4b3b**: i686 user mode with ELF32 — extend the shared loader with
-`EM_386`, give user tasks their own page directory, build the shared user
-crate for i686 and turn user faults into task kills. The ring-3 entry
-machinery (GDT/TSS, `int 0x80`, syscall bridge) is already verified
-(M10-4b3a).
+**W1 / M10-4a2**: start the plan in `M10_PLAN.md` — harden the 81
+`as usize` narrowing sites (rules + inventory in `M10_BOOT_32BIT.md` 7.5)
+through a checked conversion helper, then run the three smoke suites.
+W2 (ELF32), W3 (VFS), W4 (ISO), W5 (VBE, now in scope) and W6 (docs +
+0.0.2) follow; the owner pushes and tags after the set is green.
