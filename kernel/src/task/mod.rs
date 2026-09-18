@@ -2,7 +2,7 @@
 //! module installs the arch ops, provides the kernel-entry trampoline and
 //! the ELF user-task spawner (ring 3 iretq frame).
 
-use crate::elf;
+use kernel_core::elf;
 use crate::gdt;
 use crate::mm::frame;
 use crate::mm::paging::{self, phys_to_virt};
@@ -58,6 +58,21 @@ fn arch_now_ticks() -> u64 {
     crate::timer::ticks()
 }
 
+fn arch_user_map(root: u64, va: u64, pa: u64, prot: kernel_core::user::Prot) {
+    let mut flags = user::P_PRESENT | user::P_USER;
+    if prot.write() {
+        flags |= user::P_WRITABLE;
+    }
+    if !prot.exec() {
+        flags |= user::P_NX;
+    }
+    user::map_page(root, va, pa, flags);
+}
+
+fn arch_log(s: &str) {
+    crate::serial::line(s);
+}
+
 fn arch_on_reap(tid: u64) {
     use core::fmt::Write;
     let mut s = crate::serial::Serial::new(crate::serial::COM1);
@@ -75,6 +90,14 @@ pub fn init_arch() {
         phys_to_virt: arch_phys_to_virt,
         now_ticks: arch_now_ticks,
         on_reap: arch_on_reap,
+    });
+    kernel_core::user::set_ops(kernel_core::user::UserOps {
+        machine: 0x3E, // x86_64
+        new_root: user::new_user_pml4,
+        map: arch_user_map,
+        free_root: user::free_user_pml4,
+        phys_to_virt,
+        log: arch_log,
     });
 }
 

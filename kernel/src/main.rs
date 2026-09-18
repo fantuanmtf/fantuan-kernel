@@ -35,7 +35,6 @@ mod crypto;
 mod demo;
 mod diag;
 mod drivers;
-mod elf;
 mod font;
 mod input;
 mod kbd;
