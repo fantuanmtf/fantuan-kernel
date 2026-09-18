@@ -14,6 +14,10 @@ use core::ptr::addr_of_mut;
 
 use fantuan_abi::{BootInfo, BOOT_MAGIC, BOOT_VERSION, PHYS_OFFSET};
 
+mod cpu;
+mod idt;
+mod pic;
+mod pit;
 mod serial;
 
 core::arch::global_asm!(
@@ -34,13 +38,7 @@ extern "C" {
 #[panic_handler]
 fn panic(_: &PanicInfo) -> ! {
     serial::puts("PANIC: kernel-i686\n");
-    halt()
-}
-
-fn halt() -> ! {
-    loop {
-        unsafe { asm!("hlt", options(nomem, nostack)) }
-    }
+    cpu::halt()
 }
 
 #[no_mangle]
@@ -61,19 +59,6 @@ pub extern "C" fn rust_entry(bi: *const BootInfo) -> ! {
     kmain(bi)
 }
 
-fn irq_save() -> u64 {
-    let flags: u32;
-    unsafe { asm!("pushfd", "pop {}", out(reg) flags, options(nomem)) };
-    unsafe { asm!("cli", options(nomem, nostack)) };
-    flags as u64
-}
-
-fn irq_restore(flags: u64) {
-    if flags & 0x200 != 0 {
-        unsafe { asm!("sti", options(nomem, nostack)) };
-    }
-}
-
 fn phys_to_virt(p: u64) -> u64 {
     PHYS_OFFSET + p
 }
@@ -84,7 +69,7 @@ fn kmain(bi: *const BootInfo) -> ! {
 
     if bi.magic != BOOT_MAGIC || bi.version != BOOT_VERSION {
         serial::puts("fatal: bad handshake\n");
-        halt();
+        cpu::halt();
     }
     serial::puts("handshake ok: arch=");
     serial::put_dec(bi.arch as u64);
@@ -108,7 +93,7 @@ fn kmain(bi: *const BootInfo) -> ! {
         serial::puts("\n");
     }
 
-    kernel_core::arch::set_irq_ops(irq_save, irq_restore);
+    kernel_core::arch::set_irq_ops(cpu::irq_save, cpu::irq_restore);
     kernel_core::mem::set_phys_to_virt(phys_to_virt);
     let kernel_end_phys = addr_of_mut!(__bss_end) as u64 - PHYS_OFFSET;
     kernel_core::frame::init(bi, kernel_end_phys, &[]);
@@ -128,6 +113,28 @@ fn kmain(bi: *const BootInfo) -> ! {
         });
     }
 
-    serial::puts("i686: M10-4b bring-up complete\n");
-    halt()
+    // --- M10-4b2a: interrupts ------------------------------------------------
+    idt::init();
+    serial::puts("idt: 48 vectors (exceptions + remapped IRQs)\n");
+    pic::remap();
+    serial::puts("pic: remapped 0x20/0x28, IRQ0 unmasked\n");
+    pit::init(100);
+    serial::puts("timer: PIT 100 Hz\n");
+
+    // Recoverable exception demo (the handler resumes after int3), then enable
+    // interrupts for the PIT heartbeat.
+    unsafe { asm!("int3") };
+    serial::puts("demo: #BP handled and resumed\n");
+    cpu::sti();
+    serial::puts("interrupts: enabled\n");
+
+    // Let the PIT tick for ~5 s; hlt keeps the CPU idle between interrupts.
+    while pit::ticks() < 500 {
+        unsafe { asm!("hlt", options(nomem, nostack)) };
+    }
+    serial::puts("timer: 500 ticks, exceptions=");
+    serial::put_dec(idt::exception_count());
+    serial::puts("\n");
+    serial::puts("i686: M10-4b2a interrupts complete\n");
+    cpu::halt()
 }

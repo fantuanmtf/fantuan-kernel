@@ -1,19 +1,9 @@
 //! 16550 COM1 output for the i686 kernel (port I/O, no formatting machinery
 //! beyond what the shared log sink needs).
 
-use core::arch::asm;
+use crate::cpu::{inb, outb};
 
 pub const COM1: u16 = 0x3F8;
-
-fn outb(port: u16, v: u8) {
-    unsafe { asm!("out dx, al", in("dx") port, in("al") v, options(nomem, nostack, preserves_flags)) };
-}
-
-fn inb(port: u16) -> u8 {
-    let v: u8;
-    unsafe { asm!("in al, dx", out("al") v, in("dx") port, options(nomem, nostack, preserves_flags)) };
-    v
-}
 
 pub fn init() {
     outb(COM1 + 1, 0x00);

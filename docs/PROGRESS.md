@@ -10,7 +10,7 @@
 | Version | Milestone | Progress | Verified by |
 |---|---|---|---|
 | v0.0.1 | M0-M9 (x86_64 rescue + RISC-V port) | `[##########] 100%` | tag `v0.0.1` (local) |
-| v0.0.2 | M10 legacy BIOS boot + i686 | `[#######---] 65%` | `smoke-bios.sh` (2 phases), UEFI/RISC-V smokes |
+| v0.0.2 | M10 legacy BIOS boot + i686 | `[########--] 75%` | `smoke-bios.sh` (2 phases), UEFI/RISC-V smokes |
 | v0.0.3 | M11 ARM64 + full TCP/HTTPS | `[#---------] 10%` | design only |
 | v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[#---------] 10%` | design only |
 | v0.0.5 | M13 graphics/input + interface freeze | `[#---------] 10%` | design only |
@@ -40,8 +40,11 @@ done, M10 is half implemented).
 - [x] M10-4b1 `kernel-i686` crate + BIOS handoff: protected-mode stub->
       paging (PSE) -> 32-bit BootInfo -> shared frame allocator (510 MiB)
       - verify `tools/smoke-bios.sh` phase 2
-- [ ] M10-4b2 i686 core: GDT/IDT/PIC/PIT + interrupts, kernel-owned page
-      tables, scheduler
+- [x] M10-4b2a i686 interrupts: IDT (48 vectors, generated stubs), PIC
+      remap, PIT 100 Hz, exception demo with resume; `iretd`/iret-width and
+      iret-frame bugs fixed — verify `tools/smoke-bios.sh` phase 2
+- [ ] M10-4b2b i686 core: GDT/TSS, kernel-owned page tables, scheduler
+      (32-bit context switch)
 - [ ] M10-4b3 i686 user mode (ELF32, `int 0x80`)
 - [ ] M10-4a2 harden the 81 `as usize` sites for >4 GiB on-disk values
       (filesystem/ELF bounds checks; see `M10_BOOT_32BIT.md` 7.5)
@@ -115,6 +118,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | `tools/smoke-bios.sh` phase 2 (i686 interrupts: IDT/PIC/PIT) | PASS |
 | 2026-09 | serial heartbeats stop after 30 s; interactive shell clean | PASS |
 | 2026-09 | `tools/smoke-bios.sh` phase 2 (i686 handoff + frame allocator) | PASS |
 | 2026-09 | `tools/smoke-riscv.sh` 3 phases (after the 32-bit ABI split) | PASS |
@@ -135,5 +139,6 @@ Design: `M14_LINUXUSERS.md`.
 
 ## Next action
 
-**M10-4b2**: i686 core bring-up — GDT/IDT/PIC remap/PIT tick, the kernel's
-own page tables, and the scheduler on 32-bit.
+**M10-4b2b**: i686 core — kernel-owned GDT/TSS and page tables plus the
+32-bit context switch, wiring `kernel_core::task` (spawn/sleep/reap) so the
+shared scheduler runs on 32-bit.

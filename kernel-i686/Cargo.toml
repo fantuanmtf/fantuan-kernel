@@ -8,6 +8,9 @@ description = "fantuan kernel - 32-bit x86 (M10)"
 # + build-std), so the stable root workspace must not try to build it.
 [workspace]
 
+[build-dependencies]
+cc = "1"
+
 [dependencies]
 fantuan-abi = { path = "../abi" }
 kernel-core = { path = "../kernel-core" }
