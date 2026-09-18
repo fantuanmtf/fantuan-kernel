@@ -82,10 +82,11 @@ core now runs on two architectures.
    windows — remember stacks are only 16 KiB.
 6. **300-line files, English, docs-first, zero warnings** (see
    [DEVELOPMENT.md](DEVELOPMENT.md) §1).
-7. **BSD-3 license**: the kernel, drivers and base image stay BSD/MIT/
-   Apache-only. No GPL code in them (no Linux `net/`, no busybox/GNU make).
-   Copyleft developer-image programs (XFCE, Qt, tcc as a tool) are aggregated
-   as separate executables with sources; see `THIRD_PARTY.md`.
+7. **Multi-component licensing**: our code is BSD-3; bundled components keep
+   their own licenses (NetBSD network stack, Spleen font, musl, tcc, and the
+   developer-image XFCE/Qt as separate programs). `THIRD_PARTY.md` is the
+   register — never import or bundle code without a declaration, and never
+   link GPL/copyleft code into the kernel.
 
 ## 5. Milestone history (where the bodies are buried)
 
@@ -124,7 +125,8 @@ The full post-v0.0.1 plan is `docs/ROADMAP_v0.0.2+.md` (M10–M16):
    design: `M10_BOOT_32BIT.md`. Windows boot repair is permanently out of
    scope (WinPE recommended).
 2. **M11 — v0.0.3**: ARM64 (QEMU virt) + `net_ops` + full TCP/HTTPS
-   (smoltcp + mbedTLS; no Linux net/ code — license).
+   (NetBSD-derived stack + mbedTLS; no Linux net/ code — license;
+   design: `M11_NET.md`).
 3. **M12 — v0.0.4**: disk imager, NTFS read-only, AMD GPU probe,
    virtualization V1 detection.
 4. **M13 — v0.0.5**: graphics/input API and the KMS-like + repair-IPC

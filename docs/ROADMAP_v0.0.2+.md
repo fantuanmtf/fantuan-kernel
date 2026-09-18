@@ -7,15 +7,18 @@
 
 ## 0. Constraints (apply to every milestone)
 
-1. **License**: this project is BSD-3-Clause. The kernel and the base image
-   stay BSD/MIT/Apache-only: **no GPL code in the kernel, drivers or base
-   userland** (hence smoltcp over Linux `net/`, toybox (0BSD) over busybox
-   (GPL), bmake (BSD)/ninja (Apache-2.0) over GNU make). Clang (Apache-2.0
-   with LLVM exception) is preferred over GCC. Optional developer-image
-   *programs* that are copyleft (XFCE, Qt, tcc as a tool) are aggregated as
-   separate executables with their sources, never linked into the kernel.
-   `THIRD_PARTY.md` records every component, version, license and source
-   location.
+1. **Licensing is multi-component**: the project's own code is BSD-3-Clause
+   and bundled third-party components keep their own licenses, which spreads
+   legal risk. The kernel, drivers and base image still prefer
+   BSD/MIT/Apache-2.0 code: the network stack is **NetBSD-derived (BSD-2/3)**
+   rather than Linux `net/` (GPL); base userland prefers toybox (0BSD) over
+   busybox (GPL) and bmake (BSD)/ninja (Apache-2.0) over GNU make. Clang
+   (Apache-2.0 with LLVM exception) is preferred over GCC. Copyleft programs
+   (XFCE, Qt, tcc as an executable) ship only in the optional developer image
+   as separate programs with their sources, never linked into the kernel.
+   `THIRD_PARTY.md` is the register of every component, version, license,
+   modification and origin; imported sources keep their upstream headers and
+   are exempt from the 300-line rule (our wrappers are not).
 2. **Engineering rules** (DESIGN §13): English artifacts, docs before code,
    <=300-line source files, zero warnings, append-only ABIs, the read-only
    iron rule, spike-before-code, evidence in every commit.
@@ -67,11 +70,11 @@ CPUs are supported. Design: `M10_BOOT_32BIT.md` (written before code).
   FDT, TTBR0/TTBR1 MMU, EL0 tasks, `svc` syscalls, virtio-mmio). SMP
   groundwork lands here (F2).
 - **Network**: a `net_ops` registry mirroring `blk_ops`; drivers for
-  virtio-net (MMIO + PCI) and e1000. Stack: **smoltcp (MIT)** — ARP,
-  IPv4/IPv6, ICMP, UDP, DHCP, TCP. **TLS: mbedTLS (Apache-2.0)** for HTTPS.
-  *No Linux `net/` code: GPLv2 is incompatible with this project's BSD-3
-  license. NetBSD's rump stack (BSD) remains the long-term full-compat
-  source if smoltcp proves insufficient.*
+  virtio-net (MMIO + PCI) and e1000. Stack: **NetBSD-derived** — a
+  rump-style port of `sys/net`/`sys/netinet` plus mbuf/pool/callout into the
+  C layer (BSD-2/3; this follows DESIGN §2's intended migration source).
+  **TLS: mbedTLS (Apache-2.0)** for HTTPS. *No Linux `net/` code (GPLv2 is
+  incompatible with this project).* Design: `M11_NET.md`.
 - **Tools**: `ping`, `wget` (HTTP/HTTPS), `nslookup`; NIC link diagnostics.
 - **Verification**: arm64 smoke; QEMU user-net and loopback; HTTP(S) GET
   against a fixture server; TLS known-answer tests.
