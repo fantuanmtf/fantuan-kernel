@@ -8,11 +8,11 @@
 
 use core::arch::{asm, global_asm};
 
-use crate::frame;
+use kernel_core::frame;
 
-/// Sv39-canonical high-half base (DESIGN.md §14.2). Not the x86 value: the
-/// ABI's PHYS_OFFSET becomes cfg-dependent when the crates share it (M9.2a).
-pub const PHYS_OFFSET: u64 = 0xFFFF_FFC0_0000_0000;
+/// Sv39-canonical high-half base; the ABI constant is cfg-dependent since
+/// M9.2a (x86_64 keeps 0xFFFF8000..., riscv64 uses this value).
+pub const PHYS_OFFSET: u64 = fantuan_abi::PHYS_OFFSET;
 
 pub const fn phys_to_virt(p: u64) -> u64 {
     PHYS_OFFSET + p

@@ -9,7 +9,7 @@ use crate::serial;
 use crate::uefi::protocol::{FrameBufferInfo, MemoryDescriptor, SimpleTextOutput};
 use crate::uefi::table::BootServices;
 use crate::uefi::{Handle, EFI_BUFFER_TOO_SMALL, EFI_LOADER_DATA, EFI_SUCCESS};
-use fantuan_abi::{BootInfo, FrameBuffer, MemMap, BOOT_MAGIC, PHYS_OFFSET};
+use fantuan_abi::{BootInfo, FrameBuffer, MemMap, BOOT_MAGIC, BOOT_VERSION, PHYS_OFFSET};
 
 // Lives in the EFI app's own image (.data/.bss), not on the firmware stack:
 // the app image stays in memory forever, so the kernel can read it safely
@@ -27,6 +27,9 @@ static mut BOOT_INFO: BootInfo = BootInfo {
     boot_tables_pages: 0,
     runtime_services: 0,
     smbios_table: 0,
+    arch: 1, // x86_64 UEFI
+    hartid: 0,
+    dtb: 0,
 };
 
 /// ExitBootServices with the classic map-key retry, fill BOOT_INFO, then jump
@@ -106,7 +109,7 @@ pub fn exit_and_jump(
     unsafe {
         BOOT_INFO = BootInfo {
             magic: BOOT_MAGIC,
-            version: 1,
+            version: BOOT_VERSION,
             memmap: MemMap {
                 ptr: map.ptr as *const fantuan_abi::MemoryDescriptor,
                 count: map.count,
@@ -128,6 +131,9 @@ pub fn exit_and_jump(
             boot_tables_pages: tables.pages,
             runtime_services,
             smbios_table,
+            arch: 1, // x86_64 UEFI
+            hartid: 0,
+            dtb: 0,
         };
     }
 

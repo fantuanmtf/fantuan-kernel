@@ -1,29 +1,37 @@
-//! kernel-riscv — M9.1: RISC-V bring-up (DESIGN.md §14,
+//! kernel-riscv — M9.1/M9.2: RISC-V bring-up (DESIGN.md §14,
 //! docs/M9_KERNEL_v0.0.1.md).
 //!
 //! OpenSBI (QEMU `-bios default`) enters `_start` in S-mode with a0 = hartid,
-//! a1 = DTB (verified by spike). M9.1a prints the handoff over the NS16550
-//! MMIO UART; M9.1b parses the FDT memory map, initializes the frame
-//! allocator, builds Sv39 tables (identity + PHYS_OFFSET alias) and enters
-//! the high half.
+//! a1 = DTB (verified by spike). This kernel parses the FDT memory map,
+//! synthesizes a BootInfo for the shared kernel-core frame allocator, builds
+//! Sv39 tables (identity + PHYS_OFFSET alias) and enters the high half.
 
 #![no_std]
 #![no_main]
 
 use core::arch::{asm, global_asm};
+use core::mem::size_of;
 use core::panic::PanicInfo;
 
+use fantuan_abi::{
+    BootInfo, FrameBuffer, MemMap, MemoryDescriptor, BOOT_MAGIC, BOOT_VERSION,
+    MEMORY_TYPE_CONVENTIONAL,
+};
+
+mod cpu;
 mod fdt;
-mod frame;
 mod paging;
 
 /// QEMU virt NS16550 UART (DESIGN §14.1, spike-verified).
 const UART_BASE: usize = 0x1000_0000;
-/// QEMU virt RAM base; firmware and the kernel image live at its start.
+/// QEMU virt RAM base and the OpenSBI kernel load address (link.ld).
 const RAM_BASE: u64 = 0x8000_0000;
+const KERNEL_BASE: u64 = 0x8020_0000;
 
 extern "C" {
     static __bss_end: u8;
+    /// Top of the assembly boot stack (global_asm in this file).
+    static BOOT_STACK_TOP: u8;
 }
 
 global_asm!(
@@ -55,6 +63,64 @@ global_asm!(
     ".global BOOT_STACK_TOP",
     "BOOT_STACK_TOP:",
 );
+
+// --- BootInfo synthesis from the FDT ---------------------------------------
+
+const EMPTY_DESC: MemoryDescriptor = MemoryDescriptor {
+    type_: 0,
+    physical_start: 0,
+    virtual_start: 0,
+    number_of_pages: 0,
+    attribute: 0,
+};
+
+static mut MEMMAP: [MemoryDescriptor; 16] = [EMPTY_DESC; 16];
+static mut BOOT_INFO: BootInfo = BootInfo {
+    magic: BOOT_MAGIC,
+    version: BOOT_VERSION,
+    memmap: MemMap { ptr: core::ptr::null(), count: 0, desc_size: size_of::<MemoryDescriptor>() },
+    fb: FrameBuffer { base: 0, size: 0, width: 0, height: 0, stride: 0, format: 0 },
+    rsdp: 0,
+    kernel_base: KERNEL_BASE,
+    stack_top: 0,
+    caps: 0,
+    boot_pml4: 0,
+    boot_tables_pages: 0,
+    runtime_services: 0,
+    smbios_table: 0,
+    arch: 2, // riscv64 OpenSBI
+    hartid: 0,
+    dtb: 0,
+};
+
+fn build_bootinfo(mem: &fdt::MemInfo, hartid: usize, dtb: usize) -> &'static BootInfo {
+    unsafe {
+        let map = &mut *core::ptr::addr_of_mut!(MEMMAP);
+        let mut n = 0usize;
+        for i in 0..mem.mem_n {
+            if n >= map.len() {
+                break;
+            }
+            map[n] = MemoryDescriptor {
+                type_: MEMORY_TYPE_CONVENTIONAL,
+                physical_start: mem.mem[i].base,
+                virtual_start: 0,
+                number_of_pages: mem.mem[i].size / 4096,
+                attribute: 0,
+            };
+            n += 1;
+        }
+        let bi = &mut *core::ptr::addr_of_mut!(BOOT_INFO);
+        bi.memmap.ptr = map.as_ptr();
+        bi.memmap.count = n;
+        bi.stack_top = core::ptr::addr_of!(BOOT_STACK_TOP) as u64;
+        bi.hartid = hartid as u64;
+        bi.dtb = dtb as u64;
+        &*core::ptr::addr_of!(BOOT_INFO)
+    }
+}
+
+// --- UART helpers ----------------------------------------------------------
 
 fn uart_putc(c: u8) {
     unsafe { core::ptr::write_volatile(UART_BASE as *mut u8, c) }
@@ -113,9 +179,11 @@ fn park() -> ! {
     }
 }
 
+// --- Boot ------------------------------------------------------------------
+
 #[no_mangle]
 pub extern "C" fn rust_entry(hartid: usize, dtb: usize) -> ! {
-    puts("fantuan (riscv64) M9.1 - OpenSBI S-mode bring-up\n");
+    puts("fantuan (riscv64) M9.2 - OpenSBI S-mode bring-up\n");
     puts("boot: hartid=");
     put_hex(hartid as u64);
     puts(" dtb=");
@@ -135,21 +203,30 @@ pub extern "C" fn rust_entry(hartid: usize, dtb: usize) -> ! {
         put_hex(mem.mem[i].base + mem.mem[i].size);
         puts("\n");
     }
-    for i in 0..mem.reserved_n {
-        puts("fdt: reserved ");
-        put_hex(mem.reserved[i].base);
-        puts("..");
-        put_hex(mem.reserved[i].base + mem.reserved[i].size);
-        puts("\n");
-    }
 
-    // Frame allocator: free the FDT memory ranges, keep firmware/kernel/DTB.
-    frame::init(&mem);
+    // Shared allocator (kernel-core): install the IRQ hooks first.
+    kernel_core::arch::set_irq_ops(cpu::irq_save, cpu::irq_restore);
+    let bi = build_bootinfo(&mem, hartid, dtb);
+
+    // Reservations the FDT memory map does not express: the firmware region
+    // below the kernel, the memreserve block and the DTB itself.
+    let mut extra = [(0u64, 0u64); 12];
+    let mut n = 0usize;
+    extra[n] = (RAM_BASE, KERNEL_BASE);
+    n += 1;
+    for i in 0..mem.reserved_n {
+        if n < extra.len() {
+            extra[n] = (mem.reserved[i].base, mem.reserved[i].base + mem.reserved[i].size);
+            n += 1;
+        }
+    }
+    extra[n] = (dtb as u64, dtb as u64 + mem.totalsize as u64);
+    n += 1;
+
     let kernel_end = core::ptr::addr_of!(__bss_end) as u64;
-    frame::reserve(RAM_BASE, kernel_end);
-    frame::reserve(dtb as u64, dtb as u64 + mem.totalsize as u64);
+    kernel_core::frame::init(bi, kernel_end, &extra[..n]);
     puts("mm: usable ");
-    put_dec(frame::get().usable_mib());
+    put_dec(kernel_core::frame::get().usable_mib());
     puts(" MiB\n");
 
     // Sv39: identity + alias for RAM (2 MiB leaves) and the UART (4 KiB).
@@ -182,17 +259,17 @@ pub extern "C" fn rust_entry(hartid: usize, dtb: usize) -> ! {
 
 extern "C" fn high_main() -> ! {
     paging::use_alias();
-    puts("fantuan (riscv64) M9.1b - high half online\n");
+    puts("fantuan (riscv64) M9.2 - high half online\n");
     puts("mm: usable ");
-    put_dec(frame::get().usable_mib());
+    put_dec(kernel_core::frame::get().usable_mib());
     puts(" MiB\n");
 
-    match frame::get().alloc() {
+    match kernel_core::frame::get().alloc() {
         Some(f) => {
             let p = paging::phys_to_virt(f) as *mut u64;
             unsafe { p.write_volatile(0xF0F0_F0F0_DEAD_BEEF) };
             let ok = unsafe { p.read_volatile() } == 0xF0F0_F0F0_DEAD_BEEF;
-            frame::get().free(f);
+            kernel_core::frame::get().free(f);
             puts(if ok {
                 "mm: frame self-test ok (via PHYS_OFFSET alias)\n"
             } else {

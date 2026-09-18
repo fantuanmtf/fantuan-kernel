@@ -3,3 +3,7 @@ name = "kernel-riscv"
 version = "0.1.0"
 edition = "2021"
 description = "fantuan kernel — RISC-V (M9.1)"
+
+[dependencies]
+fantuan-abi = { path = "../abi" }
+kernel-core = { path = "../kernel-core" }

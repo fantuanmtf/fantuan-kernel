@@ -20,6 +20,12 @@ use bootlog::{halt_forever, print_memmap_summary, serial};
 // the user crate first; kernel/build.rs bakes the ELF in).
 include!(concat!(env!("OUT_DIR"), "/user_program.rs"));
 
+// Kernel image end (link.ld); the shared frame allocator needs it to punch
+// the kernel hole in its bitmap.
+extern "C" {
+    static __bss_end: u8;
+}
+
 mod bootrepair;
 mod arch;
 mod bootlog;
@@ -128,7 +134,11 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         halt_forever();
     }
 
-    mm::frame::init(bi);
+    // M9.2a: install the arch IRQ hooks for the shared allocator, then
+    // initialize it from the memory map (kernel end from the linker script).
+    kernel_core::arch::set_irq_ops(cpu::irq_save, cpu::irq_restore);
+    let kernel_end_phys = core::ptr::addr_of!(__bss_end) as u64 - fantuan_abi::PHYS_OFFSET;
+    mm::frame::init(bi, kernel_end_phys, &[]);
     let alloc = mm::frame::get();
     let _ = writeln!(
         s,

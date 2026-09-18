@@ -17,9 +17,9 @@
 use core::ptr;
 use core::sync::atomic::AtomicBool;
 
-use super::lock::IrqLock;
+use fantuan_abi::BootInfo;
 
-use fantuan_abi::{BootInfo, PHYS_OFFSET};
+use crate::arch::IrqLock;
 
 pub const FRAME_SIZE: u64 = 4096;
 const BITMAP_MAX: u64 = 4 * 1024 * 1024 * 1024; // 4 GiB
@@ -36,11 +36,6 @@ static mut BITMAP: [u8; BITMAP_BYTES] = [0; BITMAP_BYTES];
 /// (reserved kernel/BootInfo pages, firmware frames) and double frees.
 static mut OWNED: [u8; BITMAP_BYTES] = [0; BITMAP_BYTES];
 
-// Kernel image end, defined in link.ld.
-extern "C" {
-    static __bss_end: u8;
-}
-
 pub struct FrameAllocator {
     free_frames: u64,
     next: usize,
@@ -54,9 +49,12 @@ static mut FRAME_ALLOCATOR: FrameAllocator = FrameAllocator { free_frames: 0, ne
 /// Serializes mutating allocator calls (see mm::lock).
 static LOCK: AtomicBool = AtomicBool::new(false);
 
-pub fn init(bi: &BootInfo) {
+/// Initialize from a BootInfo memory map. KERNEL_END_PHYS is the physical
+/// end of the kernel image (.bss); EXTRA_RESERVED lists ranges the map does
+/// not mark reserved (e.g. RISC-V firmware/DTB/memreserve regions).
+pub fn init(bi: &BootInfo, kernel_end_phys: u64, extra_reserved: &[(u64, u64)]) {
     unsafe {
-        FRAME_ALLOCATOR = FrameAllocator::new(bi);
+        FRAME_ALLOCATOR = FrameAllocator::new(bi, kernel_end_phys, extra_reserved);
     }
 }
 
@@ -65,7 +63,7 @@ pub fn get() -> &'static mut FrameAllocator {
 }
 
 impl FrameAllocator {
-    pub fn new(bi: &BootInfo) -> Self {
+    fn new(bi: &BootInfo, kernel_end_phys: u64, extra_reserved: &[(u64, u64)]) -> Self {
         unsafe {
             BITMAP = [0; BITMAP_BYTES];
             OWNED = [0; BITMAP_BYTES];
@@ -92,7 +90,6 @@ impl FrameAllocator {
 
         // 2. Punch holes for everything that must stay alive.
         //    a) kernel image
-        let kernel_end_phys = ptr::addr_of!(__bss_end) as *const u8 as u64 - PHYS_OFFSET;
         a.mark_range(bi.kernel_base, kernel_end_phys, false);
         //    b) initial kernel stack
         let stack_bottom = bi.stack_top - fantuan_abi::BOOT_STACK_PAGES * FRAME_SIZE;
@@ -105,6 +102,10 @@ impl FrameAllocator {
         a.mark_range(bi.memmap.ptr as u64, map_end, false);
         //    e) bootloader page tables (CR3 points at them until we switch)
         a.mark_range(bi.boot_pml4, bi.boot_pml4 + bi.boot_tables_pages * FRAME_SIZE, false);
+        //    f) caller-provided reservations (RISC-V firmware/DTB/memreserve)
+        for &(begin, end) in extra_reserved {
+            a.mark_range(begin, end, false);
+        }
 
         // 3. Count free frames.
         unsafe {

@@ -15,7 +15,7 @@ LOG="build/smoke-riscv.log"
 rm -f "$LOG"
 timeout --signal=KILL 30 ./tools/run.sh --arch riscv64 < /dev/null > "$LOG" 2>&1 || true
 
-if grep -q "fantuan (riscv64) M9.1" "$LOG" \
+if grep -q "fantuan (riscv64) M9" "$LOG" \
    && grep -q "boot: hartid=" "$LOG" \
    && grep -q "dtb=0x" "$LOG" \
    && grep -q "fdt: memory 0x80000000" "$LOG" \

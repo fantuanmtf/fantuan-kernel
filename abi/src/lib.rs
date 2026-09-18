@@ -7,12 +7,17 @@
 #![no_std]
 
 pub const BOOT_MAGIC: u32 = 0x4654_4E46; // "FTNF"
-pub const BOOT_VERSION: u32 = 1;
+/// v2 (M9.2): append-only arch/hartid/dtb fields for the RISC-V boot path.
+pub const BOOT_VERSION: u32 = 2;
 
 /// Physical-to-virtual mapping convention (DESIGN.md §4.5): every physical
 /// address p is reachable at PHYS_OFFSET + p. Shared by the bootloader (which
 /// builds the initial page tables) and the kernel (which is linked there).
+#[cfg(target_arch = "x86_64")]
 pub const PHYS_OFFSET: u64 = 0xFFFF_8000_0000_0000; // -2 GiB, Linux-style
+/// Sv39's canonical high half (bits 63:39 sign-extend bit 38).
+#[cfg(target_arch = "riscv64")]
+pub const PHYS_OFFSET: u64 = 0xFFFF_FFC0_0000_0000;
 
 /// Pages of initial kernel stack allocated by the bootloader.
 pub const BOOT_STACK_PAGES: u64 = 16;
@@ -99,4 +104,11 @@ pub struct BootInfo {
     /// configuration table (SMBIOS3 preferred), or 0 when the firmware
     /// publishes none. The kernel parses the structure table from here.
     pub smbios_table: u64,
+    // M9.2 additions (append-only):
+    /// Boot path discriminator: 1 = x86_64 UEFI, 2 = riscv64 OpenSBI.
+    pub arch: u32,
+    /// RISC-V: hart id from the OpenSBI handoff (0 on x86_64).
+    pub hartid: u64,
+    /// RISC-V: physical DTB address from the OpenSBI handoff (0 on x86_64).
+    pub dtb: u64,
 }
