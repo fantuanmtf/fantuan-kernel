@@ -30,6 +30,7 @@ impl Prot {
 
 /// Arch operations for user address spaces (installed at boot).
 #[derive(Clone, Copy)]
+#[repr(C)]
 pub struct UserOps {
     /// ELF e_machine this kernel accepts (0x3E x86_64, 0xF3 riscv).
     pub machine: u16,

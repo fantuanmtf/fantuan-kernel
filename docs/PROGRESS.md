@@ -135,18 +135,24 @@ Design: `M14_LINUXUSERS.md`.
 
 ## Known issues
 
-- **i686 scheduler (M10-4b2b) blocked**: with the target's default
-  `stack-probes: inline`, the kernel dumps kernel-image bytes to the serial
-  and `kernel_core::task::init` runs with ESP=0x20000 (the page-directory
-  page), faulting on push. Setting `stack-probes: none` removes the wild ESP
-  and the scheduler then runs to completion (tasks interleave, 500 ticks),
-  but residual binary noise still appears early in the log. Leading suspect:
-  the hand-written `i686-fantuan-none.json` target spec (ABI/codegen
-  fields); next steps: compare against a known-good bare-metal i686 target
-  JSON (e.g. a build-std `x86_64` variant downcast, or add
-  `rustc-abi: softfloat`, `main-needs-argc-argv: false`), and bisect the
-  spec fields with a minimal binary. M10-4b2a (IDT/PIC/PIT) is unaffected
-  and verified.
+- **i686 scheduler (M10-4b2b) blocked — custom-target ABI/codegen**: two
+  distinct problems found (2026-09-19):
+  1. *Fixed*: SeaBIOS leaves DF=1; the compiler uses `rep movsb` for struct
+     writes, so `set_ops` copied backwards and corrupted hooks. Both kernels
+     and stage2 now execute `cld` at the handoff (i686 entry + both stage2
+     paths). Verified DF=0 in-guest.
+  2. *Open*: with the scheduler wired, kmain's `esp2=` print repeats ~16550
+     times with ESP dropping 24 bytes per iteration until it reaches 0x20000
+     (the page directory), then faults on push. `-d exec` shows the cycle is
+     puts/put_hex/`task::init`; the call sites pass u64/fat-pointer args in
+     ECX:EDX (i386 fastcc) and `serial::puts` ends with an `addl $8` cleanup,
+     suggesting the hand-written `targets/i686-fantuan-none.json` produces an
+     inconsistent calling convention between crates/core. Next steps: diff
+     against a known-good bare-metal i686 spec, add the missing ABI fields
+     (`rustc-abi`/`llvm-abiname`/`main-needs-argc-argv`), and build a minimal
+     repro (print a &str and a u64 in a loop). Workarounds already in tree:
+     `stack-probes: none`, `cld`, `#[repr(C)]` on the hook structs; the glue
+     (`kernel-i686/src/{task,demo}.rs`, `context.S`) stays unwired.
 - **riscv `uart::log_bytes` fault (one-off)**: one repair run (of three)
   crashed with `scause=0xd stval=0x766`; not reproduced since. Watch item.
 

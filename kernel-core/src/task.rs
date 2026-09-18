@@ -63,6 +63,7 @@ pub static SWITCHES: AtomicU64 = AtomicU64::new(0);
 
 /// Arch operations the scheduler needs (all installed at boot).
 #[derive(Clone, Copy)]
+#[repr(C)]
 pub struct TaskOps {
     /// Save the current context on OLD_RSP and resume NEW_RSP in NEW_VM_ROOT.
     pub switch: fn(old_rsp: *mut u64, new_rsp: u64, new_vm_root: u64),

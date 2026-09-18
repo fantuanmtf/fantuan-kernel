@@ -24,6 +24,7 @@ core::arch::global_asm!(
     ".section .text.entry",
     ".global _start",
     "_start:",
+    "  cld",                // firmware may leave DF=1 for compiler rep movsb
     "  mov dx, 0x3F8",
     "  mov al, 0x58",       // 'X': entry reached
     "  out dx, al",

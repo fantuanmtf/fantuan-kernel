@@ -388,10 +388,12 @@ msg_boot:    db 'loading kernel (ata pio) and jumping...', 13, 10, 0
 
 BITS 64
 long64:
+    cld
     mov ax, 0x10
     mov ds, ax
     mov es, ax
     mov ss, ax
+    cld
     mov rsp, STACK_TOP
     mov rdi, BOOTINFO_PHYS
     mov rsi, STACK_TOP
