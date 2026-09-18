@@ -99,6 +99,26 @@ in `kernel-core` (frame allocator, paging helpers, task stacks) and in
 - i686 toolchain: `i686-unknown-none` target availability and the C driver
   `-m32` build through the `cc` crate.
 
+### 7.1 Spike results (recorded 2026-09, QEMU SeaBIOS)
+
+- `int 0x13 AH=0x42` with a DAP at `0x0600` loads stage2 from LBA 1 into
+  `0x0000:0x8000` on SeaBIOS with a raw IDE image; CF is set on failure and
+  the MBR stays exactly 512 bytes. Verified by `tools/smoke-bios.sh`.
+- `int 0x15 EAX=0xE820 EDX='SMAP' ECX=24` returns **7 entries** on QEMU/SeaBIOS:
+  usable low RAM `0..0x9FC00`, three reserved ranges, usable
+  `0x100000..0x8FE0000`, and a **zero-length type-2 sentinel as the last
+  entry** — the kernel synthesis must skip size-0 entries.
+- Memory layout used by the loader: MBR `0x7C00`, stack top `0x7000`,
+  stage2 `0x8000`, E820 buffer `0x9000` (24 B/entry, max 32). COM1 at 0x3F8,
+  115200 8N1 initialized from real mode works.
+- QEMU invocation for reproduction:
+  `qemu-system-x86_64 -machine pc -drive format=raw,file=build/bios.img
+  -nographic -no-reboot` (SeaBIOS prints `Booting from Hard Disk..` on the
+  serial console).
+
+The artifacts are `boot-bios/stage1.asm`, `boot-bios/stage2.asm`,
+`tools/build-bios.sh` and `tools/smoke-bios.sh`.
+
 ## 8. Verification
 
 - **QEMU**: `qemu-system-i386 -machine pc` (SeaBIOS) for i686 and
