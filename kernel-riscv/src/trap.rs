@@ -1,14 +1,22 @@
-//! S-mode trap handling (M9.2b): stvec entry, full register frame and
-//! dispatch. Interrupts (SBI timer) are acknowledged in `timer::tick`;
-//! exceptions are reported with scause/stval/sepc. User-mode faults are
-//! classified later (M9.3); kernel faults park after the report.
+//! S-mode trap handling (M9.2b; U-mode traps M9.3c): stvec entry with the
+//! sscratch swap, full register frame and dispatch. Interrupts (SBI timer)
+//! are acknowledged in `timer::tick`; ecall from U-mode goes to the shared
+//! syscall dispatcher; user faults (and bad user pointers caught during a
+//! syscall copy) kill the task, kernel faults park after the report.
+//!
+//! Address-space policy: the kernel is linked at 0x80200000 and executed via
+//! the PHYS_OFFSET alias, but absolute pointers (switch jump tables, hook
+//! function pointers) hold the link address. Kernel code therefore always
+//! runs with satp = kernel root; a per-task root is active only in U-mode.
 
 use core::arch::{asm, global_asm};
 
 use crate::{park, put_dec, put_hex, puts};
 
 /// Register frame saved by `trap_entry`; layout must match the assembly.
-/// x0 has no slot; x1..x31 occupy offsets 8..248, then sepc/sstatus.
+/// x0 has no slot; x1..x31 occupy offsets 8..248, then sepc/sstatus. Slot 16
+/// holds the interrupted sp (the user sp when the trap came from U-mode).
+/// x0's slot is scratch: the exit path stores the return-mode flag there.
 #[repr(C)]
 pub struct TrapFrame {
     pub regs: [u64; 32],
@@ -23,6 +31,14 @@ global_asm!(
     ".global trap_entry",
     ".align 2",
     "trap_entry:",
+    // While in U-mode sscratch holds the kernel stack top; in S-mode it is 0.
+    "    csrrw   t0, sscratch, sp",
+    "    beqz    t0, 1f",
+    "    mv      sp, t0",            // from U: continue on the kernel stack
+    "    j       2f",
+    "1:",
+    "    csrw    sscratch, zero",    // from S: restore the invariant
+    "2:",
     "    addi    sp, sp, -272",
     "    sd      x1, 8(sp)",
     "    sd      x3, 24(sp)",
@@ -54,8 +70,11 @@ global_asm!(
     "    sd      x29, 232(sp)",
     "    sd      x30, 240(sp)",
     "    sd      x31, 248(sp)",
-    // Original sp (pre-decrement) goes in x2's slot.
+    // Interrupted sp: the user sp is in sscratch, the S-mode sp is sp+272.
+    "    csrr    t0, sscratch",
+    "    bnez    t0, 3f",
     "    addi    t0, sp, 272",
+    "3:",
     "    sd      t0, 16(sp)",
     "    csrr    t0, sepc",
     "    sd      t0, 256(sp)",
@@ -66,8 +85,18 @@ global_asm!(
     "    csrr    a1, scause",
     "    csrr    a2, stval",
     "    call    trap_dispatch",
+    // Return: restore sepc/sstatus from the frame (sret takes SPP/SPIE from
+    // sstatus, which is a global CSR and may have been left by another task).
     "    ld      t0, 256(sp)",
     "    csrw    sepc, t0",
+    "    ld      t0, 264(sp)",
+    "    csrw    sstatus, t0",
+    "    csrci   sstatus, 2",         // sret re-enables interrupts via SPIE
+    "    ld      t0, 16(sp)",
+    "    csrw    sscratch, t0",       // stash the interrupted sp
+    "    csrr    t0, sstatus",
+    "    andi    t0, t0, 0x100",      // SPP: from S-mode?
+    "    sd      t0, 0(sp)",          // x0's slot doubles as the exit flag
     "    ld      x1, 8(sp)",
     "    ld      x3, 24(sp)",
     "    ld      x4, 32(sp)",
@@ -99,6 +128,16 @@ global_asm!(
     "    ld      x30, 240(sp)",
     "    ld      x31, 248(sp)",
     "    addi    sp, sp, 272",
+    "    ld      t0, -272(sp)",       // exit flag (x0 slot)
+    "    beqz    t0, 6f",
+    // Back to S-mode: sp is already the interrupted stack.
+    "    ld      t0, -232(sp)",       // restore user t0 (x5)
+    "    csrw    sscratch, zero",
+    "    sret",
+    "6:",
+    // Back to U-mode: sp currently holds the kernel stack top.
+    "    ld      t0, -232(sp)",       // restore user t0 while still on it
+    "    csrrw   sp, sscratch, sp",   // sp = user sp, sscratch = kernel top
     "    sret",
 );
 
@@ -112,11 +151,24 @@ pub fn init() {
     unsafe { asm!("csrw stvec, {}", in(reg) addr, options(nostack)) };
 }
 
+/// Back to U-mode needs the task's root active again.
+fn reenter_user_root(from_user: bool) {
+    if from_user {
+        crate::paging::set_root(kernel_core::task::current_vm_root());
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn trap_dispatch(tf: *mut TrapFrame, scause: u64, stval: u64) {
     let tf = unsafe { &mut *tf };
     let interrupt = scause >> 63 != 0;
     let code = scause & 0xFF;
+    let from_user = tf.sstatus & SSTATUS_SPP == 0;
+    if from_user {
+        // Kernel code may jump through absolute link addresses: run it on
+        // the kernel root and re-enter the user root just before sret.
+        crate::paging::set_root(crate::paging::kernel_root());
+    }
 
     if interrupt {
         if code == 5 {
@@ -126,15 +178,36 @@ pub extern "C" fn trap_dispatch(tf: *mut TrapFrame, scause: u64, stval: u64) {
             put_dec(code);
             puts("\n");
         }
+        reenter_user_root(from_user);
         return;
     }
 
     match code {
-        3 => {
+        8 => {
+            // ecall from U-mode: a7 = number, a0..a4 = args, result in a0.
+            let n = tf.regs[17];
+            let args = [tf.regs[10], tf.regs[11], tf.regs[12], tf.regs[13], tf.regs[14]];
+            tf.regs[10] = kernel_core::syscall::dispatch(crate::syscall::write, n, &args);
+            tf.sepc += 4;
+        }
+        3 if !from_user => {
             // Breakpoint: resume after the instruction (2 or 4 bytes).
             let instr = unsafe { core::ptr::read_volatile(tf.sepc as *const u16) };
             tf.sepc += if instr & 3 == 3 { 4 } else { 2 };
             puts("trap: ebreak handled\n");
+        }
+        _ if from_user || crate::syscall::in_user_copy() => {
+            crate::syscall::clear_user_copy();
+            puts("trap: user fault scause=");
+            put_hex(scause);
+            puts(" stval=");
+            put_hex(stval);
+            puts(" sepc=");
+            put_hex(tf.sepc);
+            puts(" - killing task\n");
+            // exit() schedules; its hook pointers are link addresses.
+            crate::paging::set_root(crate::paging::kernel_root());
+            kernel_core::task::exit(1);
         }
         _ => {
             puts("trap: exception scause=");
@@ -143,8 +216,9 @@ pub extern "C" fn trap_dispatch(tf: *mut TrapFrame, scause: u64, stval: u64) {
             put_hex(stval);
             puts(" sepc=");
             put_hex(tf.sepc);
-            puts(if tf.sstatus & SSTATUS_SPP != 0 { " [kernel]\n" } else { " [user]\n" });
+            puts(" [kernel]\n");
             park();
         }
     }
+    reenter_user_root(from_user);
 }

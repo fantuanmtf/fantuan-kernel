@@ -7,7 +7,10 @@ use core::arch::asm;
 pub const UART_BASE: usize = 0x1000_0000;
 
 pub fn uart_putc(c: u8) {
-    unsafe { core::ptr::write_volatile(UART_BASE as *mut u8, c) }
+    // Follow the paging access base: identity while bare, the alias once the
+    // high half is online. User roots share the alias but not the identity.
+    let base = UART_BASE as u64 + crate::paging::access_base();
+    unsafe { core::ptr::write_volatile(base as *mut u8, c) }
 }
 
 pub fn puts(s: &str) {

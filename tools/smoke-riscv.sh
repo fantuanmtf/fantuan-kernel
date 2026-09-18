@@ -26,9 +26,13 @@ if grep -q "fantuan (riscv64) M9" "$LOG" \
    && grep -q "timer: SBI timer armed" "$LOG" \
    && grep -q "tick: 10 s (SBI timer" "$LOG" \
    && grep -q "sched: 2 riscv kernel tasks spawned" "$LOG" \
-   && grep -q "task 1 (tid 1): hello" "$LOG"; then
-  echo "SMOKE PASS (riscv64: boot, Sv39, traps, SBI timer, scheduler)"
-  grep -aE "fantuan \(riscv64|mm: frame self-test|trap: |timer: |tick: |sched: |task [12] " "$LOG" | head -12 || true
+   && grep -q "task 1 (tid 1): hello" "$LOG" \
+   && grep -q "user: 2 riscv user tasks spawned" "$LOG" \
+   && grep -q "userland: hello from tid" "$LOG" \
+   && grep -q "userland: tid .* exiting" "$LOG" \
+   && grep -q "sched: reaped tid" "$LOG"; then
+  echo "SMOKE PASS (riscv64: boot, Sv39, traps, SBI timer, scheduler, userland)"
+  grep -aE "fantuan \(riscv64|mm: frame self-test|trap: |timer: |tick: |sched: |task [12] |user: |userland: " "$LOG" | head -16 || true
 else
   echo "SMOKE FAIL (riscv64) — log tail:"
   tail -20 "$LOG"

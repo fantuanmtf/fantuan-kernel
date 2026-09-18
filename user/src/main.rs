@@ -6,36 +6,72 @@
 #![no_std]
 #![no_main]
 
-use core::arch::global_asm;
+#[cfg(target_arch = "x86_64")]
+mod arch {
+    use core::arch::global_asm;
 
-global_asm!(
-    ".global _start",
-    "_start:",
-    "    call    user_main",
-    "    ud2",
-    // Syscall trampoline: reserve scratch below rsp, repack SysV args into
-    // rax = number, rdi..r8 = args (same shape as the kernel-side one).
-    ".global syscall_trampoline",
-    "syscall_trampoline:",
-    "    sub     rsp, 128",
-    "    mov     rax, rdi",
-    "    mov     rdi, rsi",
-    "    mov     rsi, rdx",
-    "    mov     rdx, rcx",
-    "    mov     rcx, r8",
-    "    mov     r8, r9",
-    "    int     0x60",
-    "    add     rsp, 128",
-    "    ret",
-);
+    global_asm!(
+        ".global _start",
+        "_start:",
+        "    call    user_main",
+        "    ud2",
+        // Syscall trampoline: reserve scratch below rsp, repack SysV args into
+        // rax = number, rdi..r8 = args (same shape as the kernel-side one).
+        ".global syscall_trampoline",
+        "syscall_trampoline:",
+        "    sub     rsp, 128",
+        "    mov     rax, rdi",
+        "    mov     rdi, rsi",
+        "    mov     rsi, rdx",
+        "    mov     rdx, rcx",
+        "    mov     rcx, r8",
+        "    mov     r8, r9",
+        "    int     0x60",
+        "    add     rsp, 128",
+        "    ret",
+    );
 
-extern "C" {
-    fn syscall_trampoline(n: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64;
+    extern "C" {
+        fn syscall_trampoline(n: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64;
+    }
+
+    pub fn syscall(n: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64 {
+        unsafe { syscall_trampoline(n, a1, a2, a3, a4, a5) }
+    }
 }
 
-fn syscall(n: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64 {
-    unsafe { syscall_trampoline(n, a1, a2, a3, a4, a5) }
+#[cfg(target_arch = "riscv64")]
+mod arch {
+    use core::arch::{asm, global_asm};
+
+    global_asm!(
+        ".global _start",
+        "_start:",
+        "    call    user_main",
+        "    unimp",
+    );
+
+    /// ecall: a7 = number, a0..a4 = args, result in a0 (M9.3c).
+    pub fn syscall(n: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64 {
+        let ret: u64;
+        unsafe {
+            asm!(
+                "ecall",
+                in("a7") n,
+                in("a0") a1,
+                in("a1") a2,
+                in("a2") a3,
+                in("a3") a4,
+                in("a4") a5,
+                lateout("a0") ret,
+                options(nostack),
+            );
+        }
+        ret
+    }
 }
+
+use arch::syscall;
 
 fn push_str(buf: &mut [u8], mut off: usize, s: &str) -> usize {
     for &b in s.as_bytes() {

@@ -1,6 +1,7 @@
 /target
 /build
 /kernel/user_program.bin
+/kernel-riscv/user_program.bin
 
 # Python bytecode cache (tools/*.py)
 __pycache__/

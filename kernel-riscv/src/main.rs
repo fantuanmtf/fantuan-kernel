@@ -25,9 +25,12 @@ mod demo;
 mod fdt;
 mod paging;
 mod sbi;
+mod syscall;
 mod task;
 mod timer;
 mod trap;
+
+include!(concat!(env!("OUT_DIR"), "/user_program.rs"));
 
 const UART_BASE: usize = uart::UART_BASE;
 /// QEMU virt RAM base and the OpenSBI kernel load address (link.ld).
@@ -132,7 +135,7 @@ fn build_bootinfo(mem: &fdt::MemInfo, hartid: usize, dtb: usize) -> &'static Boo
 
 #[no_mangle]
 pub extern "C" fn rust_entry(hartid: usize, dtb: usize) -> ! {
-    puts("fantuan (riscv64) M9.2 - OpenSBI S-mode bring-up\n");
+    puts("fantuan (riscv64) M9.3 - OpenSBI S-mode bring-up\n");
     puts("boot: hartid=");
     put_hex(hartid as u64);
     puts(" dtb=");
@@ -209,7 +212,7 @@ pub extern "C" fn rust_entry(hartid: usize, dtb: usize) -> ! {
 
 extern "C" fn high_main() -> ! {
     paging::use_alias();
-    puts("fantuan (riscv64) M9.2 - high half online\n");
+    puts("fantuan (riscv64) M9.3 - high half online\n");
     puts("mm: usable ");
     put_dec(kernel_core::frame::get().usable_mib());
     puts(" MiB\n");
@@ -232,6 +235,7 @@ extern "C" fn high_main() -> ! {
 
     // M9.2b: traps + SBI timer.
     trap::init();
+
     puts("trap: stvec armed\n");
     unsafe { asm!("ebreak") };
     puts("trap: resumed after ebreak\n");
@@ -245,6 +249,17 @@ extern "C" fn high_main() -> ! {
     kernel_core::task::spawn(demo::demo_1);
     kernel_core::task::spawn(demo::demo_2);
     puts("sched: 2 riscv kernel tasks spawned\n");
+
+    // M9.3c: two userland tasks from the embedded ELF.
+    let mut spawned = 0;
+    for _ in 0..2 {
+        if task::spawn_user(USER_ELF).is_some() {
+            spawned += 1;
+        }
+    }
+    puts("user: ");
+    put_dec(spawned);
+    puts(" riscv user tasks spawned\n");
     park()
 }
 

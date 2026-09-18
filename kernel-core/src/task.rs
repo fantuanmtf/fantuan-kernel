@@ -256,6 +256,12 @@ pub fn current_id() -> u64 {
     unsafe { (*ptr::addr_of!(TASKS[CURRENT.load(Ordering::Relaxed)])).id }
 }
 
+/// Address-space root of the running task (used by riscv to re-enter the
+/// user root on the way back to U-mode).
+pub fn current_vm_root() -> u64 {
+    unsafe { (*ptr::addr_of!(TASKS[CURRENT.load(Ordering::Relaxed)])).vm_root }
+}
+
 /// Free every Exited task except CURRENT's slot.
 fn reap_exited(current: usize) {
     let ops = ops();

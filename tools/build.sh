@@ -14,6 +14,10 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$ARCH" = "riscv64" ]; then
+  echo "[user] building userland program (riscv64)..."
+  cargo build -p fantuan-user --target riscv64gc-unknown-none-elf --release
+  cp target/riscv64gc-unknown-none-elf/release/fantuan-user kernel-riscv/user_program.bin
+
   echo "[riscv] building kernel-riscv..."
   cargo build -p kernel-riscv --target riscv64gc-unknown-none-elf --release
   exit 0

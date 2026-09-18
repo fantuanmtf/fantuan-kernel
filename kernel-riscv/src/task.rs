@@ -1,14 +1,19 @@
-//! riscv64 task glue (M9.2c): context switch on the callee-saved integer
-//! registers and the TaskOps the shared scheduler needs. Per-task address
-//! spaces (satp) arrive with user mode in M9.3.
+//! riscv64 task glue (M9.2c; per-task Sv39 roots and U-mode entry M9.3c):
+//! context switch on the callee-saved integer registers, satp switching and
+//! the TaskOps/UserOps the shared scheduler and ELF loader need.
 
 use core::arch::{asm, global_asm};
 
-use crate::{paging, put_dec, puts};
+use fantuan_abi::USER_STACK_TOP;
+use kernel_core::elf;
+use kernel_core::user::Prot;
+
+use crate::{cpu, paging, put_dec, puts};
 
 /// Context bytes pushed on the task stack: ra + s0..s11 (12 slots) plus
 /// alignment. Keep in sync with the assembly.
 const CTX_BYTES: u64 = 112;
+const USER_STACK_PAGES: u64 = 4;
 
 global_asm!(
     ".section .text",
@@ -49,20 +54,38 @@ global_asm!(
     "    ld      s11, 96(sp)",
     "    addi    sp, sp, 112",
     "    ret",
+    // First entry of a user task: s0 = entry, s1 = user stack top, s2 = satp
+    // value for the task root. The kernel stack top sits in sscratch and sp;
+    // enter the user root, then sret drops to U-mode.
+    ".global riscv_user_entry",
+    ".type riscv_user_entry, @function",
+    "riscv_user_entry:",
+    "    csrw    sepc, s0",
+    "    mv      sp, s1",
+    "    csrw    satp, s2",
+    "    sfence.vma",
+    "    li      t0, 0x20", // sstatus: SPIE=1, SPP=0
+    "    csrw    sstatus, t0",
+    "    sret",
 );
 
 extern "C" {
     fn riscv_switch(old: *mut u64, new: *const u64);
+    fn riscv_user_entry();
 }
 
 fn arch_switch(old: *mut u64, new_sp: u64, _new_vm: u64) {
+    // satp is not switched here: a context switch always happens in kernel
+    // code (kernel root); the per-task root is entered only on the way out
+    // to U-mode (riscv_user_entry / trap exit).
     unsafe { riscv_switch(old, new_sp as *const u64) }
 }
 
-fn arch_set_kernel_stack(top: u64) {
-    // Kernel-entry stack for future U-mode traps (M9.3) and for symmetry
-    // with the x86 TSS.rsp0 handling.
-    unsafe { asm!("csrw sscratch, {}", in(reg) top, options(nostack)) };
+fn arch_set_kernel_stack(top: u64, is_user: bool) {
+    // U-mode traps swap sp with sscratch, so user tasks keep the kernel stack
+    // top there; kernel tasks keep 0 (the swap is skipped).
+    let value = if is_user { top } else { 0 };
+    unsafe { asm!("csrw sscratch, {}", in(reg) value, options(nostack)) };
 }
 
 fn arch_init_kernel_stack(stack_top: u64, _body: fn() -> !) -> u64 {
@@ -81,11 +104,11 @@ extern "C" fn riscv_task_entry() -> ! {
 }
 
 fn arch_kernel_vm_root() -> u64 {
-    0 // riscv tasks share the kernel address space until M9.3
+    paging::kernel_root()
 }
 
-fn arch_free_user_vm(_vm: u64) {
-    // No per-task address spaces yet (M9.3 adds the Sv39 walk).
+fn arch_free_user_vm(vm: u64) {
+    paging::free_user_root(vm);
 }
 
 fn arch_phys_to_virt(p: u64) -> u64 {
@@ -96,10 +119,19 @@ fn arch_now_ticks() -> u64 {
     crate::timer::ticks()
 }
 
+fn arch_user_map(root: u64, va: u64, pa: u64, prot: Prot) {
+    paging::map_user_page(root, va, pa, prot);
+}
+
+fn arch_log(s: &str) {
+    puts(s);
+    puts("\n");
+}
+
 fn arch_on_reap(tid: u64) {
     puts("sched: reaped tid ");
     put_dec(tid);
-    puts(" (kernel stack freed)\n");
+    puts(" (kernel stack + user pages freed)\n");
 }
 
 /// Install the ops; call before kernel_core::task::init.
@@ -114,4 +146,74 @@ pub fn init_arch() {
         now_ticks: arch_now_ticks,
         on_reap: arch_on_reap,
     });
+    kernel_core::user::set_ops(kernel_core::user::UserOps {
+        machine: 0xF3, // riscv
+        new_root: paging::new_user_root,
+        map: arch_user_map,
+        free_root: paging::free_user_root,
+        phys_to_virt: arch_phys_to_virt,
+        log: arch_log,
+    });
+}
+
+/// Spawn a user task from a static ELF image (M9.3c).
+pub fn spawn_user(elf_image: &[u8]) -> Option<u64> {
+    use kernel_core::task::{alloc_kernel_stack, dead_body, has_free_slot, register, State, Task};
+
+    if !has_free_slot() {
+        puts("user: no free task slot\n");
+        return None;
+    }
+    let flags = cpu::irq_save();
+    let Some((entry, root)) = elf::load(elf_image) else {
+        cpu::irq_restore(flags);
+        return None;
+    };
+    // User stack: contiguous frames mapped at USER_STACK_TOP - 16 KiB, RW.
+    let Some(ustack_phys) = kernel_core::frame::get().alloc_contiguous(USER_STACK_PAGES as usize)
+    else {
+        cpu::irq_restore(flags);
+        return None;
+    };
+    let ustack_base = USER_STACK_TOP - USER_STACK_PAGES * 4096;
+    for i in 0..USER_STACK_PAGES {
+        paging::map_user_page(
+            root,
+            ustack_base + i * 4096,
+            ustack_phys + i * 4096,
+            Prot::Rw,
+        );
+    }
+
+    let Some((stack_phys, stack_top)) = alloc_kernel_stack() else {
+        for i in 0..USER_STACK_PAGES {
+            kernel_core::frame::get().free(ustack_phys + i * 4096);
+        }
+        cpu::irq_restore(flags);
+        return None;
+    };
+    // Initial kernel frame: ra = riscv_user_entry, s0 = entry, s1 = user sp.
+    let frame = (stack_top - CTX_BYTES) as *mut u64;
+    unsafe {
+        for i in 0..(CTX_BYTES / 8) as usize {
+            *frame.add(i) = 0;
+        }
+        *frame.add(0) = riscv_user_entry as *const () as u64;
+        *frame.add(1) = entry;
+        *frame.add(2) = USER_STACK_TOP;
+        *frame.add(3) = paging::satp_for(root); // s2
+    }
+    let id = register(Task {
+        state: State::Ready,
+        rsp: frame as u64,
+        vm_root: root,
+        kernel_stack_top: stack_top,
+        is_user: true,
+        stack_phys,
+        body: dead_body,
+        id: 0,
+        exit_code: 0,
+    });
+    cpu::irq_restore(flags);
+    id
 }
