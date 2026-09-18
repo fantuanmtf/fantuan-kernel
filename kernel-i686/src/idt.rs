@@ -1,7 +1,8 @@
 //! i686 interrupt descriptor table (M10-4b2): 48 vectors (0..31 CPU
-//! exceptions, 32..47 remapped PIC IRQs). Each stub jumps to `isr_common`,
-//! which calls `isr_dispatch`, drops the vector plus the dummy/error word and
-//! irets.
+//! exceptions, 32..47 remapped PIC IRQs) plus vector 0x80 for the ring-3
+//! syscall gate (DPL 3, M10-4b3). Each stub jumps to `isr_common`, which
+//! dispatches (or handles int 0x80), drops the vector plus the dummy/error
+//! word and irets.
 
 use core::arch::asm;
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -9,8 +10,11 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use crate::{pic, pit, serial};
 
 extern "C" {
-    static isr_table: [u32; 48];
+    static isr_table: [u32; 49];
 }
+
+/// Vector of the ring-3 syscall gate.
+const SYSCALL_VECTOR: usize = 0x80;
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
@@ -28,13 +32,13 @@ struct IdtPtr {
     base: u32,
 }
 
-static mut IDT: [IdtEntry; 48] = [IdtEntry {
+static mut IDT: [IdtEntry; 129] = [IdtEntry {
     offset_lo: 0,
     selector: 0,
     zero: 0,
     flags: 0,
     offset_hi: 0,
-}; 48];
+}; 129];
 
 const EXC_NAMES: [&str; 32] = [
     "divide error", "debug", "nmi", "breakpoint", "overflow", "bound range",
@@ -49,18 +53,20 @@ const EXC_NAMES: [&str; 32] = [
 pub fn init() {
     let table = unsafe { &*core::ptr::addr_of!(isr_table) };
     for (i, &addr) in table.iter().enumerate() {
+        let vector = if i == 48 { SYSCALL_VECTOR } else { i };
         unsafe {
-            IDT[i] = IdtEntry {
+            IDT[vector] = IdtEntry {
                 offset_lo: addr as u16,
-                selector: 0x08, // stage2's flat 32-bit code segment
+                selector: 0x08, // flat 32-bit code segment
                 zero: 0,
-                flags: 0x8E, // present, DPL0, 32-bit interrupt gate
+                // int 0x80 must be callable from ring 3 (DPL 3)
+                flags: if i == 48 { 0xEE } else { 0x8E },
                 offset_hi: (addr >> 16) as u16,
             };
         }
     }
     let ptr = IdtPtr {
-        limit: (48 * 8 - 1) as u16,
+        limit: (129 * 8 - 1) as u16,
         base: core::ptr::addr_of!(IDT) as u32,
     };
     unsafe { asm!("lidt [{}]", in(reg) &ptr, options(nostack)) };

@@ -71,15 +71,25 @@ isr_\n:
     ISR_OK 45
     ISR_OK 46
     ISR_OK 47
+    ISR_OK 128
 
 isr_common:
     pushad
-    mov eax, [esp + 32]
-    mov edx, [esp + 36]
+    mov eax, [esp + 32]   /* vector */
+    cmp eax, 128
+    je isr_syscall
+    mov edx, [esp + 36]   /* error code or dummy */
     push edx
     push eax
     call isr_dispatch
     add esp, 8            /* drop the two dispatch arguments        */
+    jmp isr_return
+isr_syscall:
+    mov eax, esp          /* &pushad frame for syscall_handle       */
+    push eax
+    call syscall_handle
+    add esp, 4
+isr_return:
     popad
     add esp, 8            /* drop vector + error/dummy, then iretd  */
     iretd
@@ -136,4 +146,5 @@ isr_table:
     .long isr_45
     .long isr_46
     .long isr_47
+    .long isr_128
 

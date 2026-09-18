@@ -47,7 +47,15 @@ done, M10 is half implemented).
       rotate, quiet, reap); remaining: GDT/TSS and kernel-owned page tables
       for ring 3 (M10-4b3). The 2026-09 blocker was the shared ISR stub,
       not the target JSON - see "Known issues" (now fixed).
-- [ ] M10-4b3 i686 user mode (ELF32, `int 0x80`)
+- [x] M10-4b3a i686 ring 3: GDT/ring-0-3 segments + TSS.esp0, DPL-3
+      `int 0x80` gate, built-in ring-3 stub entered via `iretd`,
+      SYS_WRITE/SYS_EXIT through `kernel_core::syscall` - verify
+      `tools/smoke-bios.sh` phase 2 (two traps found on the way: the iret
+      CS selector needs RPL 3 for the DPL-3 code segment, and SYS_WRITE is
+      `(buf, len)` per fantuan-abi, not the Linux fd form)
+- [ ] M10-4b3b i686 user mode (ELF32): `EM_386` in the shared loader,
+      per-task page directories, the shared user crate built for i686,
+      user faults kill the task instead of halting
 - [ ] M10-4a2 harden the 81 `as usize` sites for >4 GiB on-disk values
       (filesystem/ELF bounds checks; see `M10_BOOT_32BIT.md` 7.5)
 - [ ] M10-4c i686 VFS on the test disk (after b3)
@@ -137,6 +145,7 @@ Design: `M14_LINUXUSERS.md`.
 | 2026-09 | `tools/run.sh` x86_64 UEFI main phase (SMAP active) | PASS |
 | 2026-09 | riscv smoke (3 phases incl. repair YES/NO) | PASS |
 | 2026-09 | i686 scheduler after the ISR `popad` fix (2 tasks, 500 ticks, quiet) | PASS |
+| 2026-09 | i686 ring 3 via `iretd` + `int 0x80` (built-in stub writes and exits) | PASS |
 | 2026-09 | x86 full suite `tools/smoke.sh` 13/13 | PASS (at v0.0.1) |
 
 ## Known issues
@@ -163,6 +172,8 @@ Design: `M14_LINUXUSERS.md`.
 
 ## Next action
 
-**M10-4b3**: i686 ring 3 — GDT/TSS and kernel-owned page tables, ELF32
-user images and `int 0x80`; the 32-bit scheduler is already wired and
-green (M10-4b2b).
+**M10-4b3b**: i686 user mode with ELF32 — extend the shared loader with
+`EM_386`, give user tasks their own page directory, build the shared user
+crate for i686 and turn user faults into task kills. The ring-3 entry
+machinery (GDT/TSS, `int 0x80`, syscall bridge) is already verified
+(M10-4b3a).

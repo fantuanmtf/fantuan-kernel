@@ -21,8 +21,9 @@ fn arch_switch(old: *mut u64, new_sp: u64, _new_vm: u64) {
     unsafe { context_switch(old, new_sp, 0) }
 }
 
-fn arch_set_kernel_stack(_top: u64, _is_user: bool) {
-    // No TSS yet: ring-3 entry (M10-4b3) installs one for the kernel stack.
+fn arch_set_kernel_stack(top: u64, _is_user: bool) {
+    // TSS.esp0: the stack the CPU switches to on ring-3 -> ring-0 traps.
+    crate::gdt::set_kernel_stack(top);
 }
 
 /// Initial frame: [edi][esi][ebx][ebp][task_entry] <- saved esp.
@@ -54,7 +55,7 @@ fn arch_now_ticks() -> u64 {
 fn arch_on_reap(tid: u64) {
     puts("sched: reaped tid ");
     put_dec(tid);
-    puts("\\n");
+    puts("\n");
 }
 
 /// Install the ops; call before kernel_core::task::init.

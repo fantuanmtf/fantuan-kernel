@@ -19,8 +19,10 @@ mod idt;
 mod pic;
 mod pit;
 mod demo;
+mod gdt;
 mod serial;
 mod task;
+mod user;
 
 core::arch::global_asm!(
     ".section .text.entry",
@@ -116,9 +118,13 @@ fn kmain(bi: *const BootInfo) -> ! {
         });
     }
 
+    // --- M10-4b3: GDT/TSS (needed before the ring-3 syscall gate) -----------
+    gdt::init();
+    serial::puts("gdt: ring0/ring3 + TSS loaded\n");
+
     // --- M10-4b2a: interrupts ------------------------------------------------
     idt::init();
-    serial::puts("idt: 48 vectors (exceptions + remapped IRQs)\n");
+    serial::puts("idt: 48 vectors + int 0x80\n");
     pic::remap();
     serial::puts("pic: remapped 0x20/0x28, IRQ0 unmasked\n");
     pit::init(100);
@@ -131,6 +137,10 @@ fn kmain(bi: *const BootInfo) -> ! {
     task::init_arch();
     kernel_core::task::init(0x80000);
     task::spawn_demos();
+    let utid = user::spawn_stub();
+    serial::puts("user: ring-3 stub spawned as tid ");
+    serial::put_dec(utid);
+    serial::puts("\n");
 
     cpu::sti();
     serial::puts("interrupts: enabled\n");

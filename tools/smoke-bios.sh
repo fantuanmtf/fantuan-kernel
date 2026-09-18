@@ -46,6 +46,7 @@ if grep -q "fantuan v0.0.1 (i686) - BIOS handoff" "$LOG2" \
    && grep -q "base=0x100000 pages=130784 type=7" "$LOG2" \
    && grep -q "mm: frame allocator ready: 510 MiB usable" "$LOG2" \
    && grep -q "mm: frame self-test ok (via PHYS_OFFSET alias)" "$LOG2" \
+   && grep -q "gdt: ring0/ring3 + TSS loaded" "$LOG2" \
    && grep -q "idt: 48 vectors" "$LOG2" \
    && grep -q "exc 3 (breakpoint) err=0x0" "$LOG2" \
    && grep -q "demo: #BP handled and resumed" "$LOG2" \
@@ -53,8 +54,11 @@ if grep -q "fantuan v0.0.1 (i686) - BIOS handoff" "$LOG2" \
    && grep -q "task 1 (tid 1): hello 1" "$LOG2" \
    && grep -q "task 2 (tid 2): hello 2" "$LOG2" \
    && grep -q "task 1: quiet (scheduler keeps rotating)" "$LOG2" \
+   && grep -q "user: ring-3 stub spawned as tid 3" "$LOG2" \
+   && grep -q "user(i686): hello from ring 3" "$LOG2" \
+   && grep -q "sched: reaped tid 3" "$LOG2" \
    && grep -q "i686: M10-4b2a interrupts complete" "$LOG2"; then
-  echo "SMOKE PASS (bios i686: BootInfo -> paging -> allocator -> IDT/PIC/PIT -> exceptions -> scheduler)"
+  echo "SMOKE PASS (bios i686: BootInfo -> paging -> allocator -> IDT/PIC/PIT -> scheduler -> ring 3 / int 0x80)"
   grep -aE "handshake ok|memmap: 6|base=0x100000|mm: frame|idt:|exc 3|demo:|timer: 500|i686:" "$LOG2" | head -10 || true
 else
   echo "SMOKE FAIL (bios i686) — log tail:"

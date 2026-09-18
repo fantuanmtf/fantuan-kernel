@@ -291,6 +291,31 @@ the real root cause was in the shared ISR stub:
   phase 2 asserts the rotating demo tasks, their quiet lines and the 500
   ticks. Remaining for M10-4b3: GDT/TSS, kernel-owned page tables, ring 3.
 
+### 7.8 i686 ring 3 and int 0x80 (M10-4b3a, verified)
+
+- `kernel-i686/src/gdt.rs` installs a six-entry GDT (ring0/ring3 code+data,
+  TSS) and a 32-bit TSS with `ss0 = 0x10`; `TSS.esp0` is set per task from
+  the scheduler's `set_kernel_stack` hook.
+- `int 0x80` is a DPL-3 interrupt gate (IDT vector 128, stub `isr_128`);
+  `isr_common` recognizes it, calls `syscall_handle(&pushad_frame)` and
+  writes the result into the saved EAX slot. Ring 3 passes eax = number and
+  ebx/ecx/edx/esi/edi as the five arguments; the semantics come from the
+  shared `kernel_core::syscall` (SYS_WRITE is `(buf, len)`, not the Linux
+  fd form - a trap worth remembering for the ELF32 userland).
+- `user_entry.S` is the trampoline context_switch returns into; it loads the
+  ring-3 data segments and executes `iretd` over the frame
+  [eip][cs][eflags][esp][ss]. For a non-conforming code segment the iret CS
+  selector's RPL must equal the descriptor DPL, so the frame uses 0x1B
+  (0x18|3), not 0x18 - the first version raised #GP(0x18).
+- The built-in stub (`user_stub.asm`, assembled flat by nasm at build time)
+  is mapped read-only at 0x400000 in the shared page directory; one 4 KiB
+  page table replaces the stage2 identity PSE entry for PDE 1 (the kernel
+  reaches memory through the PHYS_OFFSET alias, so the identity loss is
+  harmless). The 4 KiB user stack sits at 0x7FF000.
+- User tasks currently share the stage2 page directory (`vm_root = 0`).
+  Per-task page directories, `EM_386` in the shared ELF loader and
+  fault-kills-task arrive with M10-4b3b.
+
 ## 8. Verification
 
 - **QEMU**: `qemu-system-i386 -machine pc` (SeaBIOS) for i686 and
