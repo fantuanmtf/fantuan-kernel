@@ -22,6 +22,7 @@ mod cpu;
 mod uart;
 pub(crate) use uart::{park, put_bytes, put_dec, put_hex, puts, uart_putc};
 mod demo;
+mod drivers;
 mod fdt;
 mod paging;
 mod sbi;
@@ -208,6 +209,12 @@ pub extern "C" fn rust_entry(hartid: usize, dtb: usize) -> ! {
         UART_BASE as u64,
         paging::mmio_flags(),
     );
+    // virtio-mmio slots (identity + alias) for the M9.4 block driver.
+    for i in 0..paging::VIRTIO_MMIO_SLOTS {
+        let pa = paging::VIRTIO_MMIO_BASE + i * 0x1000;
+        paging::map_4k(pa, pa, paging::mmio_flags());
+        paging::map_4k(paging::phys_to_virt(pa), pa, paging::mmio_flags());
+    }
     puts("paging: Sv39 tables built; entering the high half\n");
     paging::enable();
 
@@ -240,6 +247,17 @@ extern "C" fn high_main() -> ! {
         None => puts("mm: frame self-test FAILED (no frames)\n"),
     }
     puts("paging: Sv39 identity + PHYS_OFFSET alias active\n");
+
+    // M9.4: virtio-mmio block storage (optional device on the command line)
+    // and the shared VFS on top of it.
+    if drivers::init_storage() {
+        puts("blk: virtio registered\n");
+        if kernel_core::vfs::init().is_some() {
+            puts("vfs: ready (shared FAT32/ext4/probe stack)\n");
+        }
+    } else {
+        puts("blk: no virtio-mmio block device\n");
+    }
 
     // M9.2b: traps + SBI timer.
     trap::init();

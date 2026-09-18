@@ -18,6 +18,10 @@ pub const fn phys_to_virt(p: u64) -> u64 {
     PHYS_OFFSET + p
 }
 
+/// QEMU virt virtio-mmio window (8 slots of 4 KiB).
+pub const VIRTIO_MMIO_BASE: u64 = 0x1000_1000;
+pub const VIRTIO_MMIO_SLOTS: u64 = 8;
+
 const PTE_V: u64 = 1 << 0;
 const PTE_R: u64 = 1 << 1;
 const PTE_W: u64 = 1 << 2;

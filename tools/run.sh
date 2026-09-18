@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # fantuan-kernel — one-shot build & run in QEMU/OVMF.
-# Usage: tools/run.sh [--arch x86_64|riscv64] [--graphics] [--broken]
+# Usage: tools/run.sh [--arch x86_64|riscv64] [--disk] [--graphics] [--broken]
 #                     [--broken-shim] [--smm] [--no-smbios] [--two-fs]
 #                     [--keys] [--shell-repair] [--nvme] [--bigcluster]
 #                     [--liar] [--grub-regen]
@@ -18,18 +18,34 @@ cd "$ROOT"
 
 # Architecture selection (prescan: --arch takes a separate argument).
 ARCH="x86_64"
+RISC_DISK=0
+RISC_TWO_FS=0
 prev=""
 for a in "$@"; do
   if [ "$prev" = "--arch" ]; then ARCH="$a"; fi
+  if [ "$a" = "--disk" ]; then RISC_DISK=1; fi
+  if [ "$a" = "--two-fs" ]; then RISC_TWO_FS=1; fi
   prev="$a"
 done
 if [ "$ARCH" = "riscv64" ]; then
   # RISC-V: OpenSBI (QEMU -bios default) loads the ELF at 0x80200000.
-  echo "[1/2] building kernel-riscv..."
+  echo "[1/3] building kernel-riscv..."
   ./tools/build.sh --arch riscv64
   KERNEL="target/riscv64gc-unknown-none-elf/release/kernel-riscv"
-  echo "[2/2] starting qemu-system-riscv64..."
-  exec qemu-system-riscv64 -machine virt -bios default -nographic -kernel "$KERNEL"
+  DEV_OPT=""
+  if [ "$RISC_DISK" = "1" ]; then
+    echo "[2/3] preparing virtio-blk test disk..."
+    MKDISK_ARGS=""
+    if [ "$RISC_TWO_FS" = "1" ]; then
+      MKDISK_ARGS="--two-fs"
+    fi
+    python3 tools/mkdisk.py $MKDISK_ARGS build/test.img
+    DEV_OPT="-drive file=build/test.img,format=raw,if=none,id=vd0 -device virtio-blk-device,drive=vd0"
+  fi
+  echo "[3/3] starting qemu-system-riscv64..."
+  # Modern virtio-mmio transports (version 2); QEMU's virt default is legacy.
+  exec qemu-system-riscv64 -machine virt -bios default -nographic \
+    -global virtio-mmio.force-legacy=false -kernel "$KERNEL" $DEV_OPT
 fi
 
 GRAPHICS=0

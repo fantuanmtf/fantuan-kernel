@@ -13,7 +13,7 @@ fi
 
 LOG="build/smoke-riscv.log"
 rm -f "$LOG"
-timeout --signal=KILL 45 ./tools/run.sh --arch riscv64 < /dev/null > "$LOG" 2>&1 || true
+timeout --signal=KILL 60 ./tools/run.sh --arch riscv64 --disk --two-fs < /dev/null > "$LOG" 2>&1 || true
 
 if grep -q "fantuan (riscv64) M9" "$LOG" \
    && grep -q "boot: hartid=" "$LOG" \
@@ -34,9 +34,14 @@ if grep -q "fantuan (riscv64) M9" "$LOG" \
    && grep -q "userland: tid .* fault test" "$LOG" \
    && grep -q "killing user task" "$LOG" \
    && grep -q "sched: reaped tid 3" "$LOG" \
-   && grep -q "sched: reaped tid 4" "$LOG"; then
-  echo "SMOKE PASS (riscv64: boot, Sv39, traps, SBI timer, userland+X, fault kill)"
-  grep -aE "fantuan \(riscv64|mm: frame self-test|trap: |timer: |tick: |sched: |task [12] |user: |userland: |cpu: |^exc " "$LOG" | head -20 || true
+   && grep -q "sched: reaped tid 4" "$LOG" \
+   && grep -q "blk: virtio registered" "$LOG" \
+   && grep -q "vfs: HELLO.TXT =>" "$LOG" \
+   && grep -q "ext4: mounted ro at /mnt/root0" "$LOG" \
+   && grep -q "probe: part 3 XFS identified" "$LOG" \
+   && grep -q "vfs: ready" "$LOG"; then
+  echo "SMOKE PASS (riscv64: boot, Sv39, traps, timer, userland+X, virtio-blk, VFS)"
+  grep -aE "fantuan \(riscv64|mm: frame self-test|trap: |timer: |tick: |sched: |task [12] |user: |userland: |cpu: |^exc |blk: |vfs: |ext4: |probe: " "$LOG" | head -28 || true
 else
   echo "SMOKE FAIL (riscv64) — log tail:"
   tail -20 "$LOG"

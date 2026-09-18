@@ -7,3 +7,6 @@ description = "fantuan kernel — RISC-V (M9.1)"
 [dependencies]
 fantuan-abi = { path = "../abi" }
 kernel-core = { path = "../kernel-core" }
+
+[build-dependencies]
+cc = "1"
