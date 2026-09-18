@@ -12,7 +12,7 @@ use crate::cpu::cpuid;
 
 /// Read an MSR (e.g. IA32_BIOS_SIGN_ID = 0x8B for the microcode revision).
 #[inline]
-fn rdmsr(msr: u32) -> u64 {
+pub(crate) fn rdmsr(msr: u32) -> u64 {
     let lo: u32;
     let hi: u32;
     unsafe {
@@ -68,7 +68,8 @@ pub fn check(s: &mut Log) -> Severity {
     }
 
     // Brand string from leaves 0x80000002..4 (when the leaf range exists).
-    let (max_std, _, _, _) = cpuid(0, 0);
+    let (max_std, v0b, v0c, v0d) = cpuid(0, 0);
+    let intel = v0b == 0x756e_6547 && v0d == 0x4965_6e69 && v0c == 0x6c65_746e;
     let (max_ext, _, _, _) = cpuid(0x8000_0000, 0);
     let mut brand = [0u8; 48];
     let mut blen = 0;
@@ -120,9 +121,6 @@ pub fn check(s: &mut Log) -> Severity {
     };
     let cores = cores.max(1);
 
-    // Microcode revision: IA32_BIOS_SIGN_ID, valid after a CPUID(1).
-    let mc = rdmsr(0x8B);
-    let rev = (mc >> 32) as u32;
 
     let _ = writeln!(
         s,
@@ -137,7 +135,14 @@ pub fn check(s: &mut Log) -> Severity {
         "  cpu: {} cores / {} threads, nx {} smep {} smap {}",
         cores, threads, nx, smep, smap
     );
-    let _ = writeln!(s, "  cpu: microcode rev {:#x}", rev);
+    // Microcode revision: IA32_BIOS_SIGN_ID, valid after a CPUID(1). The
+    // MSR is Intel-only and may #GP elsewhere, so gate it on the vendor.
+    if intel {
+        let mc = rdmsr(0x8B);
+        let _ = writeln!(s, "  cpu: microcode rev {:#x}", (mc >> 32) as u32);
+    } else {
+        let _ = writeln!(s, "  cpu: microcode n/a (non-Intel vendor)");
+    }
     let _ = max_std; // referenced for clarity: maximum standard leaf
     Severity::Ok
 }

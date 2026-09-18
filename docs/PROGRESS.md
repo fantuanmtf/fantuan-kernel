@@ -81,7 +81,11 @@ Design: `M12_TOOLS_HW.md`.
 - [ ] M12-4 NTFS boot/MFT/attribute/runlist read path (fixture)
 - [ ] M12-5 NTFS listing/read + `/mnt/win0`; probe graduation
 - [ ] M12-6 AMD GPU report (identity/BAR/PCIe link/thermal)
-- [ ] M12-7 virtualization detection + matrix + smoke phases
+- [x] M12-7 virtualization detection: hypervisor vendor (CPUID.40000000h),
+      VMX (+ IA32_FEATURE_CONTROL lock/enable, EPT/VPID caps), SVM + NPT,
+      VT-d/AMD-Vi via DMAR/IVRS, ROADMAP sec. 9 matrix row, TCG caveat and
+      the physical-mount fallback verdict — verify the x86 boot log lines
+      (KVM/Xen/bare-metal wording still needs a real bare-metal run)
 
 ## v0.0.5 - M13 (graphics + interface freeze)
 
@@ -122,7 +126,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
-| 2026-09 | virt detection on UEFI: vendor/VMX/SVM/IOMMU + fallback verdict | PASS |
+| 2026-09 | virt detection on UEFI: vendor/VMX/SVM/EPT/NPT/IOMMU + matrix row + fallback verdict; MSR reads feature-gated; Intel-only MSR (microcode) vendor-gated | PASS |
 | 2026-09 | ACPI walker on UEFI: 5 tables, fadt/madt, cpus=1 | PASS |
 | 2026-09 | `tools/smoke-bios.sh` phase 2 (i686 interrupts: IDT/PIC/PIT) | PASS |
 | 2026-09 | serial heartbeats stop after 30 s; interactive shell clean | PASS |

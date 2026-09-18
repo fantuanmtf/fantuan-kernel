@@ -12,7 +12,7 @@ use crate::serial::{self, Serial};
 const RSDP_SIG: &[u8; 8] = b"RSD PTR ";
 const MAX_TABLES: usize = 64;
 
-#[allow(dead_code)] // fields are consumed by M12-6 (thermal) and M12-7 (virt)
+#[allow(dead_code)] // has_fadt/cpu_count reserved for M12-6 (thermal)
 pub struct Tables {
     pub revision: u8,
     pub count: usize,
