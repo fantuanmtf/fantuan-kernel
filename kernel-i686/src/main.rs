@@ -18,7 +18,9 @@ mod cpu;
 mod idt;
 mod pic;
 mod pit;
+mod demo;
 mod serial;
+mod task;
 
 core::arch::global_asm!(
     ".section .text.entry",
@@ -126,6 +128,10 @@ fn kmain(bi: *const BootInfo) -> ! {
     // interrupts for the PIT heartbeat.
     unsafe { asm!("int3") };
     serial::puts("demo: #BP handled and resumed\n");
+    task::init_arch();
+    kernel_core::task::init(0x80000);
+    task::spawn_demos();
+
     cpu::sti();
     serial::puts("interrupts: enabled\n");
 

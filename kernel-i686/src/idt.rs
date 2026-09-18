@@ -76,6 +76,7 @@ pub extern "C" fn isr_dispatch(vector: u32, error: u32) {
         let irq = vector - 32;
         if irq == 0 {
             pit::tick();
+            kernel_core::task::schedule();
         }
         pic::eoi(irq as u8);
         return;

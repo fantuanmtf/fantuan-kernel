@@ -43,10 +43,10 @@ done, M10 is half implemented).
 - [x] M10-4b2a i686 interrupts: IDT (48 vectors, generated stubs), PIC
       remap, PIT 100 Hz, exception demo with resume; `iretd`/iret-width and
       iret-frame bugs fixed — verify `tools/smoke-bios.sh` phase 2
-- [ ] M10-4b2b i686 core: GDT/TSS, kernel-owned page tables, scheduler
-      (32-bit context switch) — **BLOCKED on a custom-target codegen/stack
-      issue**, see "Known issues" below; the glue is written
-      (`kernel-i686/src/{task,demo}.rs`, `context.S`) but not wired.
+- [ ] M10-4b2b i686 core: scheduler wired and verified (two demo tasks
+      rotate, quiet, reap); remaining: GDT/TSS and kernel-owned page tables
+      for ring 3 (M10-4b3). The 2026-09 blocker was the shared ISR stub,
+      not the target JSON - see "Known issues" (now fixed).
 - [ ] M10-4b3 i686 user mode (ELF32, `int 0x80`)
 - [ ] M10-4a2 harden the 81 `as usize` sites for >4 GiB on-disk values
       (filesystem/ELF bounds checks; see `M10_BOOT_32BIT.md` 7.5)
@@ -136,43 +136,33 @@ Design: `M14_LINUXUSERS.md`.
 | 2026-09 | `tools/smoke-bios.sh` (M10-3, default no-SMAP CPU) | PASS |
 | 2026-09 | `tools/run.sh` x86_64 UEFI main phase (SMAP active) | PASS |
 | 2026-09 | riscv smoke (3 phases incl. repair YES/NO) | PASS |
+| 2026-09 | i686 scheduler after the ISR `popad` fix (2 tasks, 500 ticks, quiet) | PASS |
 | 2026-09 | x86 full suite `tools/smoke.sh` 13/13 | PASS (at v0.0.1) |
 
 ## Known issues
 
-- **i686 scheduler (M10-4b2b) blocked — custom-target ABI/codegen**: two
-  distinct problems found (2026-09-19):
-  1. *Fixed*: SeaBIOS leaves DF=1; the compiler uses `rep movsb` for struct
-     writes, so `set_ops` copied backwards and corrupted hooks. Both kernels
-     and stage2 now execute `cld` at the handoff (i686 entry + both stage2
-     paths). Verified DF=0 in-guest.
-  2. *Open*: with the scheduler wired, the setup loop leaks 24 bytes of
-     stack per iteration until ESP reaches 0x20000 (the page directory) and
-     the next push faults; with probes it printed ~16550 rounds. A clean
-     rebuild and the x86_64-none-style soft-float ABI (`+soft-float` +
-     `rustc-abi: softfloat`) both changed nothing, so it is not a stale
-     cache and not float-ABI related. Disassembly of the same clean build
-     shows `task::init(u64)` receiving its argument on the stack while
-     `serial::put_hex(u64)` receives it in ECX:EDX and reads the high word
-     from a different register than the caller sets - the hand-written i686
-     spec yields inconsistent i386 argument lowering inside one build
-     (likely missing `llvm-abiname`/`rustc-abi` nuance for i386 fastcc).
-     Next: build a minimal two-function repro (`fn f(u64)` vs `fn g(u64)`
-     called from a loop) and compare with a community bare-metal i686 spec,
-     or pin a target JSON from a known-good OS project. The glue stays
-     unwired; M10-4b2a is green.
+- **Fixed (2026-09): i686 scheduler "24 bytes per iteration" stack leak**.
+  Root cause was the shared ISR stub (`kernel-i686/src/isr_stubs.S`):
+  `add esp, 8` ran *before* `popad`, so every exception/IRQ return popped
+  the vector/error words into EDI/ESI/EBP/EBX/EDX/ECX/EAX. The exception
+  demo still returned to the right address (its `iretd` frame stayed
+  aligned), which hid the corruption until kmain used a register again:
+  after `int3`, ESI held the saved original ESP, so `init_arch` built the
+  `TaskOps` temporary below the live stack pointer, `push`/`call` overwrote
+  it, `set_ops` copied the garbage, and `init`'s `call [OPS+0xc]` jumped to
+  the 0xc10003b4 return address, re-running the setup in a loop that leaked
+  24 bytes per round (8 arg words + 4 call RA + 12 saved regs) until ESP
+  hit 0x20000. The earlier ABI/codegen theory was a red herring: i386
+  argument lowering is consistent between crates and the JSON data layout
+  matches `i686-unknown-linux-gnu`'s. The DF=1 `cld` fix from the same
+  investigation is still required. Fix: drop vector+error *after* `popad`;
+  `tools/smoke-bios.sh` phase 2 now asserts the demo tasks and their quiet
+  lines (PASS).
 - **riscv `uart::log_bytes` fault (one-off)**: one repair run (of three)
   crashed with `scause=0xd stval=0x766`; not reproduced since. Watch item.
 
-- riscv repair phase B crashed once (of three runs) with a load fault in
-  `kernel_riscv::uart::log_bytes` (`scause=0xd stval=0x766 sepc=0x80200c00`)
-  right after the fallback-copy message started printing. Two later runs
-  passed. Signature recorded for investigation (stack/static corruption
-  candidate; not reproduced yet) — treat as a flake to hunt in M10/M9.5
-  follow-ups.
-
 ## Next action
 
-**M10-4b2b**: i686 core — kernel-owned GDT/TSS and page tables plus the
-32-bit context switch, wiring `kernel_core::task` (spawn/sleep/reap) so the
-shared scheduler runs on 32-bit.
+**M10-4b3**: i686 ring 3 — GDT/TSS and kernel-owned page tables, ELF32
+user images and `int 0x80`; the 32-bit scheduler is already wired and
+green (M10-4b2b).

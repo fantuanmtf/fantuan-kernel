@@ -263,26 +263,33 @@ Still missing on i686 (M10-4b2+): GDT/IDT/PIC/PIT and interrupts, the
 kernel's own page tables (stage2's tables stay active), scheduler/user mode
 (ELF32, `int 0x80`) and VFS.
 
-### 7.7 i686 scheduler bring-up: codegen investigation (M10-4b2b, open)
+### 7.7 i686 scheduler bring-up: the ISR register-corruption bug (M10-4b2b, fixed)
 
-The 32-bit context switch and task glue are written
-(`kernel-i686/src/{task,demo}.rs` and `context.S`) but **not wired** yet:
+The 32-bit context switch and the task glue
+(`kernel-i686/src/{task,demo}.rs`, `context.S`) are wired and verified. The
+long investigation (2026-09) first blamed the hand-written target JSON, but
+the real root cause was in the shared ISR stub:
 
-- Symptom A: with the target JSON's `stack-probes: inline`, the kernel
-  writes kernel-image bytes (ISR table, core panic strings) to the serial,
-  and `kernel_core::task::init` executes with `ESP=0x20000` (the page
-  directory page) and faults on the next push.
-- Symptom B: `stack-probes: none` removes the wild ESP and the scheduler
-  runs to completion (two tasks interleave, 500 ticks, "scheduler
-  complete"), but residual binary noise still appears early in the log.
-- Leading suspect: the hand-written `targets/i686-fantuan-none.json`
-  spec (ABI/codegen fields). Next steps: diff against a known-good
-  bare-metal i686 spec, try `rustc-abi: softfloat`,
-  `main-needs-argc-argv: false`, and bisect spec fields with a minimal
-  binary; also check whether the kernel's `_start`/`rust_entry` split
-  needs `force-frame-pointers`.
-- M10-4b2a (IDT/PIC/PIT, exception resume) is unaffected and verified;
-  the scheduler is the remaining blocker before M10-4b3 (ELF32, ring 3).
+- `isr_common` ran `add esp, 8` **before** `popad`. That word-drop belongs
+  *after* `popad` (it removes the vector + error/dummy words so `iretd`
+  sees EIP/CS/EFLAGS). With the wrong order, `popad` restored every GPR
+  from shifted stack slots; only EIP/CS/EFLAGS happened to survive, so the
+  exception demo looked healthy while all registers were garbage on return.
+- Consequence once the scheduler was wired: after `int3`, ESI held the
+  saved original ESP, so `init_arch` built its `TaskOps` temporary below
+  the live stack pointer; the subsequent `push`/`call`/`set_ops` frame
+  overwrote it, `set_ops` copied the corrupt bytes, and `init`'s
+  `call [OPS+0xc]` (meant to be `kernel_vm_root`) jumped to the stale
+  return address 0xc10003b4, re-running the setup. Each round leaked 24
+  bytes of stack (8 argument words + 4 call return address + 12 saved
+  registers) until ESP reached 0x20000 and the next push faulted.
+- The ABI/codegen theory was disproven: i386 argument lowering is
+  consistent across crates, and the JSON data layout is identical to
+  `i686-unknown-linux-gnu`'s. The `stack-probes: none` and `cld` fixes from
+  the same investigation remain.
+- Fix: `popad` first, then `add esp, 8`, then `iretd`. `tools/smoke-bios.sh`
+  phase 2 asserts the rotating demo tasks, their quiet lines and the 500
+  ticks. Remaining for M10-4b3: GDT/TSS, kernel-owned page tables, ring 3.
 
 ## 8. Verification
 

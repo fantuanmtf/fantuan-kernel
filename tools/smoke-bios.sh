@@ -50,8 +50,11 @@ if grep -q "fantuan v0.0.1 (i686) - BIOS handoff" "$LOG2" \
    && grep -q "exc 3 (breakpoint) err=0x0" "$LOG2" \
    && grep -q "demo: #BP handled and resumed" "$LOG2" \
    && grep -q "timer: 500 ticks, exceptions=1" "$LOG2" \
+   && grep -q "task 1 (tid 1): hello 1" "$LOG2" \
+   && grep -q "task 2 (tid 2): hello 2" "$LOG2" \
+   && grep -q "task 1: quiet (scheduler keeps rotating)" "$LOG2" \
    && grep -q "i686: M10-4b2a interrupts complete" "$LOG2"; then
-  echo "SMOKE PASS (bios i686: BootInfo -> paging -> allocator -> IDT/PIC/PIT + exceptions)"
+  echo "SMOKE PASS (bios i686: BootInfo -> paging -> allocator -> IDT/PIC/PIT -> exceptions -> scheduler)"
   grep -aE "handshake ok|memmap: 6|base=0x100000|mm: frame|idt:|exc 3|demo:|timer: 500|i686:" "$LOG2" | head -10 || true
 else
   echo "SMOKE FAIL (bios i686) — log tail:"

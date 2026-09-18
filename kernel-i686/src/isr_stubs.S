@@ -79,9 +79,9 @@ isr_common:
     push edx
     push eax
     call isr_dispatch
-    add esp, 8
-    add esp, 8
+    add esp, 8            /* drop the two dispatch arguments        */
     popad
+    add esp, 8            /* drop vector + error/dummy, then iretd  */
     iretd
 
     .section .rodata

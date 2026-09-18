@@ -1,7 +1,8 @@
-//! i686 task glue (M10-4b2b) — NOT WIRED YET: the scheduler bring-up is
-//! blocked on a custom-target codegen/stack issue (see PROGRESS.md "Known
-//! issues" and docs/M10_BOOT_32BIT.md 7.7). Kept in-tree for the follow-up;
-//! re-declare `mod task;` in main.rs when the blocker is resolved.
+//! i686 task glue (M10-4b2b): wired and verified. The earlier "stack leak"
+//! was not a target-ABI problem: the shared ISR stub restored registers
+//! from the wrong stack offset (`add esp, 8` before `popad`), corrupting
+//! every GPR on exception/IRQ return. With that fixed the 32-bit scheduler
+//! rotates the demo tasks next to M10-4b2a.
 //!
 //! The 32-bit context switch and the TaskOps the shared scheduler needs.
 //! Per-task address spaces and the TSS arrive with ring 3 (M10-4b3); tasks
