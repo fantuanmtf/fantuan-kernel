@@ -15,7 +15,10 @@ pub fn in_user_copy() -> bool {
     IN_USER_COPY.load(Ordering::Relaxed)
 }
 
+/// Clear both the copy flag and SUM (called on the fault path, where the
+/// normal set_sum(false) after the copy is never reached).
 pub fn clear_user_copy() {
+    set_sum(false);
     IN_USER_COPY.store(false, Ordering::Relaxed);
 }
 

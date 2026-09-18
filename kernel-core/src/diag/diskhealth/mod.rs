@@ -9,8 +9,6 @@ extern "C" {
     fn blk_smart_read_data(dev: *mut c_void, out: *mut c_void) -> i32;
     /// ATA SMART READ LOG / NVMe Get Log Page (M8: NVMe SMART/Health = 0x02).
     fn blk_smart_read_log(dev: *mut c_void, page: u8, buf: *mut c_void, sectors: usize) -> i32;
-    #[allow(dead_code)]
-    fn blk_read(dev: *mut c_void, lba: u64, buf: *mut c_void, sectors: usize) -> i32;
 }
 
 // --- StorageId helpers (IDENTIFY decode) ---

@@ -2,6 +2,7 @@
 # Build order (x86_64): user program -> kernel (embeds it) -> bootloader.
 # --arch riscv64 builds only the RISC-V kernel (OpenSBI is the boot path).
 set -euo pipefail
+export PATH="$HOME/.cargo/bin:$PATH"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 

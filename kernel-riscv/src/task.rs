@@ -172,6 +172,7 @@ pub fn spawn_user(elf_image: &[u8]) -> Option<u64> {
     // User stack: contiguous frames mapped at USER_STACK_TOP - 16 KiB, RW.
     let Some(ustack_phys) = kernel_core::frame::get().alloc_contiguous(USER_STACK_PAGES as usize)
     else {
+        paging::free_user_root(root);
         cpu::irq_restore(flags);
         return None;
     };
@@ -189,6 +190,7 @@ pub fn spawn_user(elf_image: &[u8]) -> Option<u64> {
         for i in 0..USER_STACK_PAGES {
             kernel_core::frame::get().free(ustack_phys + i * 4096);
         }
+        paging::free_user_root(root);
         cpu::irq_restore(flags);
         return None;
     };

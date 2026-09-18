@@ -12,6 +12,7 @@
 #             NVRAM writes (SetVariable, M7.6) only work in this mode — the
 #             plain non-SMM OVMF build rejects them.
 set -euo pipefail
+export PATH="$HOME/.cargo/bin:$PATH"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"

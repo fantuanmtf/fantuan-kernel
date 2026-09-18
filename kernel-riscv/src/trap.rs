@@ -183,7 +183,7 @@ pub extern "C" fn trap_dispatch(tf: *mut TrapFrame, scause: u64, stval: u64) {
     }
 
     match code {
-        8 => {
+        8 if from_user => {
             // ecall from U-mode: a7 = number, a0..a4 = args, result in a0.
             let n = tf.regs[17];
             let args = [tf.regs[10], tf.regs[11], tf.regs[12], tf.regs[13], tf.regs[14]];

@@ -7,7 +7,20 @@ BSD diagnosis, Windows deferred.
 All repository artifacts are in English. The authoritative design lives in
 [docs/DESIGN.md](docs/DESIGN.md) — change it before changing code.
 
-## Current state: M7.6 + M7.7 + M7.8 + M5.5 + M8 (storage)
+## Current state: M9.4 — RISC-V port and the shared core
+
+M9 brings up a second architecture and splits the portable half of the
+kernel into `kernel-core`: the riscv64 kernel boots under OpenSBI (QEMU
+`virt`), builds Sv39 tables with an identity + PHYS_OFFSET alias, runs a
+trap frame + SBI timer + the shared scheduler, runs user tasks in U-mode
+with per-task roots (ELF loader from `kernel-core`, `ecall` syscalls,
+fault kill + reap), and speaks modern virtio-mmio for block storage. The
+shared VFS, disk probe table, read-only boot-repair diagnosis and the
+interactive shell all run on RISC-V; SMART is reported explicitly as
+unsupported for virtio, and UEFI/NVRAM paths degrade honestly (no runtime
+services there). x86 remains the product and keeps the full 13-phase smoke
+suite green through re-exports; see `docs/M9_KERNEL_v0.0.1.md` and the
+audit in `docs/M9_AUDIT.md`.
 
 M0-M6 are in: UEFI boot chain, interrupts, higher-half kernel + frame
 allocator, scheduler + syscall ABI, ring-3 user mode with an ELF loader,
@@ -51,19 +64,28 @@ the GPT + FAT32 test disk including the ESP fixture (`--broken` /
 - `kernel/` — minimal `no_std` Rust kernel (`x86_64-unknown-none`):
   BootInfo handshake validation, 16550 serial, PIT sleep + PC-speaker beeps,
   GOP framebuffer console with the embedded Spleen 8x16 font.
+- `kernel-core/` — the portable half shared by both kernels: frame
+  allocator, scheduler, syscall semantics, ELF loader, VFS, diagnostics,
+  boot repair and the shell, with per-arch hooks installed at boot.
+- `kernel-riscv/` — riscv64 kernel (`riscv64gc-unknown-none-elf`): Sv39
+  paging, traps, SBI timer, U-mode tasks and the virtio-mmio block driver
+  glue (`drivers/c/virtio_mmio.c`).
 - `abi/` — the versioned BootInfo ABI shared by both sides.
 
 ## Quickstart
 
-Requirements: Rust (stable) with targets `x86_64-unknown-uefi` +
-`x86_64-unknown-none`, QEMU, OVMF (`edk2-ovmf`), binutils (objcopy),
-python3 (font regeneration only).
+Requirements: Rust (stable) with targets `x86_64-unknown-uefi`,
+`x86_64-unknown-none` and `riscv64gc-unknown-none-elf`, QEMU (x86_64 and
+riscv64), OVMF (`edk2-ovmf`), binutils (objcopy), clang + llvm-ar (riscv C
+drivers), python3 (disk fixtures).
 
 ```sh
-rustup target add x86_64-unknown-uefi x86_64-unknown-none
-tools/run.sh              # headless: everything on the serial console
-tools/run.sh --graphics   # with a window (framebuffer console + serial on stdio)
-tools/smoke.sh            # CI-style: bounded run, greps for the handshake
+rustup target add x86_64-unknown-uefi x86_64-unknown-none riscv64gc-unknown-none-elf
+tools/run.sh                             # x86: serial console
+tools/run.sh --graphics                  # x86: window (GOP console)
+tools/run.sh --arch riscv64 --disk --two-fs   # riscv: OpenSBI + virtio-blk + shell
+tools/smoke.sh                           # x86 CI-style (13 phases)
+tools/smoke-riscv.sh                     # riscv CI-style (bounded, serial-fed shell)
 ```
 
 In QEMU, quit with `Ctrl-A X` (headless) or close the window.

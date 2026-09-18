@@ -5,12 +5,9 @@
 > the RISC-V bring-up (M9.0–M9.5) and the v0.0.1 release; DESIGN.md §14 holds
 > the architectural roadmap this plan implements.
 >
-> Progress: M9.0 (arch consolidation), M9.1/M9.2 (riscv boot, Sv39, FDT,
-> frame allocator, traps, SBI timer, scheduler + kernel-core extraction),
-> M9.3 (U-mode tasks, per-task Sv39 roots, ecall, fault kill/reap, FDT
-> diagnostics) and M9.4 (virtio-mmio storage, shared VFS/diag/boot-repair/
-> shell on RISC-V) are DONE and committed; M9.5 (audit) and the v0.0.1
-> release remain.
+> Progress: M9.0–M9.5 are DONE and committed; only the v0.0.1 release
+> (version bump + tag) remains. The M9.5 audit is recorded in
+> docs/M9_AUDIT.md.
 
 ## 1. Purpose and scope
 
@@ -194,6 +191,13 @@ Vulnerability review:
 | M9.5-16 | x86 hardening intact after refactors (NX/SMEP/SMAP, STAC/CLAC, RepairToken) | x86 smoke assertions |
 | M9.5-17 | read-only iron rule on both arches (no boot-path writes) | negative smoke greps |
 | M9.5-18 | crypto claims stay scoped (structure/self-consistency, no chain-trust claim) | docs wording |
+
+Status (M9.5): DONE. The audit report lives in docs/M9_AUDIT.md; fixed in
+this milestone: `sstatus.SUM` cleared on the user-copy fault path,
+`spawn_user` error paths free the user root, ecall handling gated on
+U-mode, stale allows removed, scripts export the cargo PATH, README/DESIGN
+updated. Recorded debt: serial/hex formatting duplication, run.sh flag
+prescan, and the riscv smoke gap list (see the audit).
 
 ## 10. Test matrix
 

@@ -113,17 +113,14 @@ pub fn format_line(
 
 /// Surface scan — opt-in from the shell (DESIGN.md §7 "off by default"),
 /// capped at 4 GiB per the rescue iron rule.
-#[allow(dead_code)]
 pub struct ScanResult {
     pub total_sectors: u64,
     pub slow_sectors: u64,
     pub read_errors: u64,
 }
 
-#[allow(dead_code)]
 const DEFAULT_CAP_GIB: u64 = 4;
 
-#[allow(dead_code)]
 pub fn surface_scan<F: FnMut(u64, u64)>(
     dev: *mut c_void,
     start_lba: u64,
