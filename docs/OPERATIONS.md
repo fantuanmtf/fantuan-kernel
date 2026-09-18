@@ -73,6 +73,21 @@ stays open so QEMU does not see EOF. The same technique drives phases B/C.
 x86 `run.sh` also rebuilds the ESP in `build/esp/` and objcopies the kernel
 to `build/esp/fantuan/kernel.bin` on every run.
 
+## 4.1 Manual (interactive) boot testing
+
+| Path | Command | What you get |
+|---|---|---|
+| UEFI x86_64 | `tools/run.sh` | full rescue stack: VFS, diagnostics, userland, interactive shell on serial |
+| UEFI x86_64 GUI | `tools/run.sh --graphics` | the same plus a GOP window (serial stays on stdio) |
+| BIOS x86_64 | `tools/run-bios.sh` | the M10 BIOS chain and an interactive shell; the image has no partitions, so `lsos`/`cat` report no filesystems |
+| BIOS i686 | `tools/run-bios.sh --arch i686` | the 32-bit bring-up lines (handoff, memmap, frame allocator); no shell until M10-4b2 |
+| RISC-V | `tools/run.sh --arch riscv64 --disk --two-fs` | OpenSBI + virtio-blk + VFS/shell |
+
+Useful shell commands: `help`, `bootinfo`, `lsos`, `diskhealth` (SMART needs
+AHCI/NVMe; the BIOS IDE path degrades), `cat <path>`. Quit QEMU with
+`Ctrl-A X`. For fixture variants (`--broken`, `--keys`, `--shell-repair`,
+`--nvme`, `--smm`) see the table below.
+
 ## 5. Driving and debugging a run
 
 - **Serial console**: `-nographic` maps it to your terminal; `Ctrl-A X` quits.
