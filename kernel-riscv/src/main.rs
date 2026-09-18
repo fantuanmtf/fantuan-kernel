@@ -135,6 +135,7 @@ fn build_bootinfo(mem: &fdt::MemInfo, hartid: usize, dtb: usize) -> &'static Boo
 
 #[no_mangle]
 pub extern "C" fn rust_entry(hartid: usize, dtb: usize) -> ! {
+    kernel_core::log::set_sink(uart::log_bytes);
     puts("fantuan (riscv64) M9.3 - OpenSBI S-mode bring-up\n");
     puts("boot: hartid=");
     put_hex(hartid as u64);

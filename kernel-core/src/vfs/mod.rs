@@ -6,7 +6,7 @@
 use core::fmt::Write;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use crate::serial::{self, Serial};
+use crate::log::Log;
 
 /// Repair mode: writes are impossible until this is explicitly enabled.
 /// The rescue iron rule — the kernel never writes what the user did not ask
@@ -156,7 +156,7 @@ fn fmt_name(name: &[u8; 11], buf: &mut [u8; 13]) -> usize {
 }
 
 pub fn init() -> Option<Vfs> {
-    let mut s = Serial::new(serial::COM1);
+    let mut s = Log::new();
     let Some(table) = part::parse(&mut s) else {
         return None;
     };
@@ -199,7 +199,7 @@ pub fn init() -> Option<Vfs> {
     fs.walk_dir(fs.root_cluster, |name, attr, cluster, size| {
         let mut buf = [0u8; 13];
         let n = fmt_name(name, &mut buf);
-        let mut s2 = Serial::new(serial::COM1);
+        let mut s2 = Log::new();
         let _ = write!(s2, "vfs: root: ");
         let _ = s2.write(&buf[..n]);
         let _ = writeln!(s2, " {} bytes{}", size, if attr & 0x10 != 0 { " (dir)" } else { "" });

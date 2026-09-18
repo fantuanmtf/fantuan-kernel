@@ -35,6 +35,23 @@ pub fn write_locked(buf: &[u8]) -> usize {
 }
 
 /// Minimal no-formatting debug helpers (used on paths where fmt is unwelcome).
+/// Byte sink for the shared logger (expands LF to CRLF, like line()).
+pub fn log_bytes(buf: &[u8]) {
+    let mut start = 0;
+    for (i, &b) in buf.iter().enumerate() {
+        if b == b'\n' {
+            if start < i {
+                write_locked(&buf[start..i]);
+            }
+            write_locked(b"\r\n");
+            start = i + 1;
+        }
+    }
+    if start < buf.len() {
+        write_locked(&buf[start..]);
+    }
+}
+
 pub fn line(s: &str) {
     let ser = Serial::new(COM1);
     let _ = ser.write(s.as_bytes());

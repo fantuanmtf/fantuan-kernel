@@ -13,6 +13,16 @@ pub fn uart_putc(c: u8) {
     unsafe { core::ptr::write_volatile(base as *mut u8, c) }
 }
 
+/// Byte sink for the shared logger (LF -> CRLF, like puts).
+pub fn log_bytes(buf: &[u8]) {
+    for &b in buf {
+        if b == b'\n' {
+            uart_putc(b'\r');
+        }
+        uart_putc(b);
+    }
+}
+
 pub fn puts(s: &str) {
     for b in s.bytes() {
         if b == b'\n' {

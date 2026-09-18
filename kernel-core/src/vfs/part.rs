@@ -4,7 +4,7 @@
 use core::ffi::c_void;
 use core::fmt::Write;
 
-use crate::serial::Serial;
+use crate::log::Log;
 
 extern "C" {
     fn blk_read(dev: *mut c_void, lba: u64, buf: *mut c_void, sectors: usize) -> i32;
@@ -45,7 +45,7 @@ fn read_sector(lba: u64, buf: &mut [u8; 512]) -> bool {
     unsafe { blk_read(core::ptr::null_mut(), lba, buf.as_mut_ptr() as *mut c_void, 1) == 0 }
 }
 
-pub fn parse(s: &mut Serial) -> Option<Table> {
+pub fn parse(s: &mut Log) -> Option<Table> {
     let mut lba0 = [0u8; 512];
     let mut lba1 = [0u8; 512];
     if !read_sector(0, &mut lba0) || !read_sector(1, &mut lba1) {
@@ -61,7 +61,7 @@ pub fn parse(s: &mut Serial) -> Option<Table> {
     }
 }
 
-fn parse_gpt(s: &mut Serial, hdr: &[u8; 512]) -> Option<Table> {
+fn parse_gpt(s: &mut Log, hdr: &[u8; 512]) -> Option<Table> {
     let entries_lba = u64::from_le_bytes(hdr[72..80].try_into().ok()?);
     let num_entries = u32::from_le_bytes(hdr[80..84].try_into().ok()?) as usize;
     let _ = writeln!(s, "  part: GPT, {} entries at LBA {}", num_entries, entries_lba);
@@ -96,7 +96,7 @@ fn parse_gpt(s: &mut Serial, hdr: &[u8; 512]) -> Option<Table> {
     Some(table)
 }
 
-fn parse_mbr(s: &mut Serial, lba0: &[u8; 512]) -> Option<Table> {
+fn parse_mbr(s: &mut Log, lba0: &[u8; 512]) -> Option<Table> {
     let _ = writeln!(s, "  part: MBR partition table");
     let mut table = Table {
         kind: TableKind::Mbr,

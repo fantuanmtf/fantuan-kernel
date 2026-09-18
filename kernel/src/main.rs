@@ -45,7 +45,7 @@ mod shell;
 mod smbios;
 mod task;
 mod timer;
-mod vfs;
+pub use kernel_core::vfs;
 
 // The arch layer keeps the historical crate::<module> paths for the
 // generic core (M9.0); riscv64 gets its own implementations in M9.1.
@@ -60,6 +60,8 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     // Output channel 1: serial (16550 COM1), 115200 8N1.
     let mut s = serial();
     s.init();
+    // Shared (kernel-core) diagnostics log through the serial sink.
+    kernel_core::log::set_sink(crate::serial::log_bytes);
 
     // Handshake: validate what the bootloader handed over (DESIGN.md §4).
     if bi.magic != BOOT_MAGIC || bi.version != BOOT_VERSION {

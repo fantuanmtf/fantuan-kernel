@@ -22,7 +22,7 @@ mod sb;
 use core::ffi::c_void;
 use core::fmt::Write;
 
-use crate::serial::Serial;
+use crate::log::Log;
 
 extern "C" {
     fn blk_read(dev: *mut c_void, lba: u64, buf: *mut c_void, sectors: usize) -> i32;
@@ -117,7 +117,7 @@ impl Ext4 {
     }
 
     /// Print a one-line summary (diagnostics + boot repair).
-    pub fn describe(&self, s: &mut Serial) {
+    pub fn describe(&self, s: &mut Log) {
         let label = core::str::from_utf8(&self.label).unwrap_or("?").trim_end_matches('\0');
         let uuid = guid_text(&self.uuid);
         let uuid_text = core::str::from_utf8(&uuid).unwrap_or("?");

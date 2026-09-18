@@ -9,7 +9,7 @@ use core::fmt::Write;
 
 use super::part;
 use super::{find_path, to_8_3};
-use crate::serial::{self, Serial};
+use crate::log::Log;
 
 extern "C" {
     fn blk_read(dev: *mut c_void, lba: u64, buf: *mut c_void, sectors: usize) -> i32;
@@ -203,7 +203,7 @@ pub fn probe_table() -> &'static [FsProbeEntry] {
 /// actually mounted; ROOT_MOUNTED is the ext4 partition mounted at
 /// /mnt/root0 (M6.5) — only those may claim a mounted entry.
 pub unsafe fn init(table: &part::Table, fat_mounted: usize, root_mounted: Option<usize>) {
-    let mut s = Serial::new(serial::COM1);
+    let mut s = Log::new();
     let mut count = 0usize;
     for (pi, p) in table.parts[..table.count].iter().enumerate() {
         if count >= MAX_ENTRIES {
