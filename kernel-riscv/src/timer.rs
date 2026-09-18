@@ -46,15 +46,19 @@ fn arm(next: u64) {
     }
 }
 
-/// Interrupt handler: count, re-arm, heartbeat every 10 s.
+/// Heartbeats are a boot-verification aid: after the first 30 s they would
+/// only interrupt the interactive shell prompt, so they stop.
+const HEARTBEAT_TICKS: u64 = 3_000;
+
 pub fn ticks() -> u64 {
     TICKS.load(Ordering::Relaxed)
 }
 
+/// Interrupt handler: count, re-arm, heartbeat every 10 s (first 30 s only).
 pub fn tick() {
     let t = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
     arm(unsafe { NEXT } + interval());
-    if t % 1000 == 0 {
+    if t % 1000 == 0 && t <= HEARTBEAT_TICKS {
         puts("tick: ");
         put_dec(t / 100);
         puts(" s (SBI timer, interrupts on)\n");

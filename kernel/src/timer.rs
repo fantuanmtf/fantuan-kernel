@@ -12,10 +12,14 @@ use crate::task;
 
 static TICKS: AtomicU64 = AtomicU64::new(0);
 
+/// Heartbeats are a boot-verification aid: after the first 30 s they would
+/// only interrupt the interactive shell prompt, so they stop.
+const HEARTBEAT_TICKS: u64 = 3_000;
+
 /// Called from the IRQ0 handler (interrupts.rs).
 pub fn tick() {
     let n = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
-    if n % 1000 == 0 {
+    if n % 1000 == 0 && n <= HEARTBEAT_TICKS {
         let mut s = Serial::new(serial::COM1);
         let _ = writeln!(s, "tick: {} s (switches {})", n / 100, task::SWITCHES.load(Ordering::Relaxed));
     }

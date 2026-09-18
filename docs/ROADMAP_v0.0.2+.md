@@ -114,6 +114,12 @@ Design: `M14_LINUXUSERS.md` (written before code).
 
 - **POSIX layer (F4)**: fork/execve/wait4, signals, pipes, futex, mmap/brk +
   COW, tmpfs, minimal `/dev` and `/proc`; a musl port; toybox (0BSD); bmake.
+- **Full shell and utilities**: the built-in rescue shell (DESIGN §10) stays
+  minimal by design; a complete Bash-style command set arrives as a
+  *userspace* program here. Evaluate, in order: toybox `sh` + applets,
+  `dash`, then `bash` compiled against musl in-system (or shipped in the
+  developer image); operators on the built-in shell keep the twelve rescue
+  commands until then. Tracked as M14-8.
 - **Bootstrap (F7)**: the image ships a cross-built seed (tcc + nasm,
   musl, toybox, bmake); in-system, tcc rebuilds itself and then builds NASM,
   after which C userland sources are compiled on target. The C++ seed

@@ -99,6 +99,8 @@ Design: `M14_LINUXUSERS.md`.
 - [ ] M14-5 seed/self-host chain + `/bootstrap.sh` + reproducibility hash
 - [ ] M14-6 C++ seed (clang) in the developer image
 - [ ] M14-7 hypervisor V2 (VMX first, then SVM) + guest serial
+- [ ] M14-8 full POSIX shell: toybox sh / dash / bash over the native ABI
+      (the built-in shell keeps the 12 rescue commands)
 
 ## v0.1.5 - M15 (desktop + isolation + MinGW)
 
@@ -113,6 +115,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | serial heartbeats stop after 30 s; interactive shell clean | PASS |
 | 2026-09 | `tools/smoke-bios.sh` phase 2 (i686 handoff + frame allocator) | PASS |
 | 2026-09 | `tools/smoke-riscv.sh` 3 phases (after the 32-bit ABI split) | PASS |
 | 2026-09 | `kernel-core` 32-bit target build (nightly build-std) | PASS |
