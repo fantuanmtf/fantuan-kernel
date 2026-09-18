@@ -35,22 +35,35 @@ fn push_u64(buf: &mut [u8], mut off: usize, mut v: u64) -> usize {
 }
 
 /// Every task: report its identity through the syscall layer, then sleep
-/// (woken by the scheduler's deadline check).
+/// (woken by the scheduler's deadline check). Printing stops after a few
+/// rounds so an interactive shell on the same console is not flooded; the
+/// tasks keep sleeping so the scheduler still has work to rotate.
+const DEMO_PRINTS: u64 = 3;
+
 fn demo_task(tag: u64) -> ! {
     let mut n = 0u64;
     loop {
-        let tid = syscall::syscall(syscall::SYS_GET_TID, 0, 0, 0, 0, 0);
-        let mut buf = [0u8; 96];
-        let mut off = 0;
-        off = push_str(&mut buf, off, "task ");
-        off = push_u64(&mut buf, off, tag);
-        off = push_str(&mut buf, off, " (tid ");
-        off = push_u64(&mut buf, off, tid);
-        off = push_str(&mut buf, off, "): hello ");
-        off = push_u64(&mut buf, off, n);
-        buf[off] = b'\n';
-        off += 1;
-        syscall::syscall(syscall::SYS_WRITE, buf.as_ptr() as u64, off as u64, 0, 0, 0);
+        if n < DEMO_PRINTS {
+            let tid = syscall::syscall(syscall::SYS_GET_TID, 0, 0, 0, 0, 0);
+            let mut buf = [0u8; 96];
+            let mut off = 0;
+            off = push_str(&mut buf, off, "task ");
+            off = push_u64(&mut buf, off, tag);
+            off = push_str(&mut buf, off, " (tid ");
+            off = push_u64(&mut buf, off, tid);
+            off = push_str(&mut buf, off, "): hello ");
+            off = push_u64(&mut buf, off, n);
+            buf[off] = b'\n';
+            off += 1;
+            syscall::syscall(syscall::SYS_WRITE, buf.as_ptr() as u64, off as u64, 0, 0, 0);
+        } else if n == DEMO_PRINTS {
+            let mut buf = [0u8; 64];
+            let mut off = 0;
+            off = push_str(&mut buf, off, "task ");
+            off = push_u64(&mut buf, off, tag);
+            off = push_str(&mut buf, off, ": quiet (scheduler keeps rotating)\n");
+            syscall::syscall(syscall::SYS_WRITE, buf.as_ptr() as u64, off as u64, 0, 0, 0);
+        }
         n += 1;
         // Different periods per task; the scheduler's deadline check wakes us.
         syscall::syscall(syscall::SYS_SLEEP_MS, 250 + tag * 150, 0, 0, 0, 0);
