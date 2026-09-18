@@ -13,7 +13,8 @@ pub fn set_irq_ops(save: fn() -> u64, restore: fn(u64)) {
     RESTORE.store(restore as usize, Ordering::Release);
 }
 
-fn irq_save() -> u64 {
+/// Save and disable interrupts (arch hook; no-op until installed).
+pub fn irq_save() -> u64 {
     let p = SAVE.load(Ordering::Acquire);
     if p == 0 {
         return 0;
@@ -22,7 +23,8 @@ fn irq_save() -> u64 {
     f()
 }
 
-fn irq_restore(flags: u64) {
+/// Restore the interrupt state saved by irq_save.
+pub fn irq_restore(flags: u64) {
     let p = RESTORE.load(Ordering::Acquire);
     if p == 0 {
         return;

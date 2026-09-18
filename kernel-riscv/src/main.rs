@@ -19,9 +19,11 @@ use fantuan_abi::{
 };
 
 mod cpu;
+mod demo;
 mod fdt;
 mod paging;
 mod sbi;
+mod task;
 mod timer;
 mod trap;
 
@@ -293,6 +295,14 @@ extern "C" fn high_main() -> ! {
     puts("trap: resumed after ebreak\n");
     timer::init(unsafe { TIMEBASE_HZ });
     puts("timer: SBI timer armed at 100 Hz\n");
+
+    // M9.2c: shared scheduler + two kernel demo tasks.
+    task::init_arch();
+    let boot_stack_top = paging::phys_to_virt(core::ptr::addr_of!(BOOT_STACK_TOP) as u64);
+    kernel_core::task::init(boot_stack_top);
+    kernel_core::task::spawn(demo::demo_1);
+    kernel_core::task::spawn(demo::demo_2);
+    puts("sched: 2 riscv kernel tasks spawned\n");
     park()
 }
 

@@ -4,6 +4,10 @@
 > (DESIGN.md governing principle 5). This file is the working checklist for
 > the RISC-V bring-up (M9.0–M9.5) and the v0.0.1 release; DESIGN.md §14 holds
 > the architectural roadmap this plan implements.
+>
+> Progress: M9.0 (arch consolidation) and M9.1/M9.2 (riscv boot, Sv39, FDT,
+> frame allocator, traps, SBI timer, scheduler + kernel-core extraction) are
+> DONE and committed; M9.3–M9.5 and the v0.0.1 release remain.
 
 ## 1. Purpose and scope
 

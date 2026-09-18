@@ -3,7 +3,7 @@
 //! same place the x86 IRQ0 handler calls its tick.
 
 use core::arch::asm;
-use core::sync::atomic::AtomicU64;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::sbi;
 use crate::{put_dec, puts};
@@ -47,12 +47,18 @@ fn arm(next: u64) {
 }
 
 /// Interrupt handler: count, re-arm, heartbeat every 10 s.
+pub fn ticks() -> u64 {
+    TICKS.load(Ordering::Relaxed)
+}
+
 pub fn tick() {
-    let t = TICKS.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1;
+    let t = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
     arm(unsafe { NEXT } + interval());
     if t % 1000 == 0 {
         puts("tick: ");
         put_dec(t / 100);
         puts(" s (SBI timer, interrupts on)\n");
     }
+    // The scheduler runs from the trap context, exactly like x86 IRQ0.
+    kernel_core::task::schedule();
 }

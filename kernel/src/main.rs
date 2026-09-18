@@ -198,6 +198,7 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     // --- M3: kernel tasks + syscall ABI ------------------------------------
     let abi = syscall::syscall(syscall::SYS_VERSION, 0, 0, 0, 0, 0);
     let _ = writeln!(s, "syscall: ABI v{} (int 0x60, versioned dispatch)", abi);
+    task::init_arch();
     task::init(bi.stack_top);
     task::spawn(demo::demo_1);
     task::spawn(demo::demo_2);
