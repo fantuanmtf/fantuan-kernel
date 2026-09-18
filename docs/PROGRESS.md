@@ -10,7 +10,7 @@
 | Version | Milestone | Progress | Verified by |
 |---|---|---|---|
 | v0.0.1 | M0-M9 (x86_64 rescue + RISC-V port) | `[##########] 100%` | tag `v0.0.1` (local) |
-| v0.0.2 | M10 legacy BIOS boot + i686 | `[######----] 55%` | `smoke-bios.sh`, UEFI smoke |
+| v0.0.2 | M10 legacy BIOS boot + i686 | `[#######---] 65%` | `smoke-bios.sh` (2 phases), UEFI/RISC-V smokes |
 | v0.0.3 | M11 ARM64 + full TCP/HTTPS | `[#---------] 10%` | design only |
 | v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[#---------] 10%` | design only |
 | v0.0.5 | M13 graphics/input + interface freeze | `[#---------] 10%` | design only |
@@ -37,11 +37,15 @@ done, M10 is half implemented).
       ABI gained the i686 `PHYS_OFFSET` (0xC000_0000) and the UEFI status
       constant became width-adaptive. Remaining cast hardening for >4 GiB
       on-disk values is tracked as M10-4a2 under M10-4c
-- [ ] M10-4b `kernel-i686` crate bring-up (32-bit paging, GDT/IDT/PIC/PIT,
-      serial, scheduler)
+- [x] M10-4b1 `kernel-i686` crate + BIOS handoff: protected-mode stub->
+      paging (PSE) -> 32-bit BootInfo -> shared frame allocator (510 MiB)
+      - verify `tools/smoke-bios.sh` phase 2
+- [ ] M10-4b2 i686 core: GDT/IDT/PIC/PIT + interrupts, kernel-owned page
+      tables, scheduler
+- [ ] M10-4b3 i686 user mode (ELF32, `int 0x80`)
 - [ ] M10-4a2 harden the 81 `as usize` sites for >4 GiB on-disk values
       (filesystem/ELF bounds checks; see `M10_BOOT_32BIT.md` 7.5)
-- [ ] M10-4c i686 user mode (ELF32, `int 0x80`) + VFS on the test disk
+- [ ] M10-4c i686 VFS on the test disk (after b3)
 - [ ] M10-5 VBE framebuffer console on BIOS (optional; serial is the base)
 - [ ] M10-6 hybrid ISO image builder with the 1 GB size check
 - [ ] M10-7 docs (Windows-unsupported/PE, boot + support matrices), i686
@@ -109,14 +113,24 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | `tools/smoke-bios.sh` phase 2 (i686 handoff + frame allocator) | PASS |
+| 2026-09 | `tools/smoke-riscv.sh` 3 phases (after the 32-bit ABI split) | PASS |
 | 2026-09 | `kernel-core` 32-bit target build (nightly build-std) | PASS |
 | 2026-09 | `tools/smoke-bios.sh` (M10-3, default no-SMAP CPU) | PASS |
 | 2026-09 | `tools/run.sh` x86_64 UEFI main phase (SMAP active) | PASS |
 | 2026-09 | riscv smoke (3 phases incl. repair YES/NO) | PASS |
 | 2026-09 | x86 full suite `tools/smoke.sh` 13/13 | PASS (at v0.0.1) |
 
+## Known intermittent issue
+
+- riscv repair phase B crashed once (of three runs) with a load fault in
+  `kernel_riscv::uart::log_bytes` (`scause=0xd stval=0x766 sepc=0x80200c00`)
+  right after the fallback-copy message started printing. Two later runs
+  passed. Signature recorded for investigation (stack/static corruption
+  candidate; not reproduced yet) — treat as a flake to hunt in M10/M9.5
+  follow-ups.
+
 ## Next action
 
-**M10-4b**: create the `kernel-i686` crate (pinned nightly, custom target)
-with 32-bit paging, GDT/IDT/PIC/PIT and serial bring-up, then extend stage2
-to enter protected mode and hand over a 32-bit BootInfo (`arch = 3`).
+**M10-4b2**: i686 core bring-up — GDT/IDT/PIC remap/PIT tick, the kernel's
+own page tables, and the scheduler on 32-bit.

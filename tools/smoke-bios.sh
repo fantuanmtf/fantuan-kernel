@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
-# M10 BIOS smoke: build the self-written boot image and boot the x86_64
-# kernel under SeaBIOS with the *default* QEMU CPU (no SMEP/SMAP) so the
-# old-machine degradation paths are exercised, not hidden by -cpu max.
+# M10 BIOS smoke: builds both BIOS images and boots them under SeaBIOS with
+# the *default* QEMU CPU (no SMEP/SMAP), exercising the old-machine paths.
+#   phase 1: x86_64 kernel (M10-3) -> tasks, userland, shell
+#   phase 2: i686 kernel (M10-4)   -> handoff, memmap, frame allocator
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 export PATH="$HOME/.cargo/bin:$PATH"
 
+run() { # image log timeout
+  timeout --signal=KILL "$3" qemu-system-x86_64 -machine pc -m 512M \
+    -drive format=raw,file="$1" -nographic -no-reboot \
+    < /dev/null > "$2" 2>&1 || true
+}
+
+echo "[phase 1] x86_64 BIOS kernel..."
+./tools/build-bios.sh > /dev/null
 LOG="build/smoke-bios.log"
 rm -f "$LOG"
-./tools/build-bios.sh > /dev/null
-timeout --signal=KILL 60 qemu-system-x86_64 -machine pc -m 512M \
-  -drive format=raw,file=build/bios.img -nographic -no-reboot \
-  < /dev/null > "$LOG" 2>&1 || true
-
+run build/bios.img "$LOG" 60
 if grep -q "fantuan-bios stage2 (M10-3)" "$LOG" \
    && grep -q "memmap: descriptors=" "$LOG" \
    && grep -q "handshake ok: magic=0x46544e46 version=2" "$LOG" \
@@ -23,10 +28,29 @@ if grep -q "fantuan-bios stage2 (M10-3)" "$LOG" \
    && grep -q "mmu: nx true smep false smap false" "$LOG" \
    && grep -q "userland: hello from tid" "$LOG" \
    && grep -q "shell: ready" "$LOG"; then
-  echo "SMOKE PASS (bios: MBR -> LBA -> E820 -> BootInfo -> ATA kernel load -> long mode -> kernel + userland + shell)"
-  grep -aE "stage2|memmap: descriptors|handshake ok|console:|reclaimed|mmu:|userland: hello|shell: ready" "$LOG" | head -12 || true
+  echo "SMOKE PASS (bios x86_64: MBR -> LBA -> E820 -> BootInfo -> ATA -> long mode -> kernel/tasks/shell)"
 else
-  echo "SMOKE FAIL (bios) — log tail:"
+  echo "SMOKE FAIL (bios x86_64) — log tail:"
   tail -25 "$LOG"
+  exit 1
+fi
+
+echo "[phase 2] i686 BIOS kernel..."
+./tools/build-bios.sh --arch i686 > /dev/null
+LOG2="build/smoke-bios-i686.log"
+rm -f "$LOG2"
+run build/bios-i686.img "$LOG2" 30
+if grep -q "fantuan v0.0.1 (i686) - BIOS handoff" "$LOG2" \
+   && grep -q "handshake ok: arch=3 kernel_base=0x1000000 stack_top=0x80000" "$LOG2" \
+   && grep -q "memmap: 6 descriptors" "$LOG2" \
+   && grep -q "base=0x100000 pages=130784 type=7" "$LOG2" \
+   && grep -q "mm: frame allocator ready: 510 MiB usable" "$LOG2" \
+   && grep -q "mm: frame self-test ok (via PHYS_OFFSET alias)" "$LOG2" \
+   && grep -q "i686: M10-4b bring-up complete" "$LOG2"; then
+  echo "SMOKE PASS (bios i686: protected mode -> 32-bit BootInfo -> paging -> shared frame allocator)"
+  grep -aE "handshake ok|memmap: 6|base=0x100000|mm: frame|i686:" "$LOG2" | head -6 || true
+else
+  echo "SMOKE FAIL (bios i686) — log tail:"
+  tail -25 "$LOG2"
   exit 1
 fi

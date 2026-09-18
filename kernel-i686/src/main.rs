@@ -1,0 +1,133 @@
+//! kernel-i686 (M10): 32-bit x86 bring-up from the self-written BIOS chain.
+//! Entry contract (stage2): flat protected mode, paging on (identity + the
+//! 0xC0000000 alias), `_start` called with the BootInfo physical pointer on
+//! the stack, esp = 0x80000. Paging, interrupts and scheduling arrive in the
+//! following M10-4 steps; this brings the handoff, memmap and the shared
+//! frame allocator up on 32-bit.
+
+#![no_std]
+#![no_main]
+
+use core::arch::asm;
+use core::panic::PanicInfo;
+use core::ptr::addr_of_mut;
+
+use fantuan_abi::{BootInfo, BOOT_MAGIC, BOOT_VERSION, PHYS_OFFSET};
+
+mod serial;
+
+core::arch::global_asm!(
+    ".section .text.entry",
+    ".global _start",
+    "_start:",
+    "  mov dx, 0x3F8",
+    "  mov al, 0x58",       // 'X': entry reached
+    "  out dx, al",
+    "  jmp rust_entry",
+);
+
+extern "C" {
+    static mut __bss_start: u8;
+    static mut __bss_end: u8;
+}
+
+#[panic_handler]
+fn panic(_: &PanicInfo) -> ! {
+    serial::puts("PANIC: kernel-i686\n");
+    halt()
+}
+
+fn halt() -> ! {
+    loop {
+        unsafe { asm!("hlt", options(nomem, nostack)) }
+    }
+}
+
+#[no_mangle]
+#[link_section = ".text.start"]
+pub extern "C" fn rust_entry(bi: *const BootInfo) -> ! {
+    // objcopy -O binary drops NOBITS: zero .bss before any Rust static is used.
+    unsafe {
+        let s = addr_of_mut!(__bss_start) as usize;
+        let e = addr_of_mut!(__bss_end) as usize;
+        let mut p = s;
+        while p < e {
+            *(p as *mut u8) = 0;
+            p += 1;
+        }
+    }
+    serial::init();
+    kernel_core::log::set_sink(serial::log_bytes);
+    kmain(bi)
+}
+
+fn irq_save() -> u64 {
+    let flags: u32;
+    unsafe { asm!("pushfd", "pop {}", out(reg) flags, options(nomem)) };
+    unsafe { asm!("cli", options(nomem, nostack)) };
+    flags as u64
+}
+
+fn irq_restore(flags: u64) {
+    if flags & 0x200 != 0 {
+        unsafe { asm!("sti", options(nomem, nostack)) };
+    }
+}
+
+fn phys_to_virt(p: u64) -> u64 {
+    PHYS_OFFSET + p
+}
+
+fn kmain(bi: *const BootInfo) -> ! {
+    let bi = unsafe { &*bi };
+    serial::puts("\nfantuan v0.0.1 (i686) - BIOS handoff\n");
+
+    if bi.magic != BOOT_MAGIC || bi.version != BOOT_VERSION {
+        serial::puts("fatal: bad handshake\n");
+        halt();
+    }
+    serial::puts("handshake ok: arch=");
+    serial::put_dec(bi.arch as u64);
+    serial::puts(" kernel_base=");
+    serial::put_hex(bi.kernel_base);
+    serial::puts(" stack_top=");
+    serial::put_hex(bi.stack_top);
+    serial::puts("\n");
+
+    serial::puts("memmap: ");
+    serial::put_dec(bi.memmap.count as u64);
+    serial::puts(" descriptors\n");
+    for i in 0..bi.memmap.count {
+        let d = unsafe { &*bi.memmap.ptr.add(i) };
+        serial::puts("  base=");
+        serial::put_hex(d.physical_start);
+        serial::puts(" pages=");
+        serial::put_dec(d.number_of_pages);
+        serial::puts(" type=");
+        serial::put_dec(d.type_ as u64);
+        serial::puts("\n");
+    }
+
+    kernel_core::arch::set_irq_ops(irq_save, irq_restore);
+    kernel_core::mem::set_phys_to_virt(phys_to_virt);
+    let kernel_end_phys = addr_of_mut!(__bss_end) as u64 - PHYS_OFFSET;
+    kernel_core::frame::init(bi, kernel_end_phys, &[]);
+    serial::puts("mm: frame allocator ready: ");
+    serial::put_dec(kernel_core::frame::get().usable_mib());
+    serial::puts(" MiB usable\n");
+
+    if let Some(f) = kernel_core::frame::get().alloc() {
+        let probe = phys_to_virt(f) as *mut u64;
+        unsafe { probe.write_volatile(0x0BAD_F00D) };
+        let ok = unsafe { probe.read_volatile() } == 0x0BAD_F00D;
+        kernel_core::frame::get().free(f);
+        serial::puts(if ok {
+            "mm: frame self-test ok (via PHYS_OFFSET alias)\n"
+        } else {
+            "mm: frame self-test FAILED\n"
+        });
+    }
+
+    serial::puts("i686: M10-4b bring-up complete\n");
+    halt()
+}

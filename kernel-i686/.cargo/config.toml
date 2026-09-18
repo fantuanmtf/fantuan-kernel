@@ -1,0 +1,5 @@
+[build]
+target = "../targets/i686-fantuan-none.json"
+[unstable]
+build-std = ["core"]
+json-target-spec = true

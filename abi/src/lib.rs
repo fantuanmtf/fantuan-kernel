@@ -51,11 +51,14 @@ pub const USER_STACK_TOP: u64 = 0x300000 + 4 * 4096;
 /// EFI memory type for free, usable RAM.
 pub const MEMORY_TYPE_CONVENTIONAL: u32 = 7;
 
-/// Must match the EFI_MEMORY_DESCRIPTOR layout the firmware returns.
+/// Must match the EFI_MEMORY_DESCRIPTOR layout the firmware returns. The
+/// explicit pad keeps the offsets identical on 32-bit targets, where a u64
+/// field would otherwise align to 4 bytes (M10 i686).
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct MemoryDescriptor {
     pub type_: u32,
+    pub _pad0: u32,
     pub physical_start: u64,
     pub virtual_start: u64,
     pub number_of_pages: u64,
@@ -81,8 +84,8 @@ pub struct FrameBuffer {
     pub format: u32, // 0=RGB8 1=BGR8 2=bitmask
 }
 
+#[cfg(target_pointer_width = "64")]
 #[repr(C)]
-#[derive(Clone, Copy)]
 pub struct BootInfo {
     pub magic: u32,
     pub version: u32,
@@ -109,10 +112,34 @@ pub struct BootInfo {
     /// publishes none. The kernel parses the structure table from here.
     pub smbios_table: u64,
     // M9.2 additions (append-only):
-    /// Boot path discriminator: 1 = x86_64 UEFI, 2 = riscv64 OpenSBI.
+    /// Boot path discriminator: 1 = x86_64 UEFI, 2 = riscv64 OpenSBI,
+    /// 3 = BIOS (x86_64 or i686).
     pub arch: u32,
     /// RISC-V: hart id from the OpenSBI handoff (0 on x86_64).
     pub hartid: u64,
     /// RISC-V: physical DTB address from the OpenSBI handoff (0 on x86_64).
+    pub dtb: u64,
+}
+
+/// 32-bit BootInfo (i686 BIOS): the same field order with pointer-width
+/// `usize` fields and 4-byte u64 alignment. Stage2 writes these offsets for
+/// the i686 build (docs/M10_BOOT_32BIT.md 7.6).
+#[cfg(target_pointer_width = "32")]
+#[repr(C)]
+pub struct BootInfo {
+    pub magic: u32,
+    pub version: u32,
+    pub memmap: MemMap,
+    pub fb: FrameBuffer,
+    pub rsdp: u64,
+    pub kernel_base: u64,
+    pub stack_top: u64,
+    pub caps: u64,
+    pub boot_pml4: u64,
+    pub boot_tables_pages: u64,
+    pub runtime_services: u64,
+    pub smbios_table: u64,
+    pub arch: u32,
+    pub hartid: u64,
     pub dtb: u64,
 }

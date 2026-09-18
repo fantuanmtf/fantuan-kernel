@@ -20,8 +20,11 @@ ORG 0x8000
 %define KERNEL_PHYS 0x1000000
 %define STACK_TOP 0x80000
 %define PML4_PHYS 0x20000
-%define BOOT_TABLES_PAGES 13
+%ifdef I686
+%define KERNEL_ENTRY 0xC1000000
+%else
 %define KERNEL_ENTRY 0xFFFF800001000000
+%endif
 
 start:
     mov [boot_drive], dl

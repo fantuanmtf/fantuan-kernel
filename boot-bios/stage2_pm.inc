@@ -12,6 +12,12 @@ BITS 32
 %define KERNEL_SECTORS 1
 %endif
 
+%ifdef I686
+%define BOOT_TABLES_PAGES 1
+%else
+%define BOOT_TABLES_PAGES 13
+%endif
+
 pm32:
     mov ax, 0x10
     mov ds, ax
@@ -21,7 +27,11 @@ pm32:
 
     call memmap_synth
     call bootinfo_build
+%ifdef I686
+    call tables32_build
+%else
     call tables_build
+%endif
     call ata_load
 
     mov esi, msg_boot
@@ -33,6 +43,31 @@ pm32:
     mov esi, msg_crlf
     call puts32
 
+%ifdef I686
+    ; 32-bit path: PSE 4 MiB pages, then a cdecl call into the kernel at
+    ; its alias link address (the return address is a halt loop, unused).
+    mov al, 'P'
+    call putc32
+    mov eax, cr4
+    or eax, 0x10
+    mov cr4, eax
+    mov eax, PML4_PHYS
+    mov cr3, eax
+    mov eax, cr0
+    or eax, 0x80000001
+    mov cr0, eax
+    mov al, 'J'
+    call putc32
+    mov esp, STACK_TOP
+    push dword BOOTINFO_PHYS
+    mov al, 'K'
+    call putc32
+    call KERNEL_ENTRY
+    mov al, 'R'
+    call putc32
+    hlt
+    jmp $
+%else
     mov eax, cr4
     or eax, 1 << 5
     mov cr4, eax
@@ -46,6 +81,7 @@ pm32:
     or eax, 0x80000000
     mov cr0, eax
     jmp 0x18:long64
+%endif
 
 ; --- BootInfo memmap synthesis -------------------------------------------------
 
@@ -60,24 +96,29 @@ memmap_synth:
     mov eax, [esi + 8]
     or eax, [esi + 12]
     jz .next                     ; skip zero-length (SeaBIOS sentinel)
+    mov eax, [esi]               ; base (lo)
+    mov edx, [esi + 8]           ; length (lo)
     mov ebx, 0                   ; default: reserved
-    mov eax, [esi + 16]
-    cmp eax, 1
+    cmp dword [esi + 16], 1
     jne .store
-    mov eax, [esi + 4]
-    or eax, [esi + 12]
-    jnz .store                   ; above 4 GiB: report reserved in v1
-    mov eax, [esi]               ; base
-    mov edx, [esi + 8]           ; length
+    cmp dword [esi + 4], 0
+    jne .store                   ; above 4 GiB: report reserved in v1
+    cmp dword [esi + 12], 0
+    jne .store
     cmp eax, 0x100000
     jae .usable
-    add edx, eax                 ; end
+    add edx, eax                 ; end = base + length
+    jc .reload
     cmp edx, 0x100000
     jbe .next                    ; entirely inside the reserved low MiB
     sub edx, 0x100000
     mov eax, 0x100000
 .usable:
     mov ebx, 7                   ; MEMORY_TYPE_CONVENTIONAL
+    jmp .store
+.reload:
+    mov eax, [esi]
+    mov edx, [esi + 8]
 .store:
     mov [edi + 0], ebx
     mov dword [edi + 4], 0
@@ -104,6 +145,25 @@ memmap_synth:
 ; --- BootInfo (repr(C), size 152; see abi/src/lib.rs) --------------------------
 
 bootinfo_build:
+%ifdef I686
+    ; 32-bit BootInfo: pointer-size usize fields and 4-byte u64 alignment.
+    xor eax, eax
+    mov ecx, 136 / 4
+    mov edi, BOOTINFO_PHYS
+    rep stosd
+    mov edi, BOOTINFO_PHYS
+    mov dword [edi + 0], 0x46544E46      ; BOOT_MAGIC
+    mov dword [edi + 4], 2               ; BOOT_VERSION
+    mov dword [edi + 8], MEMMAP_PHYS     ; memmap.ptr
+    movzx eax, word [mm_count]
+    mov [edi + 12], eax                  ; memmap.count
+    mov dword [edi + 16], 40             ; memmap.desc_size
+    mov dword [edi + 60], KERNEL_PHYS    ; kernel_base
+    mov dword [edi + 68], STACK_TOP      ; stack_top
+    mov dword [edi + 84], PML4_PHYS      ; boot_pml4
+    mov dword [edi + 92], BOOT_TABLES_PAGES
+    mov dword [edi + 116], 3             ; arch = 3 (BIOS)
+%else
     xor eax, eax
     mov ecx, 152 / 4
     mov edi, BOOTINFO_PHYS
@@ -120,6 +180,7 @@ bootinfo_build:
     mov dword [edi + 96], PML4_PHYS      ; boot_pml4
     mov dword [edi + 104], BOOT_TABLES_PAGES
     mov dword [edi + 128], 3             ; arch = 3 (BIOS)
+%endif
     ret
 
 ; --- page tables: identity + alias for 4 GiB, 2 MiB pages ----------------------
@@ -158,6 +219,33 @@ tables_build:
     cmp ebx, 4
     jb .gib
     ret
+
+; --- 32-bit page directory (i686): identity + alias, 4 MiB PSE pages ----------
+
+tables32_build:
+    xor eax, eax
+    mov ecx, 1024
+    mov edi, PML4_PHYS
+    rep stosd
+    xor ebx, ebx
+.ident:
+    mov eax, ebx
+    shl eax, 22
+    or eax, 0x83
+    mov [PML4_PHYS + ebx * 4], eax
+    inc ebx
+    cmp ebx, 256
+    jb .ident
+    xor ebx, ebx
+.alias:
+    mov eax, ebx
+    shl eax, 22
+    or eax, 0x83
+    mov [PML4_PHYS + 768 * 4 + ebx * 4], eax
+    inc ebx
+    cmp ebx, 256
+    jb .alias
+
 
 ; --- ATA PIO kernel load -------------------------------------------------------
 

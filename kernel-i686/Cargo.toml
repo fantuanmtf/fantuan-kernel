@@ -1,0 +1,17 @@
+[package]
+name = "kernel-i686"
+version = "0.0.1"
+edition = "2021"
+description = "fantuan kernel - 32-bit x86 (M10)"
+
+# Standalone workspace: this crate builds with a pinned nightly (custom target
+# + build-std), so the stable root workspace must not try to build it.
+[workspace]
+
+[dependencies]
+fantuan-abi = { path = "../abi" }
+kernel-core = { path = "../kernel-core" }
+
+[profile.release]
+panic = "abort"
+opt-level = "z"

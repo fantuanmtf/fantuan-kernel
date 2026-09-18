@@ -79,6 +79,7 @@ global_asm!(
 
 const EMPTY_DESC: MemoryDescriptor = MemoryDescriptor {
     type_: 0,
+    _pad0: 0,
     physical_start: 0,
     virtual_start: 0,
     number_of_pages: 0,
@@ -116,6 +117,7 @@ fn build_bootinfo(mem: &fdt::MemInfo, hartid: usize, dtb: usize) -> &'static Boo
             }
             map[n] = MemoryDescriptor {
                 type_: MEMORY_TYPE_CONVENTIONAL,
+                _pad0: 0,
                 physical_start: mem.mem[i].base,
                 virtual_start: 0,
                 number_of_pages: mem.mem[i].size / 4096,

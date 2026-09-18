@@ -1,0 +1,6 @@
+# M10: the only nightly exception in the project. Stable rustup has no 32-bit
+# bare-metal x86 target; see docs/M10_BOOT_32BIT.md 7.4.
+[toolchain]
+channel = "nightly"
+components = ["rust-src"]
+profile = "minimal"

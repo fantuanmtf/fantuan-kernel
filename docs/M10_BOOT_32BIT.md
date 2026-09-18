@@ -230,6 +230,39 @@ ELF32: the shared `elf.rs` parses ELF64 only. M10-4c adds a sibling
 abstraction (`e_machine = 3`, ELF32 program headers); `elf.rs` stays the
 64-bit path. The per-arch loader selection is compile-time.
 
+### 7.6 i686 handoff results (M10-4b1, recorded 2026-09)
+
+The 32-bit kernel boots from the same BIOS chain:
+
+- `boot-bios/stage2_pm.inc` gains an `I686` variant: a 32-bit page directory
+  (PSE 4 MiB pages, identity + alias for the first GiB) and a cdecl-style
+  call into the kernel (`push BootInfo; call`) with `esp = 0x80000`.
+- `kernel-i686/` is a standalone crate with a pinned nightly
+  (`rust-toolchain.toml`), `targets/i686-fantuan-none.json` and a `build.rs`
+  that tracks `link.ld` (without it cargo does not relink when the script
+  changes — a silent stale-binary trap we hit).
+- The kernel is linked at **`PHYS_OFFSET + 16 MiB` = `0xC1000000`**, matching
+  the physical load address; a wrong link address (`0xC0100000`) executes
+  from an empty alias page and QEMU translates the entry to zeros — the
+  failure signature (CR2 = leftover EAX, zero TBs) is recorded here.
+- **BootInfo is pointer-width specific**: on i686 a `#[repr(C)]` u64 field
+  aligns to 4 bytes, so the abi crate now defines 64-bit and 32-bit variants
+  (same field order) and stage2 writes the 32-bit offsets (arch @116,
+  kernel_base @60, stack_top @68, memmap @8/12/16, size 136).
+  `MemoryDescriptor` gains an explicit `_pad0` so its 40-byte layout and
+  field offsets match on both widths.
+- The memmap synthesis had a reserved-entry bug (the type check clobbered
+  `eax`, so reserved descriptors carried the type as their base); fixed and
+  covered by the smoke assertion on the usable range.
+- Boot evidence: `handshake ok: arch=3 kernel_base=0x1000000
+  stack_top=0x80000`, six descriptors with `base=0x100000 pages=130784
+  type=7`, `mm: frame allocator ready: 510 MiB usable`, frame self-test via
+  the alias, `i686: M10-4b bring-up complete`.
+
+Still missing on i686 (M10-4b2+): GDT/IDT/PIC/PIT and interrupts, the
+kernel's own page tables (stage2's tables stay active), scheduler/user mode
+(ELF32, `int 0x80`) and VFS.
+
 ## 8. Verification
 
 - **QEMU**: `qemu-system-i386 -machine pc` (SeaBIOS) for i686 and
