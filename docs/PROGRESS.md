@@ -43,9 +43,9 @@ done, M10 is half implemented).
 - [x] M10-4b2a i686 interrupts: IDT (48 vectors, generated stubs), PIC
       remap, PIT 100 Hz, exception demo with resume; `iretd`/iret-width and
       iret-frame bugs fixed — verify `tools/smoke-bios.sh` phase 2
-- [ ] M10-4b2b i686 core: scheduler wired and verified (two demo tasks
-      rotate, quiet, reap); remaining: GDT/TSS and kernel-owned page tables
-      for ring 3 (M10-4b3). The 2026-09 blocker was the shared ISR stub,
+- [x] M10-4b2b i686 core: scheduler wired and verified (two demo tasks
+      rotate, quiet, reap); GDT/TSS landed with M10-4b3a, per-task page
+      tables move to M10-4b3b. The 2026-09 blocker was the shared ISR stub,
       not the target JSON - see "Known issues" (now fixed).
 - [x] M10-4b3a i686 ring 3: GDT/ring-0-3 segments + TSS.esp0, DPL-3
       `int 0x80` gate, built-in ring-3 stub entered via `iretd`,
@@ -169,6 +169,12 @@ Design: `M14_LINUXUSERS.md`.
   lines (PASS).
 - **riscv `uart::log_bytes` fault (one-off)**: one repair run (of three)
   crashed with `scause=0xd stval=0x766`; not reproduced since. Watch item.
+
+## M10 completion plan
+
+The remaining M10 work (4a2 hardening, 4b3b ELF32, 4c VFS, 6 ISO,
+optional 5 VBE, 7 docs/release) is sequenced in `M10_PLAN.md` with the
+verification and commit checkpoints for each workstream.
 
 ## Next action
 
