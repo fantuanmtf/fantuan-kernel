@@ -26,6 +26,7 @@ All repository artifacts are in English. The authoritative design lives in
 | [docs/M12_TOOLS_HW.md](docs/M12_TOOLS_HW.md) | design: disk imager, NTFS read-only, GPU probe, virt detection (v0.0.4) |
 | [docs/M13_GRAPHICS.md](docs/M13_GRAPHICS.md) | design: framebuffer/input, KMS-like + repair-IPC contracts (v0.0.5) |
 | [THIRD_PARTY.md](THIRD_PARTY.md) | third-party components, licenses and origin register |
+| [docs/PROGRESS.md](docs/PROGRESS.md) | live progress tracker for v0.0.2 -> v0.1.5 |
 
 ## Current state: v0.0.1 — M9 complete (RISC-V port + shared core)
 

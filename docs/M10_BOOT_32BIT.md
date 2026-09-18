@@ -186,6 +186,44 @@ justified by upstream target availability; x86_64, riscv64 and arm64 stay on
 stable. The pointer-width audit (M10-4 step 1) still lands first on stable in
 `kernel-core` and must keep all existing smokes green.
 
+### 7.5 F1 audit inventory and rules (M10-4a pre-work)
+
+`kernel-core` is width-agnostic except for address handling; the audit makes
+"compiles for a 32-bit target" a checkable property without changing
+64-bit behavior.
+
+Memory-model decision (i686): **3G/1G split**, `PHYS_OFFSET = 0xC000_0000`,
+kernel linked at `0xC010_0000`; the direct map covers physical memory below
+1 GiB, so the frame allocator **caps usable RAM at 1 GiB** on i686 and logs
+the truncation. BootInfo fields stay u64 (append-only ABI); the arch glue
+converts at the boundary.
+
+Rules:
+
+1. Any value used as a pointer/offset into memory must be converted through
+   `usize` **after** a range check; an unchecked `as usize` of a u64 field
+   is a bug on 32-bit.
+2. On-disk/ELF 64-bit fields (file offsets, sizes, LBAs) keep their u64 type;
+   only their in-memory *addressing* is range-checked before conversion.
+3. `Task.rsp`/`vm_root`/`kernel_stack_top`/`stack_phys` stay u64 (arch glue
+   owns their width); `rsp` conversions go through `usize`.
+4. `phys_to_virt` is the only place that adds `PHYS_OFFSET`; i686 must not
+   alias physical addresses >= 1 GiB.
+5. `abi::PHYS_OFFSET` gains an `i686` cfg arm (`0xC000_0000`).
+
+Inventory (counts at the audit commit): 81 `as usize` sites in 23
+`kernel-core` files, concentrated in `vfs/ext4/{dir,sb,extents}.rs`,
+`vfs/fat*.rs`, `elf.rs`, `bootrepair/*`, `frame.rs`. The filesystem/ELF
+casts are the ones that need explicit bounds checks; bitmap/index casts of
+already-`usize` values are fine. `PHYS_OFFSET` is referenced in
+`kernel-core` only by `elf.rs` (the user-half check), so the ABI change is
+local.
+
+ELF32: the shared `elf.rs` parses ELF64 only. M10-4c adds a sibling
+`elf32.rs` in `kernel-core` that consumes the same `Prot`/`UserOps`
+abstraction (`e_machine = 3`, ELF32 program headers); `elf.rs` stays the
+64-bit path. The per-arch loader selection is compile-time.
+
 ## 8. Verification
 
 - **QEMU**: `qemu-system-i386 -machine pc` (SeaBIOS) for i686 and

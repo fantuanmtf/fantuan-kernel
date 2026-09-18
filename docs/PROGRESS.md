@@ -1,0 +1,117 @@
+# Progress Tracker (v0.0.2 -> v0.1.5)
+
+> Living progress record. Status legend: `[x]` done and verified,
+> `[~]` in progress, `[ ]` todo. Every `[x]` names its commit. Design docs
+> live in `docs/` and are written before code (DESIGN §13.5). Re-verify
+> before claiming a box: run the listed command.
+
+## Overall
+
+| Version | Milestone | Progress | Verified by |
+|---|---|---|---|
+| v0.0.1 | M0-M9 (x86_64 rescue + RISC-V port) | `[##########] 100%` | tag `v0.0.1` (local) |
+| v0.0.2 | M10 legacy BIOS boot + i686 | `[#####-----] 50%` | `smoke-bios.sh`, UEFI smoke |
+| v0.0.3 | M11 ARM64 + full TCP/HTTPS | `[#---------] 10%` | design only |
+| v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[#---------] 10%` | design only |
+| v0.0.5 | M13 graphics/input + interface freeze | `[#---------] 10%` | design only |
+| v0.1.0 | M14 Linux userspace + bootstrap + hypervisor V2 | `[#---------] 10%` | design only |
+| v0.1.5 | M15 desktop + isolation + MinGW | `[----------] 0%` | - |
+| v0.5.0/1.0.0 | M16 finalize | `[----------] 0%` | - |
+
+To v0.0.5: roughly **20%** (three of the four milestones have their design
+done, M10 is half implemented).
+
+## v0.0.2 - M10 (BIOS boot + i686)
+
+- [x] M10-1 self-written BIOS stage1/stage2 spike (MBR, int 0x13 LBA, E820)
+      - commit `e146a27`; verify `tools/smoke-bios.sh`
+- [x] M10-2 long-mode transition + 64-bit stub (identity tables, EFER)
+      - commit `8b6a3af`; verify `tools/smoke-bios.sh`
+- [x] M10-3 BIOS handoff to the real x86_64 kernel (BootInfo arch=3,
+      ATA PIO kernel load, jump); old-CPU `stac/clac` #UD fix
+      - commit `83db01a`; verify `tools/smoke-bios.sh` (default CPU)
+- [x] M10-4 prep i686 toolchain decision + `targets/i686-fantuan-none.json`
+      - commit `32da9a3`; verify probe build on nightly
+- [ ] M10-4a kernel-core pointer-width audit (F1; behavior-neutral, both
+      smokes green)
+- [ ] M10-4b `kernel-i686` crate bring-up (32-bit paging, GDT/IDT/PIC/PIT,
+      serial, scheduler)
+- [ ] M10-4c i686 user mode (ELF32, `int 0x80`) + VFS on the test disk
+- [ ] M10-5 VBE framebuffer console on BIOS (optional; serial is the base)
+- [ ] M10-6 hybrid ISO image builder with the 1 GB size check
+- [ ] M10-7 docs (Windows-unsupported/PE, boot + support matrices), i686
+      smoke phases, x86_64/riscv64 regressions
+
+## v0.0.3 - M11 (ARM64 + network)
+
+Design: `M11_NET.md`.
+
+- [ ] M11-1 shims: mbuf/pool/callout/locks over frames + tick (unit-tested)
+- [ ] M11-2 `net_ops` registry + loopback; ping over loopback
+- [ ] M11-3 IPv4/ARP/ICMP/UDP on loopback + counters
+- [ ] M11-4 TCP + socket layer; loss/throughput tests
+- [ ] M11-5 virtio-net (MMIO/PCI) + e1000; DHCP client
+- [ ] M11-6 DNS resolver + `ping`/`nslookup`/`wget`
+- [ ] M11-7 mbedTLS port + HTTPS + TLS KATs
+- [ ] M11-8 aarch64 port bring-up; smoke phases; THIRD_PARTY entry
+
+## v0.0.4 - M12 (tools + hardware)
+
+Design: `M12_TOOLS_HW.md`.
+
+- [ ] M12-1 ACPI table walker (RSDT/XSDT)
+- [ ] M12-2 disk imager + `clone` command + hash verification
+- [ ] M12-3 bad-sector policy (`--continue`) + report file
+- [ ] M12-4 NTFS boot/MFT/attribute/runlist read path (fixture)
+- [ ] M12-5 NTFS listing/read + `/mnt/win0`; probe graduation
+- [ ] M12-6 AMD GPU report (identity/BAR/PCIe link/thermal)
+- [ ] M12-7 virtualization detection + matrix + smoke phases
+
+## v0.0.5 - M13 (graphics + interface freeze)
+
+Design: `M13_GRAPHICS.md`.
+
+- [ ] M13-1 `fb_info` + blit/fill/damage; GOP console on top
+- [ ] M13-2 double buffer + present + kernel demo app
+- [ ] M13-3 input event ring + PS/2 mouse
+- [ ] M13-4 dumb buffers + ADDFB/SETCRTC/PAGE_FLIP + events
+- [ ] M13-5 EDID sourcing + synthetic fallback
+- [ ] M13-6 repair broker + IPC protocol + client demo
+- [ ] M13-7 freeze `GRAPHICS_API.md` / `REPAIR_IPC.md` + smoke phases
+
+## v0.1.0 - M14 (Linux userspace)
+
+Design: `M14_LINUXUSERS.md`.
+
+- [ ] M14-1 kernel heap + VMA + demand paging + COW
+- [ ] M14-2 POSIX round 1 (mmap/brk/open/read/write/stat/getdents, tmpfs)
+- [ ] M14-3 POSIX round 2 (fork/execve/wait4, signals, futex, pipes)
+- [ ] M14-4 musl port + toybox + bmake
+- [ ] M14-5 seed/self-host chain + `/bootstrap.sh` + reproducibility hash
+- [ ] M14-6 C++ seed (clang) in the developer image
+- [ ] M14-7 hypervisor V2 (VMX first, then SVM) + guest serial
+
+## v0.1.5 - M15 (desktop + isolation + MinGW)
+
+- [ ] M15-1 Xorg modesetting on the M13 KMS contract
+- [ ] M15-2 XFCE compiled in-system (C++ seed)
+- [ ] M15-3 Qt repair frontend over the IPC contract
+- [ ] M15-4 hypervisor V3: virtio disk backend + disk-service guest
+- [ ] M15-5 physical-mount fallback with the prominent warning
+- [ ] M15-6 `tools/mingw_bootstrap.sh` (runtime download, `/opt/mingw`)
+
+## Last verified snapshots
+
+| Date | Check | Result |
+|---|---|---|
+| 2026-09 | `tools/smoke-bios.sh` (M10-3, default no-SMAP CPU) | PASS |
+| 2026-09 | `tools/run.sh` x86_64 UEFI main phase (SMAP active) | PASS |
+| 2026-09 | riscv smoke (3 phases incl. repair YES/NO) | PASS |
+| 2026-09 | x86 full suite `tools/smoke.sh` 13/13 | PASS (at v0.0.1) |
+
+## Next action
+
+**M10-4a**: pointer-width audit of `kernel-core` (F1). Inventory and rules
+are in `docs/M10_BOOT_32BIT.md` §7.5; the audit lands as a behavior-neutral
+commit with `smoke.sh` (main phase) and both riscv phases still green,
+before the `kernel-i686` crate exists.
