@@ -4,7 +4,7 @@
 use core::fmt::Write;
 
 use super::{find_path, to_8_3};
-use crate::serial::Serial;
+use crate::log::Log;
 use crate::vfs::fat::Fat32;
 
 pub struct GrubConfig {
@@ -16,7 +16,7 @@ pub struct GrubConfig {
     pub root_dev_len: usize,
 }
 
-pub fn parse(s: &mut Serial, fs: &Fat32) -> Option<GrubConfig> {
+pub fn parse(s: &mut Log, fs: &Fat32) -> Option<GrubConfig> {
     let path = [
         to_8_3("EFI")?,
         to_8_3("ubuntu")?,

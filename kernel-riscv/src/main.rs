@@ -26,6 +26,7 @@ mod drivers;
 mod fdt;
 mod paging;
 mod sbi;
+mod shell;
 mod syscall;
 mod task;
 mod timer;
@@ -150,23 +151,12 @@ pub extern "C" fn rust_entry(hartid: usize, dtb: usize) -> ! {
         puts(" - parking\n");
         park();
     };
-    for i in 0..mem.mem_n {
-        puts("fdt: memory ");
-        put_hex(mem.mem[i].base);
-        puts("..");
-        put_hex(mem.mem[i].base + mem.mem[i].size);
-        puts("\n");
-    }
-    puts("cpu: ");
-    put_dec(mem.harts as u64);
-    puts(" hart(s), isa=");
-    put_bytes(&mem.isa[..mem.isa_len]);
-    puts(", model=");
-    put_bytes(&mem.model[..mem.model_len]);
-    puts("\n");
+    fdt::print_info(&mem);
 
     // Shared allocator (kernel-core): install the IRQ hooks first.
     kernel_core::arch::set_irq_ops(cpu::irq_save, cpu::irq_restore);
+    kernel_core::arch::set_idle(cpu::idle);
+    kernel_core::mem::set_phys_to_virt(paging::phys_to_virt);
     let bi = build_bootinfo(&mem, hartid, dtb);
 
     // Reservations the FDT memory map does not express: the firmware region
@@ -250,10 +240,16 @@ extern "C" fn high_main() -> ! {
 
     // M9.4: virtio-mmio block storage (optional device on the command line)
     // and the shared VFS on top of it.
+    let mut vfs: Option<kernel_core::vfs::Vfs> = None;
     if drivers::init_storage() {
         puts("blk: virtio registered\n");
-        if kernel_core::vfs::init().is_some() {
+        vfs = kernel_core::vfs::init();
+        if let Some(v) = vfs {
             puts("vfs: ready (shared FAT32/ext4/probe stack)\n");
+            // M9.4-4: read-only boot-repair diagnosis; no UEFI runtime here,
+            // so the NVRAM half degrades honestly (rt = 0).
+            let mut log = kernel_core::log::Log::new();
+            kernel_core::bootrepair::diagnose(&mut log, &v, 0);
         }
     } else {
         puts("blk: no virtio-mmio block device\n");
@@ -286,7 +282,10 @@ extern "C" fn high_main() -> ! {
     puts("user: ");
     put_dec(spawned);
     puts(" riscv user tasks spawned\n");
-    park()
+
+    // M9.4: the shared rescue shell runs on the boot task (wfi idle).
+    let bi = unsafe { &*core::ptr::addr_of!(BOOT_INFO) };
+    shell::enter(vfs, bi)
 }
 
 #[panic_handler]

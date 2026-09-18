@@ -30,7 +30,7 @@ fn utf16_to_ascii(src: &[u16], dst: &mut [u8]) -> usize {
 }
 
 /// ASCII (no-alloc) into a UTF-16 buffer with NUL terminator.
-pub(super) fn ascii_to_utf16(src: &[u8], dst: &mut [u16]) {
+pub fn ascii_to_utf16(src: &[u8], dst: &mut [u16]) {
     for (i, b) in src.iter().enumerate() {
         if i + 1 < dst.len() {
             dst[i] = *b as u16;

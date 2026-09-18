@@ -8,15 +8,16 @@ use core::fmt::Write;
 
 use super::diskhealth;
 use super::Severity;
-use crate::serial::Serial;
+use crate::drv;
+use crate::log::Log;
 use crate::vfs::probe;
 
 extern "C" {
     fn blk_read(dev: *mut c_void, lba: u64, buf: *mut c_void, sectors: usize) -> i32;
 }
 
-pub fn check(s: &mut Serial) -> Severity {
-    let dev = crate::drivers::drive_handle();
+pub fn check(s: &mut Log) -> Severity {
+    let dev = drv::drive_handle();
 
     // --- ① Boot-header scan + IDENTIFY strings ---
     let mut lba0 = [0u8; 512];

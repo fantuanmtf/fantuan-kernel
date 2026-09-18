@@ -4,10 +4,10 @@
 use core::fmt::Write;
 
 use super::{eq_8_3, to_8_3};
-use crate::serial::Serial;
+use crate::log::Log;
 use crate::vfs::fat::Fat32;
 
-fn classify(s: &mut Serial, vendor: &[u8], file: &[u8]) {
+fn classify(s: &mut Log, vendor: &[u8], file: &[u8]) {
     match (vendor, file) {
         (b"boot", b"BOOTX64.EFI") => {
             let _ = writeln!(s, "  esp: EFI/BOOT/BOOTX64.EFI — fallback loader");
@@ -46,7 +46,7 @@ fn classify(s: &mut Serial, vendor: &[u8], file: &[u8]) {
     }
 }
 
-pub fn scan(s: &mut Serial, fs: &Fat32) {
+pub fn scan(s: &mut Log, fs: &Fat32) {
     let Some(efi) = to_8_3("EFI") else { return };
     let efi_entry = {
         let mut found: Option<u32> = None;

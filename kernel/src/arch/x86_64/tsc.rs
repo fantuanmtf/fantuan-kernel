@@ -51,6 +51,12 @@ pub fn to_nanos(ticks: u64) -> u128 {
     (ticks as u128) * 1_000_000_000u128 / (hz as u128)
 }
 
+/// Monotonic nanoseconds since boot: the x86 source for the shared clock
+/// hook (0 until calibration).
+pub fn now_ns() -> u64 {
+    to_nanos(now()) as u64
+}
+
 /// Busy-wait sleep. Safe before calibration (TSC_HZ = 0 => returns at once).
 pub fn sleep_ms(ms: u64) {
     let hz = TSC_HZ.load(Ordering::Relaxed);

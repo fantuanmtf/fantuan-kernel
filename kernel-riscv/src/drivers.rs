@@ -11,6 +11,32 @@ extern "C" {
     /// registered block device, or -1 when none is present.
     fn virtio_mmio_init(base: u64) -> i32;
     fn blk_read(dev: *mut c_void, lba: u64, buf: *mut c_void, sectors: usize) -> i32;
+    fn blk_open(index: usize) -> *mut c_void;
+    fn blk_identity(dev: *mut c_void, out: *mut kernel_core::drv::BlkIdentity) -> i32;
+}
+
+fn drive_handle() -> *mut c_void {
+    unsafe { blk_open(0) }
+}
+
+fn drive_name() -> &'static str {
+    "virtio"
+}
+
+fn drive_identity() -> Option<kernel_core::drv::BlkIdentity> {
+    let h = unsafe { blk_open(0) };
+    if h.is_null() {
+        return None;
+    }
+    let mut id = kernel_core::drv::BlkIdentity::EMPTY;
+    if unsafe { blk_identity(h, &mut id) } != 0 {
+        return None;
+    }
+    Some(id)
+}
+
+fn storage_bdf() -> u32 {
+    u32::MAX // virtio-mmio has no PCI bus/device in the UEFI sense
 }
 
 #[no_mangle]
@@ -61,5 +87,11 @@ pub fn init_storage() -> bool {
         kernel_core::log::line("blk: LBA0 signature check FAILED");
         return false;
     }
+    kernel_core::drv::set_ops(kernel_core::drv::DrvOps {
+        drive_handle,
+        drive_name,
+        drive_identity,
+        storage_bdf,
+    });
     true
 }

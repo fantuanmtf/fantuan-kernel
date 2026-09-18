@@ -28,7 +28,7 @@ pub struct StorageId {
 /// Driver-decoded identity (ATA IDENTIFY / NVMe Identify Controller+Namespace
 /// are decoded in C; the kernel only formats the result).
 pub fn identify_strings(_dev: *mut c_void) -> Option<StorageId> {
-    let ident = crate::drivers::drive_identity()?;
+    let ident = crate::drv::drive_identity()?;
     let mut sid = StorageId {
         model: [0; 40],
         model_len: 0,
@@ -143,7 +143,7 @@ pub fn nvme_smart(dev: *mut c_void) -> Option<NvmeSmart> {
 /// SMART for whatever driver is active: ATA attribute page when the device
 /// answers it, otherwise the NVMe health log.
 pub fn smart_report(dev: *mut c_void) -> (Option<AtaSmart>, Option<NvmeSmart>) {
-    if crate::drivers::drive_name() == "nvme" {
+    if crate::drv::drive_name() == "nvme" {
         (None, nvme_smart(dev))
     } else {
         (ata_smart(dev), None)

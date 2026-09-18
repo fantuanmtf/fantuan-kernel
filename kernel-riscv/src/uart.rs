@@ -13,6 +13,16 @@ pub fn uart_putc(c: u8) {
     unsafe { core::ptr::write_volatile(base as *mut u8, c) }
 }
 
+/// Non-blocking byte read (LSR bit 0 = data ready, RBR at offset 0).
+pub fn getc() -> Option<u8> {
+    let base = UART_BASE as u64 + crate::paging::access_base();
+    let ready = unsafe { core::ptr::read_volatile((base + 5) as *const u8) } & 1;
+    if ready == 0 {
+        return None;
+    }
+    Some(unsafe { core::ptr::read_volatile(base as *const u8) })
+}
+
 /// Byte sink for the shared logger (LF -> CRLF, like puts).
 pub fn log_bytes(buf: &[u8]) {
     for &b in buf {

@@ -40,11 +40,11 @@ mod input;
 mod kbd;
 mod mm;
 mod panic;
-mod runtime;
 mod shell;
 mod smbios;
 mod task;
 mod timer;
+pub use kernel_core::runtime;
 pub use kernel_core::vfs;
 
 // The arch layer keeps the historical crate::<module> paths for the
@@ -62,6 +62,11 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     s.init();
     // Shared (kernel-core) diagnostics log through the serial sink.
     kernel_core::log::set_sink(crate::serial::log_bytes);
+
+    // M9.4-2: install the x86 hooks the shared modules need. All of them are
+    // safe to install here; the ones with boot-time dependencies resolve
+    // lazily (e.g. the clock is 0 until tsc::calibrate).
+    drivers::install_hooks();
 
     // Handshake: validate what the bootloader handed over (DESIGN.md §4).
     if bi.magic != BOOT_MAGIC || bi.version != BOOT_VERSION {
@@ -267,7 +272,8 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         // The boot path is READ-ONLY: diagnosis only. Repairs run solely from
         // the shell's confirmation-gated `grub-fix repair` (iron rule).
         if let Some(v) = mounted {
-            bootrepair::diagnose(&mut s, &v, bi.runtime_services);
+            // Shared boot repair logs through the kernel-core Log sink.
+            bootrepair::diagnose(&mut kernel_core::log::Log::new(), &v, bi.runtime_services);
         }
     } else {
         let _ = writeln!(s, "drivers: AHCI unavailable (boot continues)");

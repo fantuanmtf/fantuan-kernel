@@ -11,7 +11,7 @@
 use core::fmt::Write;
 
 use crate::runtime::{Runtime, GLOBAL_GUID};
-use crate::serial::Serial;
+use crate::log::Log;
 use crate::vfs::Vfs;
 
 use super::nvram::{ascii_to_utf16, read_by_name, read_by_name_status};
@@ -38,7 +38,7 @@ fn load_cert(vfs: &Vfs, file: &str, buf: &mut [u8]) -> Option<usize> {
     vfs.fs.read_file(cluster, want as u32, &mut buf[..want])
 }
 
-pub(super) fn enroll(s: &mut Serial, rt: &Runtime, vfs: &Vfs) {
+pub(super) fn enroll(s: &mut Log, rt: &Runtime, vfs: &Vfs) {
     // Setup Mode is the precondition: without it the firmware rejects
     // unauthenticated key writes.
     let mut mode = [0u8; 4];
@@ -118,7 +118,7 @@ pub(super) fn enroll(s: &mut Serial, rt: &Runtime, vfs: &Vfs) {
 }
 
 /// Report-only key inventory (used before the repair decision).
-pub(super) fn report(s: &mut Serial, rt: &Runtime) {
+pub(super) fn report(s: &mut Log, rt: &Runtime) {
     for var in [&b"PK"[..], b"KEK", b"db"] {
         let name = core::str::from_utf8(var).unwrap_or("?");
         match key_state(rt, var) {

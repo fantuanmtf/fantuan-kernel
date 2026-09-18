@@ -14,7 +14,7 @@ use core::fmt::Write;
 
 use crate::crypto::pkcs7;
 use crate::runtime::{Runtime, GLOBAL_GUID};
-use crate::serial::Serial;
+use kernel_core::log::Log;
 use crate::vfs::Vfs;
 
 use super::nvram::ascii_to_utf16;
@@ -51,7 +51,7 @@ fn load_bundle(vfs: &Vfs, file: &str) -> Option<usize> {
 
 /// Parse and apply one bundle. Returns false when nothing writeable was
 /// found (missing file), and reports every verification step.
-fn apply_one(s: &mut Serial, rt: &Runtime, vfs: &Vfs, file: &str, var: &[u8]) -> bool {
+fn apply_one(s: &mut Log, rt: &Runtime, vfs: &Vfs, file: &str, var: &[u8]) -> bool {
     let var_name = core::str::from_utf8(var).unwrap_or("?");
     let Some(n) = load_bundle(vfs, file) else {
         return false;
@@ -115,7 +115,7 @@ fn apply_one(s: &mut Serial, rt: &Runtime, vfs: &Vfs, file: &str, var: &[u8]) ->
 /// reader only sees 8.3 aliases, so "PK.auth" is found as PK.AUT (and so on
 /// for KEK/DB; longer base names become NAME~1.AUT and are not matched).
 /// Callers must have enabled repair mode (this changes platform trust state).
-pub(super) fn apply(s: &mut Serial, rt: &Runtime, vfs: &Vfs) {
+pub fn apply(s: &mut Log, rt: &Runtime, vfs: &Vfs) {
     let mut seen = false;
     seen |= apply_one(s, rt, vfs, "PK.AUT", b"PK");
     seen |= apply_one(s, rt, vfs, "KEK.AUT", b"KEK");

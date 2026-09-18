@@ -66,6 +66,25 @@ fn cstr(d: &[u8], off: usize, max: usize) -> &[u8] {
     &d[off..n]
 }
 
+/// Print the memory map and CPU report (bare-mode UART; call before paging).
+pub fn print_info(mem: &MemInfo) {
+    use crate::{put_bytes, put_dec, put_hex, puts};
+    for i in 0..mem.mem_n {
+        puts("fdt: memory ");
+        put_hex(mem.mem[i].base);
+        puts("..");
+        put_hex(mem.mem[i].base + mem.mem[i].size);
+        puts("\n");
+    }
+    puts("cpu: ");
+    put_dec(mem.harts as u64);
+    puts(" hart(s), isa=");
+    put_bytes(&mem.isa[..mem.isa_len]);
+    puts(", model=");
+    put_bytes(&mem.model[..mem.model_len]);
+    puts("\n");
+}
+
 /// Parse a DTB at `dtb` (physical address). Returns the memory/reserved
 /// block lists; None on magic/length failure.
 pub fn parse(dtb: usize) -> Option<MemInfo> {

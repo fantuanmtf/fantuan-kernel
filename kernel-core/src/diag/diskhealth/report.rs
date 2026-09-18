@@ -138,24 +138,24 @@ pub fn surface_scan<F: FnMut(u64, u64)>(
     }
     let mut r = ScanResult { total_sectors: 0, slow_sectors: 0, read_errors: 0 };
     let mut buf = [0u8; 512];
-    let start_ts = crate::tsc::now();
+    let start_ts = crate::time::now_ns();
     let mut last_progress = 0u64;
     let mut i = 0u64;
     while i < sectors {
         if cancel.load(Ordering::Relaxed) {
             break;
         }
-        let t0 = crate::tsc::now();
+        let t0 = crate::time::now_ns();
         let ok = unsafe {
             blk_read(dev, start_lba + i, buf.as_mut_ptr() as *mut c_void, 1)
         } == 0;
-        let t1 = crate::tsc::now();
+        let t1 = crate::time::now_ns();
         r.total_sectors += 1;
         if !ok {
             r.read_errors += 1;
         }
-        let ns = crate::tsc::to_nanos(t1.saturating_sub(t0));
-        if ns > 500_000_000u128 {
+        let ns = t1.saturating_sub(t0);
+        if ns > 500_000_000u64 {
             r.slow_sectors += 1;
         }
         let pct = ((i + 1) * 100) / sectors.max(1);

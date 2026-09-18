@@ -7,6 +7,13 @@ pub fn sti() {
     unsafe { asm!("sti", options(nomem, preserves_flags)) }
 }
 
+/// Idle until the next interrupt (PIT tick); installed as the shared idle
+/// hook so the shell keeps the core cool while the scheduler runs.
+#[inline]
+pub fn idle() {
+    unsafe { asm!("hlt", options(nomem, nostack)) }
+}
+
 /// Save RFLAGS and disable interrupts. Pair with irq_restore.
 #[inline]
 pub fn irq_save() -> u64 {

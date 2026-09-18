@@ -9,7 +9,7 @@
 use core::fmt::Write;
 
 use super::Severity;
-use crate::serial::Serial;
+use kernel_core::log::Log;
 
 pub struct GpuInfo {
     pub count: u32,
@@ -18,7 +18,7 @@ pub struct GpuInfo {
     pub slot_in_use: bool,
 }
 
-pub fn scan(s: &mut Serial) -> GpuInfo {
+pub fn scan(s: &mut Log) -> GpuInfo {
     let mut count = 0;
     let mut any_intel = false;
     // M5.5: the PCI catalog owns enumeration; this check only classifies.
@@ -40,7 +40,7 @@ pub fn scan(s: &mut Serial) -> GpuInfo {
     GpuInfo { count, any_intel, slot_in_use }
 }
 
-pub fn check(s: &mut Serial) -> Severity {
+pub fn check(s: &mut Log) -> Severity {
     let info = scan(s);
     let displays = crate::pci::list_display_devices();
     let has_dgpu = displays.iter().any(|d| d.vendor != 0x8086);

@@ -657,9 +657,10 @@ fantuan-kernel/
 ## 14. RISC-V Port Roadmap (M9)
 
 Status: in progress — M9.0 (arch consolidation), M9.1/M9.2 (boot, Sv39,
-traps, timer, scheduler, `kernel-core`) and M9.3 (U-mode, per-task roots,
-ecall syscalls, fault kill/reap, FDT diagnostics) are DONE; M9.4 (storage)
-and M9.5 (audit) remain before kernel v0.0.1. The x86_64 rescue system
+traps, timer, scheduler, `kernel-core`), M9.3 (U-mode, per-task roots,
+ecall syscalls, fault kill/reap, FDT diagnostics) and M9.4 (virtio-mmio
+storage, shared VFS/diag/boot-repair/shell on RISC-V) are DONE; M9.5
+(audit) remains before kernel v0.0.1. The x86_64 rescue system
 remains the product; the RISC-V port proves the arch/ split and keeps the
 core portable. The reference platform is QEMU `virt` with OpenSBI
 (`qemu-system-riscv64`, `-bios default`).
@@ -735,10 +736,15 @@ core portable. The reference platform is QEMU `virt` with OpenSBI
    entry asm and trap exit) or around the user-copy bridge. The PCIe ECAM
    catalog stays out of v0.0.1 because virtio-mmio is the storage path; it
    remains an optional post-release diagnostic.
-5. **M9.4 — storage.** virtio-blk C driver registering `blk_ops`; then the
-   VFS, probe table, SMART and boot repair run unchanged.
+5. **M9.4 — storage (DONE).** `drivers/c/virtio_mmio.c` speaks the modern
+   virtio 1.x MMIO transport and registers `blk_ops`; the shared VFS, probe
+   table, read-only boot-repair diagnosis, diskhealth (SMART explicitly
+   unsupported on virtio) and the shell run on RISC-V. The AHCI/NVMe path
+   and the UEFI/NVRAM repair half stay x86-only by design (`rt = 0` on
+   riscv degrades honestly).
 6. **M9.5 — verification.** `tools/run.sh --arch riscv64` plus a smoke
-   variant on QEMU virt (bounded run, greps for the handshake and VFS).
+   variant on QEMU virt (bounded run, serial-fed shell commands, greps for
+   the handshake, VFS, boot repair and the fault tests).
 
 ### 14.4 Risks and mitigations
 

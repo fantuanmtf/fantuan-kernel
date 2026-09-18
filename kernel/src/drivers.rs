@@ -10,6 +10,10 @@ use crate::mm::paging::phys_to_virt;
 use crate::serial::{self, Serial};
 use crate::tsc;
 
+// The generic identity struct is shared with the kernel-core diagnostics; the
+// C driver boundary reports it verbatim.
+pub use kernel_core::drv::BlkIdentity;
+
 /// Bus/device of the storage controller we actually drive (AHCI or NVMe) —
 /// the boot-repair NVRAM layer correlates whole-disk Boot#### entries
 /// through it (M7.6).
@@ -29,25 +33,6 @@ extern "C" {
     fn blk_name(dev: *mut c_void) -> *const u8;
     /// Driver-decoded identity (model/serial/sectors/ssd).
     fn blk_identity(dev: *mut c_void, out: *mut BlkIdentity) -> i32;
-}
-
-/// Generic identity as the C drivers report it (driver.h struct blk_identity).
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct BlkIdentity {
-    pub model: [u8; 41],
-    pub serial: [u8; 21],
-    pub sectors: u64,
-    pub ssd: i32,
-}
-
-impl BlkIdentity {
-    pub const EMPTY: BlkIdentity = BlkIdentity {
-        model: [0; 41],
-        serial: [0; 21],
-        sectors: 0,
-        ssd: 0,
-    };
 }
 
 /// Handle of the drive brought up by init() — diagnostics pass it to the
@@ -148,6 +133,24 @@ pub extern "C" fn k_inb(port: u16) -> u8 {
 #[no_mangle]
 pub extern "C" fn k_outb(port: u16, value: u8) {
     unsafe { crate::port::outb(port, value) };
+}
+
+/// Install every kernel-core hook this arch owns (M9.4-2): idle/input,
+/// clock, phys-to-virt, the block accessors and the authenticated-variable
+/// bridge. Safe before the calibrations they depend on (hooks resolve their
+/// state lazily at call time).
+pub fn install_hooks() {
+    kernel_core::arch::set_idle(crate::cpu::idle);
+    kernel_core::input::set_poll(crate::input::poll_byte);
+    kernel_core::time::set_ns(crate::tsc::now_ns);
+    kernel_core::mem::set_phys_to_virt(crate::mm::paging::phys_to_virt);
+    kernel_core::drv::set_ops(kernel_core::drv::DrvOps {
+        drive_handle,
+        drive_name,
+        drive_identity,
+        storage_bdf,
+    });
+    kernel_core::bootrepair::set_auth_apply(crate::bootrepair::secureboot_auth::apply);
 }
 
 // --- bring-up + verification ------------------------------------------------

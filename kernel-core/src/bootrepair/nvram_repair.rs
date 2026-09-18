@@ -10,7 +10,7 @@
 use core::fmt::Write;
 
 use crate::runtime::{Runtime, GLOBAL_GUID};
-use crate::serial::Serial;
+use crate::log::Log;
 use crate::vfs::Vfs;
 
 use super::nvram::{ascii_to_utf16, collect, read_by_name, BootEntry};
@@ -19,7 +19,7 @@ use super::nvram_boot::path_exists;
 const NV_BS_RT: u32 = 0x7; // creates/updates at runtime: NV | BS | RT
 const LOAD_ACTIVE: u32 = 0x1;
 
-pub(super) fn repair(s: &mut Serial, rt: &Runtime, vfs: &Vfs) {
+pub(super) fn repair(s: &mut Log, rt: &Runtime, vfs: &Vfs) {
     let mut entries = [BootEntry::none(); 8];
     let (count, order, order_n) = collect(rt, vfs, &mut entries);
 
@@ -133,7 +133,7 @@ pub(super) fn repair(s: &mut Serial, rt: &Runtime, vfs: &Vfs) {
 /// Create BootNNNN pointing at \EFI\BOOT\BOOTX64.EFI on the mounted ESP.
 /// The device path is built from the partition table: HD node with the
 /// partition's GPT signature + FilePath + End node. Returns the number.
-fn create_esp_entry(s: &mut Serial, rt: &Runtime, vfs: &Vfs, existing: &[BootEntry]) -> Option<u16> {
+fn create_esp_entry(s: &mut Log, rt: &Runtime, vfs: &Vfs, existing: &[BootEntry]) -> Option<u16> {
     let part = &vfs.table.parts[vfs.fat_part];
 
     // Lowest free Boot#### number.

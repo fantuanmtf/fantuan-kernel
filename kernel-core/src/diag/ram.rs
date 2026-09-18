@@ -6,9 +6,9 @@
 use core::fmt::Write;
 
 use super::Severity;
-use crate::mm::frame;
-use crate::mm::paging::phys_to_virt;
-use crate::serial::Serial;
+use crate::frame;
+use crate::log::Log;
+use crate::mem::phys_to_virt;
 
 const TEST_FRAMES: usize = 8; // 32 KiB sample
 const WORDS_PER_FRAME: usize = 512; // 4096 / 8
@@ -18,7 +18,7 @@ const PATTERNS: [u64; 3] = [
     0x0102_0408_1020_4080,
 ];
 
-pub fn check(s: &mut Serial) -> Severity {
+pub fn check(s: &mut Log) -> Severity {
     let mut frames = [0u64; TEST_FRAMES];
     for f in frames.iter_mut() {
         *f = frame::get().alloc().expect("no frames for RAM test");

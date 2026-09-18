@@ -34,21 +34,25 @@ pub fn write_locked(buf: &[u8]) -> usize {
     n
 }
 
-/// Minimal no-formatting debug helpers (used on paths where fmt is unwelcome).
 /// Byte sink for the shared logger (expands LF to CRLF, like line()).
+/// Deliberately bypasses LOCK: this sink can run from a preemptible task
+/// while a sys_write (interrupt gate, IF clear) spins on LOCK; holding LOCK
+/// across a task preemption would deadlock that spin. The old
+/// Serial-formatted writers bypassed it the same way.
 pub fn log_bytes(buf: &[u8]) {
+    let ser = Serial::new(COM1);
     let mut start = 0;
     for (i, &b) in buf.iter().enumerate() {
         if b == b'\n' {
             if start < i {
-                write_locked(&buf[start..i]);
+                let _ = ser.write(&buf[start..i]);
             }
-            write_locked(b"\r\n");
+            let _ = ser.write(b"\r\n");
             start = i + 1;
         }
     }
     if start < buf.len() {
-        write_locked(&buf[start..]);
+        let _ = ser.write(&buf[start..]);
     }
 }
 

@@ -6,10 +6,11 @@
 > the architectural roadmap this plan implements.
 >
 > Progress: M9.0 (arch consolidation), M9.1/M9.2 (riscv boot, Sv39, FDT,
-> frame allocator, traps, SBI timer, scheduler + kernel-core extraction) and
+> frame allocator, traps, SBI timer, scheduler + kernel-core extraction),
 > M9.3 (U-mode tasks, per-task Sv39 roots, ecall, fault kill/reap, FDT
-> diagnostics) are DONE and committed; M9.4–M9.5 and the v0.0.1 release
-> remain.
+> diagnostics) and M9.4 (virtio-mmio storage, shared VFS/diag/boot-repair/
+> shell on RISC-V) are DONE and committed; M9.5 (audit) and the v0.0.1
+> release remain.
 
 ## 1. Purpose and scope
 
@@ -149,6 +150,16 @@ in the M9.3d commit.
 | M9.4-4 | RISC-V smoke with the test disk: FAT32 reads, ext4 mount, probe table, boot-repair diagnosis | `tools/smoke-riscv.sh` assertions | `vfs: HELLO.TXT`, `ext4: mounted ro`, probe lines |
 | M9.4-5 | `diskhealth` degrades honestly on virtio (no ATA SMART): explicit "SMART unsupported for this transport" | riscv smoke | that line, no fake values |
 | M9.4-6 | `run.sh --arch riscv64 --disk` attaches the mkdisk image | run | disk visible to the kernel |
+
+Status: DONE (commits 9478af5, ae5c4ed and the M9.4-2 extraction). Evidence:
+the riscv smoke feeds the shell through the serial console and asserts
+`blk: virtio registered`, FAT32 mount + `vfs: HELLO.TXT => "Hello from the
+fantuan-kernel VFS!\n"`, `ext4: mounted ro at /mnt/root0`, the XFS
+probe-only line, `bootrepair: v1 diagnosis` with `runtime services
+unavailable` (rt = 0, honest degradation), `SMART unsupported for this
+transport (virtio)` for diskhealth, and the interactive `cat`. x86 keeps
+the full rescue stack through kernel-core re-exports; the shell phase
+(autorun + scan + crypto KATs + idle notice) is green.
 
 Out of scope: writes on RISC-V beyond the existing consent-gated FAT path
 (any write path must keep the repair-mode gate; verify with the same

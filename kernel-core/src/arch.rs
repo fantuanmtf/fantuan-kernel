@@ -6,6 +6,7 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 static SAVE: AtomicUsize = AtomicUsize::new(0);
 static RESTORE: AtomicUsize = AtomicUsize::new(0);
+static IDLE: AtomicUsize = AtomicUsize::new(0);
 
 /// Install the arch interrupt-state helpers (called once per kernel boot).
 pub fn set_irq_ops(save: fn() -> u64, restore: fn(u64)) {
@@ -31,6 +32,24 @@ pub fn irq_restore(flags: u64) {
     }
     let f: fn(u64) = unsafe { core::mem::transmute(p) };
     f(flags);
+}
+
+/// Install the idle instruction (hlt on x86_64, wfi on riscv64) used by the
+/// shared shell loop (called once per kernel boot).
+pub fn set_idle(f: fn()) {
+    IDLE.store(f as usize, Ordering::Release);
+}
+
+/// Idle until the next interrupt (spin until installed, which is safe: the
+/// hook is installed before the first interactive caller).
+pub fn idle() {
+    let p = IDLE.load(Ordering::Acquire);
+    if p == 0 {
+        core::hint::spin_loop();
+        return;
+    }
+    let f: fn() = unsafe { core::mem::transmute(p) };
+    f()
 }
 
 /// Single-core interrupt-safe spinlock: acquired with interrupts disabled so

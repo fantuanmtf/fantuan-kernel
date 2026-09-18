@@ -6,7 +6,7 @@
 use core::fmt::Write;
 
 use super::Severity;
-use crate::serial::Serial;
+use kernel_core::log::Log;
 
 use crate::cpu::cpuid;
 
@@ -27,7 +27,7 @@ fn rdmsr(msr: u32) -> u64 {
     ((hi as u64) << 32) | lo as u64
 }
 
-pub fn check(s: &mut Serial) -> Severity {
+pub fn check(s: &mut Log) -> Severity {
     // --- M5.5: SMBIOS identity lines (graceful when the anchor is absent) ---
     match crate::smbios::bios_info() {
         Some(b) => {

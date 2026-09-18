@@ -3,7 +3,7 @@
 
 use core::fmt::Write;
 
-use crate::serial::Serial;
+use crate::log::Log;
 use crate::vfs;
 
 use super::Shell;
@@ -44,7 +44,7 @@ fn fat_lookup(vfs: &vfs::Vfs, path: &[u8]) -> Option<(u32, u32)> {
 }
 
 /// Print a file with the non-printable-bytes-filtered dump used by `cat`.
-fn dump_ascii(s: &mut Serial, data: &[u8], declared: usize) {
+fn dump_ascii(s: &mut Log, data: &[u8], declared: usize) {
     if declared > data.len() {
         out!(s, "cat: {} bytes, truncated to {}", declared, data.len());
     } else {
@@ -59,7 +59,7 @@ fn dump_ascii(s: &mut Serial, data: &[u8], declared: usize) {
     }
 }
 
-pub fn cmd_cat(sh: &mut Shell, s: &mut Serial, args: &[&[u8]]) {
+pub fn cmd_cat(sh: &mut Shell, s: &mut Log, args: &[&[u8]]) {
     if args.len() != 1 {
         out!(s, "usage: cat <path>   (e.g. cat /HELLO.TXT or cat /etc/fstab)");
         return;

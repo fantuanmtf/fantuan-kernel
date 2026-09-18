@@ -18,8 +18,6 @@ mod vectors;
 
 use core::fmt::Write;
 
-use crate::serial::Serial;
-
 /// Message the RSA vector in vectors.rs was generated over.
 const SELFTEST_MSG: &[u8] = b"fantuan crypto selftest vector";
 
@@ -36,7 +34,7 @@ fn hex_eq(bytes: &[u8], hex: &[u8]) -> bool {
     true
 }
 
-fn report(s: &mut Serial, verbose: bool, name: &str, pass: bool) {
+fn report(s: &mut dyn Write, verbose: bool, name: &str, pass: bool) {
     if verbose || !pass {
         let _ = writeln!(s, "crypto: {} {}", name, if pass { "ok" } else { "FAILED" });
     }
@@ -45,7 +43,7 @@ fn report(s: &mut Serial, verbose: bool, name: &str, pass: bool) {
 /// Known-answer tests: FIPS 180-4 SHA-256 vectors plus an OpenSSL-generated
 /// RSA-2048 PKCS#1 v1.5 signature (positive and corrupted negative). VERBOSE
 /// logs every vector (shell command); boot logs the summary only.
-pub fn selftest(s: &mut Serial, verbose: bool) -> bool {
+pub fn selftest(s: &mut dyn Write, verbose: bool) -> bool {
     let mut ok = true;
 
     // FIPS 180-4 §B.1/B.2 examples.

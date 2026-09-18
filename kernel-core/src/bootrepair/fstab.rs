@@ -5,7 +5,7 @@
 use core::fmt::Write;
 
 use super::{find_path, to_8_3};
-use crate::serial::Serial;
+use crate::log::Log;
 use crate::vfs::ext4::Ext4;
 use crate::vfs::fat::Fat32;
 
@@ -28,7 +28,7 @@ impl FstabEntry {
 /// Parse the REAL /etc/fstab from a mounted ext4 root (M6.5). Returns None
 /// when the file is absent or unreadable, so the caller can fall back to the
 /// ESP copy.
-pub fn parse_ext4(s: &mut Serial, root: &Ext4, out: &mut [FstabEntry; 4]) -> Option<usize> {
+pub fn parse_ext4(s: &mut Log, root: &Ext4, out: &mut [FstabEntry; 4]) -> Option<usize> {
     let inode = root.lookup(b"/etc/fstab")?;
     let mut buf = [0u8; 4096];
     let n = root.read_file(&inode, &mut buf)?;
@@ -37,7 +37,7 @@ pub fn parse_ext4(s: &mut Serial, root: &Ext4, out: &mut [FstabEntry; 4]) -> Opt
 }
 
 /// Parse the fstab copy on the ESP (8.3 name `FSTAB`) — the fallback path.
-pub fn parse(s: &mut Serial, fs: &Fat32, out: &mut [FstabEntry; 4]) -> usize {
+pub fn parse(s: &mut Log, fs: &Fat32, out: &mut [FstabEntry; 4]) -> usize {
     let Some(path) = to_8_3("FSTAB") else {
         return 0;
     };
@@ -53,7 +53,7 @@ pub fn parse(s: &mut Serial, fs: &Fat32, out: &mut [FstabEntry; 4]) -> usize {
 }
 
 /// The fstab line parser, shared by the ext4 and ESP readers.
-fn parse_bytes(s: &mut Serial, text: &[u8], out: &mut [FstabEntry; 4]) -> usize {
+fn parse_bytes(s: &mut Log, text: &[u8], out: &mut [FstabEntry; 4]) -> usize {
     let mut count = 0;
     for line in text.split(|&b| b == b'\n') {
         if count >= 4 {

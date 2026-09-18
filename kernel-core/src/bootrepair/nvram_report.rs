@@ -7,12 +7,12 @@
 use core::fmt::Write;
 
 use crate::runtime::{Runtime, GLOBAL_GUID};
-use crate::serial::Serial;
+use crate::log::Log;
 use crate::vfs::Vfs;
 
 use super::nvram::{ascii_to_utf16, collect, read_by_name, BootEntry};
 
-pub fn check(s: &mut Serial, rt: &Runtime, vfs: &Vfs) {
+pub fn check(s: &mut Log, rt: &Runtime, vfs: &Vfs) {
     // Self-test on REAL firmware data: BootCurrent must be one of the boot
     // entries we just booted from (OVMF reports 0x0002 = our disk).
     let mut name = [0u16; 32];
@@ -75,7 +75,7 @@ pub fn check(s: &mut Serial, rt: &Runtime, vfs: &Vfs) {
     }
 }
 
-fn report_entry(s: &mut Serial, e: &BootEntry, order: &[u8]) {
+fn report_entry(s: &mut Log, e: &BootEntry, order: &[u8]) {
     let active = e.data[0] & 0x1 != 0;
     let mut in_order = false;
     for o in order.chunks(2) {

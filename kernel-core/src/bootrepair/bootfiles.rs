@@ -4,7 +4,7 @@
 
 use core::fmt::Write;
 
-use crate::serial::Serial;
+use crate::log::Log;
 use crate::vfs::ext4::Ext4;
 
 /// Image file names live in fixed buffers: the kernel stack cannot hold a
@@ -86,7 +86,7 @@ fn push_image(slot: &mut ImageName, name: &[u8]) {
 
 /// Inventory the mounted ext4 root: /boot contents, os-release ID and the
 /// default kernel command line. Logs the findings (and absences).
-pub fn scan(s: &mut Serial, root: &Ext4) -> Inventory {
+pub fn scan(s: &mut Log, root: &Ext4) -> Inventory {
     let mut inv = Inventory::new();
 
     // --- /etc/os-release ---
@@ -130,7 +130,7 @@ pub fn scan(s: &mut Serial, root: &Ext4) -> Inventory {
     inv
 }
 
-fn log_summary(s: &mut Serial, inv: &Inventory) {
+fn log_summary(s: &mut Log, inv: &Inventory) {
     if inv.boot_found {
         let _ = writeln!(
             s,
