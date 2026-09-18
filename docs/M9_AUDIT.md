@@ -16,7 +16,7 @@
 | M9.5-5 | PASS | Zero warnings on both targets after removing stale `#[allow(dead_code)]` on `surface_scan`/`ScanResult` and the unused `blk_read` extern in `diag/diskhealth`. Remaining allows are asm-referenced or deferred features (`probe::FsType::Ufs`, `part::Table.kind`). |
 | M9.5-6 | PASS | README, DESIGN §14 and this plan updated to M9.4/kernel-core; banner tags updated. Version strings move to v0.0.1 with the release commit. |
 | M9.5-7 | PASS | No tracked `.rs/.c/.h` file exceeds 300 lines (max 297). |
-| M9.5-8 | recorded gap list | The riscv smoke does not (yet) cover: repair-mode writes and the YES gate, NVRAM/SMM, Secure Boot fixtures, PS/2 + GOP mirror, SMBIOS, AHCI/NVMe transports, crypto-selftest, `diskhealth --scan`, and the malicious disk fixtures (`--liar`, `--bigcluster`, `--broken*`, `--keys`). First follow-up: a riscv repair-mode phase against virtio-blk writes. |
+| M9.5-8 | closed for repair writes | The riscv smoke now has three phases: read-only boot (with the negative "no writes" grep), repair YES (FIXED.TXT self-test + fallback shim copy over virtio-blk), repair NO (gate aborts, nothing written). Remaining gaps: NVRAM/SMM, Secure Boot fixtures, PS/2 + GOP mirror, SMBIOS, AHCI/NVMe transports, crypto-selftest, `diskhealth --scan`, and the malicious disk fixtures (`--liar`, `--bigcluster`, `--keys`) — no riscv counterpart exists or is needed for the arch-specific ones. |
 
 ## 2. Vulnerability review
 
@@ -35,6 +35,11 @@
 
 ## 3. Fixes landed with this audit
 
+0. Follow-up hardening (post-release wrap-up): the fallback shim copy used a
+   32 KiB stack buffer, which overflows the 16 KiB riscv boot stack (kernel
+   task stacks are 16 KiB on both arches) and corrupted memory during the
+   first riscv repair run. The window is now 4 KiB, and the riscv smoke
+   exercises the whole repair path.
 1. `sstatus.SUM` cleared on the user-copy fault path (M9.5-10).
 2. `spawn_user` error paths free the user root (M9.5-15).
 3. ecall handling gated on U-mode origin (M9.5-14).

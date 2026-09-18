@@ -51,7 +51,7 @@ pub(crate) fn fix_missing_fallback(s: &mut Log, vfs: &Vfs) {
         return;
     }
 
-    // Stream the shim in 32 KiB windows: read a window from the source, append
+    // Stream the shim in 4 KiB windows: read a window from the source, append
     // it to the new file, then verify the final size by re-reading the entry.
     // This path is reachable only from repair(), which verified repair mode;
     // the token makes that check a compile-time requirement.
@@ -62,7 +62,7 @@ pub(crate) fn fix_missing_fallback(s: &mut Log, vfs: &Vfs) {
         let _ = writeln!(s, "repair: cannot create EFI/BOOT/BOOTX64.EFI (unsupported cluster size?)");
         return;
     };
-    let mut buf = [0u8; 32 * 1024];
+    let mut buf = [0u8; 4 * 1024];
     let mut off = 0usize;
     while off < want {
         let n = (want - off).min(buf.len());

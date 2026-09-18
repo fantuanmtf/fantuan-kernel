@@ -21,11 +21,17 @@ cd "$ROOT"
 ARCH="x86_64"
 RISC_DISK=0
 RISC_TWO_FS=0
+RISC_BROKEN=0
+RISC_NOSHIM=0
+RISC_KEYS=0
 prev=""
 for a in "$@"; do
   if [ "$prev" = "--arch" ]; then ARCH="$a"; fi
   if [ "$a" = "--disk" ]; then RISC_DISK=1; fi
   if [ "$a" = "--two-fs" ]; then RISC_TWO_FS=1; fi
+  if [ "$a" = "--broken" ]; then RISC_BROKEN=1; fi
+  if [ "$a" = "--broken-shim" ]; then RISC_BROKEN=1; RISC_NOSHIM=1; fi
+  if [ "$a" = "--shell-repair" ] || [ "$a" = "--keys" ]; then RISC_KEYS=1; fi
   prev="$a"
 done
 if [ "$ARCH" = "riscv64" ]; then
@@ -39,6 +45,14 @@ if [ "$ARCH" = "riscv64" ]; then
     MKDISK_ARGS=""
     if [ "$RISC_TWO_FS" = "1" ]; then
       MKDISK_ARGS="--two-fs"
+    fi
+    if [ "$RISC_NOSHIM" = "1" ]; then
+      MKDISK_ARGS="$MKDISK_ARGS --broken-shim"
+    elif [ "$RISC_BROKEN" = "1" ]; then
+      MKDISK_ARGS="$MKDISK_ARGS --broken"
+    fi
+    if [ "$RISC_KEYS" = "1" ]; then
+      MKDISK_ARGS="$MKDISK_ARGS --shell-repair"
     fi
     python3 tools/mkdisk.py $MKDISK_ARGS build/test.img
     DEV_OPT="-drive file=build/test.img,format=raw,if=none,id=vd0 -device virtio-blk-device,drive=vd0"

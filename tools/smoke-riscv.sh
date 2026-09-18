@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
-# RISC-V smoke: bounded QEMU virt + OpenSBI run; expects the S-mode banner
-# and the handoff report. Skips (clearly) when qemu-system-riscv64 is absent.
+# RISC-V smoke: bounded QEMU virt + OpenSBI runs. Three phases:
+#   A (read-only): boot the two-filesystem disk, drive the shell over the
+#     serial console, assert the boot/VFS/diagnosis/userland evidence and
+#     that nothing was written.
+#   B (repair YES): broken-ESP disk, `grub-fix repair` + YES — the FAT
+#     writes (FIXED.TXT self-test, fallback shim copy) must complete over
+#     virtio-blk.
+#   C (repair NO): same disk, answer NO — the gate must abort with nothing
+#     written.
+# Skips (clearly) when qemu-system-riscv64 is absent.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -13,8 +21,8 @@ fi
 
 LOG="build/smoke-riscv.log"
 rm -f "$LOG"
-# Feed the shell a couple of commands through the serial console (kept open
-# so QEMU does not see EOF); the run is bounded by the timeout.
+# Feed the shell commands through the serial console (the pipe is kept open
+# so QEMU does not see EOF); each run is bounded by its timeout.
 (sleep 5; printf 'diskhealth\ncat HELLO.TXT\n'; sleep 70) \
   | timeout --signal=KILL 60 ./tools/run.sh --arch riscv64 --disk --two-fs > "$LOG" 2>&1 || true
 
@@ -47,11 +55,45 @@ if grep -q "fantuan v0.0.1 (riscv64)" "$LOG" \
    && grep -q "bootrepair: runtime services unavailable" "$LOG" \
    && grep -q "shell: ready" "$LOG" \
    && grep -q "SMART unsupported for this transport (virtio)" "$LOG" \
-   && grep -q "Hello from the fantuan-kernel VFS!" "$LOG"; then
-  echo "SMOKE PASS (riscv64: boot, Sv39, traps, timer, userland+X, virtio-blk, VFS, shell)"
+   && grep -q "Hello from the fantuan-kernel VFS!" "$LOG" \
+   && ! grep -q "repair: FIXED.TXT write" "$LOG"; then
+  echo "SMOKE PASS (riscv64 phase A: boot, Sv39, traps, timer, userland+X, virtio-blk, VFS, shell, read-only boot)"
   grep -aE "fantuan v0.0.1 \(riscv64|mm: frame self-test|trap: |timer: |tick: |sched: |task [12] |user: |userland: |cpu: |^exc |blk: |vfs: |ext4: |probe: |bootrepair: |shell|SMART|Hello from" "$LOG" | head -40 || true
 else
-  echo "SMOKE FAIL (riscv64) — log tail:"
+  echo "SMOKE FAIL (riscv64 phase A) — log tail:"
   tail -20 "$LOG"
+  exit 1
+fi
+
+# Phase B: consent-gated repair writes over virtio-blk.
+RLOG="build/smoke-riscv-repair.log"
+rm -f "$RLOG"
+(sleep 5; printf 'grub-fix repair\nYES\n'; sleep 70) \
+  | timeout --signal=KILL 60 ./tools/run.sh --arch riscv64 --disk --broken > "$RLOG" 2>&1 || true
+
+if grep -q "grub-fix: repair mode ON" "$RLOG" \
+   && grep -q "repair: FIXED.TXT write+readback ok" "$RLOG" \
+   && grep -q "repair: copied EFI/ubuntu/shimx64.efi -> EFI/BOOT/BOOTX64.EFI (21 bytes, verified)" "$RLOG" \
+   && grep -q "repair: done" "$RLOG"; then
+  echo "SMOKE PASS (riscv64 phase B: repair YES — virtio FAT writes, fallback copy)"
+  grep -aE "grub-fix: repair mode ON|repair: FIXED|repair: copied|repair: done" "$RLOG" | head -6 || true
+else
+  echo "SMOKE FAIL (riscv64 phase B repair) — log tail:"
+  tail -20 "$RLOG"
+  exit 1
+fi
+
+# Phase C: the YES gate must abort with nothing written.
+NLOG="build/smoke-riscv-repair-no.log"
+rm -f "$NLOG"
+(sleep 5; printf 'grub-fix repair\nNO\n'; sleep 70) \
+  | timeout --signal=KILL 60 ./tools/run.sh --arch riscv64 --disk --broken > "$NLOG" 2>&1 || true
+
+if grep -q "grub-fix: confirmation not YES — aborted (nothing written)" "$NLOG" \
+   && ! grep -q "repair: FIXED.TXT write" "$NLOG"; then
+  echo "SMOKE PASS (riscv64 phase C: repair NO — gate aborts, nothing written)"
+else
+  echo "SMOKE FAIL (riscv64 phase C repair gate) — log tail:"
+  tail -20 "$NLOG"
   exit 1
 fi
