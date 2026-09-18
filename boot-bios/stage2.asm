@@ -11,6 +11,7 @@ ORG 0x8000
 %define E820_MAGIC 0x534D4150 ; 'SMAP'
 
 start:
+    mov [boot_drive], dl
     mov si, msg_banner
     call serial_puts
 
@@ -26,9 +27,89 @@ start:
 
     mov si, msg_spike
     call serial_puts
+
+    ; Load the 64-bit payload (LBA 9, up to 16 sectors) to 0x1000:0x0000.
+    mov si, payload_dap
+    mov ah, 0x42
+    mov dl, [boot_drive]
+    int 0x13
+    jc load_error
+
+    mov si, msg_long
+    call serial_puts
+    jmp enter_long
+
+load_error:
+    mov si, msg_load_err
+    call serial_puts
 .hang:
     hlt
     jmp .hang
+
+; --- long mode transition (M10-2) ---------------------------------------------
+
+enter_long:
+    cli
+    ; fast A20 gate
+    in al, 0x92
+    or al, 2
+    out 0x92, al
+
+    lgdt [gdt64_ptr]
+    mov eax, cr0
+    or eax, 1
+    mov cr0, eax
+    jmp 0x08:pm32
+
+BITS 32
+pm32:
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+    mov esp, 0x7000
+
+    ; page tables: PML4 0x1000, PDPT 0x2000, PD 0x3000 (identity, 1 GiB)
+    xor eax, eax
+    mov ecx, 0xC00
+    mov edi, 0x1000
+    rep stosd
+    mov dword [0x1000], 0x2003
+    mov dword [0x2000], 0x3003
+    mov edi, 0x3000
+    mov eax, 0x83
+    mov ecx, 512
+.fill:
+    mov [edi], eax
+    add edi, 8
+    add eax, 0x200000
+    loop .fill
+
+    mov eax, cr4
+    or eax, 1 << 5
+    mov cr4, eax
+    mov eax, 0x1000
+    mov cr3, eax
+    mov ecx, 0xC0000080
+    rdmsr
+    or eax, 1 << 8
+    wrmsr
+    mov eax, cr0
+    or eax, 0x80000000
+    mov cr0, eax
+    jmp 0x18:long_entry
+
+BITS 64
+long_entry:
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+    mov rsp, 0x7000
+    mov rax, 0x10000
+    jmp rax
+
+BITS 16
 
 ; --- E820 ---------------------------------------------------------------------
 
@@ -192,6 +273,29 @@ msg_len:    db ' len=', 0
 msg_type:   db ' type=', 0
 msg_crlf:   db 13, 10, 0
 msg_spike:  db 'spike: stage1+stage2+LBA read+E820 ok', 13, 10, 0
+msg_long:   db 'entering long mode...', 13, 10, 0
+msg_load_err: db 'E: payload load failed', 13, 10, 0
+
+boot_drive: db 0
+
+align 4
+payload_dap:
+    db 0x10, 0
+    dw 8
+    dw 0x0000
+    dw 0x1000
+    dq 9
+
+align 8
+gdt64:
+    dq 0x0000000000000000
+    dq 0x00CF9A000000FFFF ; 0x08: 32-bit code
+    dq 0x00CF92000000FFFF ; 0x10: data
+    dq 0x00AF9A000000FFFF ; 0x18: 64-bit code
+gdt64_end:
+gdt64_ptr:
+    dw gdt64_end - gdt64 - 1
+    dd gdt64
 
 e820_count: dw 0
 e820_index: dw 0

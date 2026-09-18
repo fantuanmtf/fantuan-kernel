@@ -116,8 +116,22 @@ in `kernel-core` (frame allocator, paging helpers, task stacks) and in
   -nographic -no-reboot` (SeaBIOS prints `Booting from Hard Disk..` on the
   serial console).
 
+### 7.2 Long-mode spike results (recorded 2026-09)
+
+- Transition sequence verified under SeaBIOS: fast-A20 (port 0x92), GDT with
+  32-bit code/data and a 64-bit code descriptor, `CR0.PE` -> far jump to the
+  32-bit segment, page tables at `0x1000/0x2000/0x3000` (PML4 -> PDPT -> PD,
+  512 x 2 MiB identity entries, first 1 GiB), `CR4.PAE`, `CR3`, `EFER.LME`,
+  `CR0.PG`, far jump to the 64-bit segment, then jump to the payload at
+  `0x10000`. The 64-bit stub prints via COM1 and halts.
+- The loader image must be padded (now 1 MiB) so sector requests never run
+  past the end of the disk — the first attempt failed with `int 0x13` CF set
+  because the payload read exceeded the 10-sector image.
+- Payload load: 8 sectors (4 KiB) from LBA 9 to `0x1000:0x0000`; the build
+  asserts the payload size.
+
 The artifacts are `boot-bios/stage1.asm`, `boot-bios/stage2.asm`,
-`tools/build-bios.sh` and `tools/smoke-bios.sh`.
+`boot-bios/longmode.asm`, `tools/build-bios.sh` and `tools/smoke-bios.sh`.
 
 ## 8. Verification
 

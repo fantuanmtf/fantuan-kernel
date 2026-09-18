@@ -16,9 +16,11 @@ if grep -q "12fantuan-bios stage2 (M10 spike)" "$LOG" \
    && grep -q "e820: entries=7" "$LOG" \
    && grep -q "e820\[0\]: base=00000000 len=0009fc00 type=00000001" "$LOG" \
    && grep -q "e820\[3\]: base=00100000 len=07ee0000 type=00000001" "$LOG" \
-   && grep -q "spike: stage1+stage2+LBA read+E820 ok" "$LOG"; then
-  echo "SMOKE PASS (bios: MBR -> int 0x13 LBA -> stage2 -> COM1 + E820)"
-  grep -aE "^e820|stage2|spike" "$LOG" | head -12 || true
+   && grep -q "spike: stage1+stage2+LBA read+E820 ok" "$LOG" \
+   && grep -q "entering long mode..." "$LOG" \
+   && grep -q "long mode ok (M10-2): 64-bit stub running" "$LOG"; then
+  echo "SMOKE PASS (bios: MBR -> LBA -> stage2 -> E820 -> long mode -> 64-bit stub)"
+  grep -aE "^e820|stage2|spike|entering long|long mode ok" "$LOG" | head -14 || true
 else
   echo "SMOKE FAIL (bios) — log tail:"
   tail -20 "$LOG"
