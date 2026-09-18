@@ -161,6 +161,31 @@ The artifacts are `boot-bios/stage1.asm`, `boot-bios/stage2.asm`,
   discovery over BIOS is a follow-up. RSDP/SMBIOS scanning on BIOS is not
   implemented yet (fields are 0).
 
+### 7.4 i686 toolchain spike and decision (recorded 2026-09)
+
+Stable rustup has **no `i686-unknown-none`** target. Checked alternatives:
+
+| Option | Result |
+|---|---|
+| `i686-unknown-uefi` on stable | builds, but artifacts are COFF/PE — unusable for a flat kernel link |
+| `i686-unknown-linux-*` | hosted targets (libc/TLS assumptions), wrong for a kernel |
+| nightly `-Z build-std=core` + custom target JSON | **works** (spike below) |
+
+Spike evidence: a `no_std` staticlib built with
+`cargo +nightly build -Z build-std=core -Z json-target-spec --target
+targets/i686-fantuan-none.json` (arch x86, pentium4, SSE/MMX disabled, no
+redzone, static relocation, panic=abort), then linked with
+`ld -m elf_i386 -T script` at `0x10000`; `objdump` shows clean 32-bit code
+(`outb`, `hlt`) with the expected `probe_entry` symbol.
+
+**Decision**: the 32-bit kernel lives in its own crate `kernel-i686/` with a
+**pinned nightly toolchain** (a `rust-toolchain.toml` inside that directory)
+and the committed `targets/i686-fantuan-none.json`; it is excluded from the
+stable workspace build. This is the single nightly exception in the project,
+justified by upstream target availability; x86_64, riscv64 and arm64 stay on
+stable. The pointer-width audit (M10-4 step 1) still lands first on stable in
+`kernel-core` and must keep all existing smokes green.
+
 ## 8. Verification
 
 - **QEMU**: `qemu-system-i386 -machine pc` (SeaBIOS) for i686 and

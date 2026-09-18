@@ -12,6 +12,7 @@ checks see [OPERATIONS.md](OPERATIONS.md).
 | `x86_64-unknown-none` | x86_64 kernel, userland | add target |
 | `x86_64-unknown-uefi` | UEFI bootloader | add target |
 | `riscv64gc-unknown-none-elf` | RISC-V kernel, userland | add target |
+| nightly + `rust-src` | i686 (32-bit) kernel only, planned v0.0.2+ | `rustup toolchain install nightly --profile minimal --component rust-src`; built with `-Z build-std=core -Z json-target-spec --target targets/i686-fantuan-none.json` |
 | `qemu-system-x86_64` + OVMF (`edk2-ovmf`) | run/test x86_64 | SMM OVMF optional |
 | `qemu-system-riscv64` (>= 9) | run/test riscv64 | OpenSBI `fw_dynamic` ships with QEMU |
 | `clang` + `llvm-ar` | build the C driver layer for riscv64 | any recent LLVM |

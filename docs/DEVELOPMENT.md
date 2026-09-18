@@ -28,6 +28,9 @@ authoritative design), then this file.
 9. **No allocator**: `kernel-core` and both kernels are `no_std` without
    `alloc`. Use fixed buffers and `static mut` scratch; `core::fmt` writes
    go through the `kernel-core::log` sink.
+10. **One nightly exception**: the planned i686 crate builds with nightly
+    `-Z build-std` and `targets/i686-fantuan-none.json` because stable has
+    no 32-bit bare-metal target; every other crate stays on stable.
 
 ## 2. Repository map
 
