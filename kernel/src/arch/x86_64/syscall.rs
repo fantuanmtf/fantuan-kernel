@@ -9,10 +9,9 @@
 
 use crate::interrupts::InterruptFrame;
 use crate::serial;
-use crate::task;
 
 pub const SYSCALL_VECTOR: u64 = 0x60;
-pub const ABI_VERSION: u64 = 1;
+pub const ABI_VERSION: u64 = kernel_core::syscall::ABI_VERSION;
 
 // Numbers live in fantuan-abi — the ABI crate is the single source for both
 // sides of the boundary.
@@ -34,23 +33,8 @@ pub fn syscall(n: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64 {
 
 /// Called from isr_dispatch with the interrupt frame of INT 0x60.
 pub fn dispatch(frame: &mut InterruptFrame) {
-    let n = frame.rax;
-    let result = match n {
-        SYS_VERSION => ABI_VERSION,
-        SYS_GET_TID => task::current_id(),
-        SYS_EXIT => task::exit(frame.rdi),
-        SYS_SLEEP_MS => {
-            task::sleep_ms(frame.rdi);
-            OK
-        }
-        SYS_WRITE => sys_write(frame.rdi, frame.rsi),
-        SYS_YIELD => {
-            task::schedule();
-            OK
-        }
-        _ => ERR_NOSYS,
-    };
-    frame.rax = result;
+    let args = [frame.rdi, frame.rsi, frame.rdx, frame.r10, frame.r8];
+    frame.rax = kernel_core::syscall::dispatch(sys_write, frame.rax, &args);
 }
 
 fn sys_write(ptr: u64, len: u64) -> u64 {

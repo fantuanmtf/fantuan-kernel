@@ -10,5 +10,6 @@
 pub mod arch;
 pub mod elf;
 pub mod frame;
+pub mod syscall;
 pub mod task;
 pub mod user;

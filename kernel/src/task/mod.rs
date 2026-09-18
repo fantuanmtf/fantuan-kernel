@@ -9,7 +9,7 @@ use crate::mm::paging::{self, phys_to_virt};
 use crate::mm::user;
 use fantuan_abi::{USER_CS_SEL, USER_DS_SEL, USER_STACK_TOP};
 
-pub use kernel_core::task::{current_id, exit, init, schedule, sleep_ms, spawn, SWITCHES};
+pub use kernel_core::task::{current_id, exit, init, schedule, spawn, SWITCHES};
 
 const USER_STACK_PAGES: u64 = 4;
 
@@ -22,7 +22,7 @@ fn arch_switch(old: *mut u64, new_rsp: u64, new_vm: u64) {
     unsafe { switch_context(old, new_rsp, new_vm) }
 }
 
-fn arch_set_kernel_stack(top: u64) {
+fn arch_set_kernel_stack(top: u64, _is_user: bool) {
     gdt::set_rsp0(top);
 }
 

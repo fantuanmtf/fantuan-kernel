@@ -67,7 +67,8 @@ pub struct TaskOps {
     /// Save the current context on OLD_RSP and resume NEW_RSP in NEW_VM_ROOT.
     pub switch: fn(old_rsp: *mut u64, new_rsp: u64, new_vm_root: u64),
     /// Point the kernel-entry stack at TOP (x86 TSS.rsp0, riscv sscratch).
-    pub set_kernel_stack: fn(top: u64),
+    /// IS_USER tells riscv whether to arm the sscratch trap swap.
+    pub set_kernel_stack: fn(top: u64, is_user: bool),
     /// Build the initial frame for a kernel task; returns its saved rsp.
     pub init_kernel_stack: fn(stack_top: u64, body: fn() -> !) -> u64,
     /// Address-space root of kernel tasks.
@@ -81,7 +82,7 @@ pub struct TaskOps {
 }
 
 fn unset(_old: *mut u64, _new: u64, _vm: u64) {}
-fn unset_top(_top: u64) {}
+fn unset_top(_top: u64, _is_user: bool) {}
 fn unset_stack(_top: u64, _body: fn() -> !) -> u64 {
     0
 }
@@ -141,7 +142,7 @@ pub fn init(boot_stack_top: u64) {
             exit_code: 0,
         };
     }
-    (ops.set_kernel_stack)(boot_stack_top);
+    (ops.set_kernel_stack)(boot_stack_top, false);
 }
 
 /// Allocate a kernel stack; returns (physical base, virtual top).
@@ -220,8 +221,9 @@ pub fn schedule() {
         SWITCHES.fetch_add(1, Ordering::Relaxed);
         CURRENT.store(n, Ordering::Relaxed);
         // Point the kernel-entry stack at the NEXT task before switching: a
-        // fresh user task enters ring 3 immediately and needs it already.
-        (ops.set_kernel_stack)(TASKS[n].kernel_stack_top);
+        // fresh user task enters user mode immediately and needs it already.
+        let n_user = TASKS[n].is_user;
+        (ops.set_kernel_stack)(TASKS[n].kernel_stack_top, n_user);
         let old_rsp = &raw mut TASKS[cur].rsp;
         let new_rsp = TASKS[n].rsp;
         let new_vm = TASKS[n].vm_root;
