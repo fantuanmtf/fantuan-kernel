@@ -663,11 +663,19 @@ reference platform is QEMU `virt` with OpenSBI (`qemu-system-riscv64`,
 
 ### 14.1 Environment facts (verified 2026-09)
 
-- `riscv64gc-unknown-none-elf` is a rustup target (not yet installed).
+- `riscv64gc-unknown-none-elf` is installed via rustup (the system cargo
+  lacks no_std targets, same as for x86).
 - `qemu-system-riscv64` 10.2.3 is installed; **x86_64 must stay in
   `QEMU_SOFTMMU_TARGETS`** so the primary platform's smoke suite keeps
   running (a riscv-only rebuild removes `qemu-system-x86_64`).
-- OpenSBI `opensbi-riscv64-generic-fw_dynamic.bin` ships with QEMU.
+- OpenSBI `opensbi-riscv64-generic-fw_dynamic.bin` ships with QEMU
+  (`-bios default`, OpenSBI v1.7 reported).
+- Verified by an out-of-tree spike (2026-09): an ELF linked at
+  `0x80200000` (medany) boots with
+  `qemu-system-riscv64 -machine virt -bios default -kernel hello.elf
+  -nographic`, and the NS16550 MMIO UART at `0x10000000` prints. The
+  handoff register convention (a0 = hartid, a1 = DTB) is the next thing to
+  confirm when M9.1 starts.
 
 ### 14.2 Why this is a port, not a recompile
 
@@ -701,9 +709,13 @@ reference platform is QEMU `virt` with OpenSBI (`qemu-system-riscv64`,
    the C input driver (i8042, port I/O), runtime/SMBIOS/UEFI boot. The
    explicit trait interfaces are deferred until a second implementation
    forces their shape.
-2. **M9.1 — boot.** riscv64 build target; S-mode entry from OpenSBI;
-   FDT-lite memory map (memory + reserved-memory only); Sv39 early mapping;
-   MMIO 16550 console; boot banner and handshake validation.
+2. **M9.1 — boot.** Kickoff checklist (spike-verified): riscv64 build
+   target, link at `0x80200000` with a riscv linker script and `.cargo`
+   rustflags, `_start` that first writes the MMIO UART banner (proving the
+   handoff), then FDT-lite memory map (memory + reserved-memory only),
+   Sv39 early mapping and a riscv BootInfo (arch discriminator, DTB-based
+   memmap, no framebuffer/ACPI). The x86 smoke suite must stay green in the
+   same tree via `#[cfg(target_arch)]`.
 3. **M9.2 — traps and tasks.** SBI timer, PLIC external IRQs, trap frame,
    context switch, `ecall` syscall dispatch, kernel tasks + scheduler.
 4. **M9.3 — user mode and diagnostics.** U-mode tasks with per-task page
