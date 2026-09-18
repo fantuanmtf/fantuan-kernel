@@ -21,6 +21,9 @@ use fantuan_abi::{
 mod cpu;
 mod fdt;
 mod paging;
+mod sbi;
+mod timer;
+mod trap;
 
 /// QEMU virt NS16550 UART (DESIGN §14.1, spike-verified).
 const UART_BASE: usize = 0x1000_0000;
@@ -75,6 +78,8 @@ const EMPTY_DESC: MemoryDescriptor = MemoryDescriptor {
 };
 
 static mut MEMMAP: [MemoryDescriptor; 16] = [EMPTY_DESC; 16];
+/// FDT timebase, stashed for the high-half boot (the timer arms there).
+static mut TIMEBASE_HZ: u64 = 10_000_000;
 static mut BOOT_INFO: BootInfo = BootInfo {
     magic: BOOT_MAGIC,
     version: BOOT_VERSION,
@@ -223,6 +228,7 @@ pub extern "C" fn rust_entry(hartid: usize, dtb: usize) -> ! {
     extra[n] = (dtb as u64, dtb as u64 + mem.totalsize as u64);
     n += 1;
 
+    unsafe { TIMEBASE_HZ = mem.timebase };
     let kernel_end = core::ptr::addr_of!(__bss_end) as u64;
     kernel_core::frame::init(bi, kernel_end, &extra[..n]);
     puts("mm: usable ");
@@ -279,6 +285,14 @@ extern "C" fn high_main() -> ! {
         None => puts("mm: frame self-test FAILED (no frames)\n"),
     }
     puts("paging: Sv39 identity + PHYS_OFFSET alias active\n");
+
+    // M9.2b: traps + SBI timer.
+    trap::init();
+    puts("trap: stvec armed\n");
+    unsafe { asm!("ebreak") };
+    puts("trap: resumed after ebreak\n");
+    timer::init(unsafe { TIMEBASE_HZ });
+    puts("timer: SBI timer armed at 100 Hz\n");
     park()
 }
 

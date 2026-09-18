@@ -20,6 +20,8 @@ pub struct MemInfo {
     pub reserved: [Block; MAX_BLOCKS],
     pub reserved_n: usize,
     pub totalsize: usize,
+    /// /cpus timebase-frequency in Hz (10 MHz fallback for QEMU virt).
+    pub timebase: u64,
 }
 
 const FDT_MAGIC: u32 = 0xd00d_feed;
@@ -72,6 +74,7 @@ pub fn parse(dtb: usize) -> Option<MemInfo> {
         reserved: [Block { base: 0, size: 0 }; MAX_BLOCKS],
         reserved_n: 0,
         totalsize,
+        timebase: 10_000_000,
     };
 
     // memreserve map: (base, size) pairs, terminated by (0, 0).
@@ -92,6 +95,7 @@ pub fn parse(dtb: usize) -> Option<MemInfo> {
     let mut size_cells = 2usize;
     let mut depth = 0usize;
     let mut is_memory = false;
+    let mut is_cpus = false;
     let mut p = off_struct;
     while p + 4 <= totalsize {
         let tok = be32(d, p);
@@ -104,11 +108,13 @@ pub fn parse(dtb: usize) -> Option<MemInfo> {
                 // Root is depth 1; /memory@... nodes are its children.
                 if depth == 2 {
                     is_memory = name.starts_with(b"memory");
+                    is_cpus = name.starts_with(b"cpus");
                 }
             }
             FDT_END_NODE => {
                 if depth == 2 {
                     is_memory = false;
+                    is_cpus = false;
                 }
                 depth = depth.saturating_sub(1);
             }
@@ -124,6 +130,8 @@ pub fn parse(dtb: usize) -> Option<MemInfo> {
                     addr_cells = be32(d, p) as usize;
                 } else if depth == 1 && name == b"#size-cells" && len >= 4 {
                     size_cells = be32(d, p) as usize;
+                } else if is_cpus && name == b"timebase-frequency" && len >= 4 {
+                    info.timebase = be32(d, p) as u64;
                 } else if is_memory && name == b"reg" {
                     let cells = addr_cells + size_cells;
                     if cells > 0 && cells <= 8 {

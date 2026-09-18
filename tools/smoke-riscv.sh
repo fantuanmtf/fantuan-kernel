@@ -13,7 +13,7 @@ fi
 
 LOG="build/smoke-riscv.log"
 rm -f "$LOG"
-timeout --signal=KILL 30 ./tools/run.sh --arch riscv64 < /dev/null > "$LOG" 2>&1 || true
+timeout --signal=KILL 45 ./tools/run.sh --arch riscv64 < /dev/null > "$LOG" 2>&1 || true
 
 if grep -q "fantuan (riscv64) M9" "$LOG" \
    && grep -q "boot: hartid=" "$LOG" \
@@ -21,9 +21,12 @@ if grep -q "fantuan (riscv64) M9" "$LOG" \
    && grep -q "fdt: memory 0x80000000" "$LOG" \
    && grep -q "paging: Sv39 tables built" "$LOG" \
    && grep -q "high half online" "$LOG" \
-   && grep -q "mm: frame self-test ok" "$LOG"; then
-  echo "SMOKE PASS (riscv64: OpenSBI handoff, FDT memory, Sv39 high half, frame self-test)"
-  grep -aE "fantuan \(riscv64|fdt: memory|mm: usable|mm: frame self-test|paging: Sv39" "$LOG" | head -8
+   && grep -q "mm: frame self-test ok" "$LOG" \
+   && grep -q "trap: ebreak handled" "$LOG" \
+   && grep -q "timer: SBI timer armed" "$LOG" \
+   && grep -q "tick: 10 s (SBI timer" "$LOG"; then
+  echo "SMOKE PASS (riscv64: boot, Sv39, traps, SBI timer)"
+  grep -aE "fantuan \(riscv64|mm: usable|mm: frame self-test|trap: |timer: |tick: " "$LOG" | head -10
 else
   echo "SMOKE FAIL (riscv64) — log tail:"
   tail -20 "$LOG"
