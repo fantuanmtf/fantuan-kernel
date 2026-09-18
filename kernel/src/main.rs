@@ -27,6 +27,7 @@ extern "C" {
 }
 
 mod bootrepair;
+mod acpi;
 mod arch;
 mod bootlog;
 mod console;
@@ -239,6 +240,8 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         smbios::init_from_entry(bi.smbios_table);
         smbios::init(0xF_0000, 0x1_0000);
     }
+    // M12-1: ACPI tables (read-only; absent on the BIOS path for now).
+    acpi::init(bi.rsdp);
 
     let stage1: [diag::Check; 3] = [
         diag::Check { name: "cpu", run: diag::cpu::check },

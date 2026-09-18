@@ -73,7 +73,9 @@ Design: `M11_NET.md`.
 
 Design: `M12_TOOLS_HW.md`.
 
-- [ ] M12-1 ACPI table walker (RSDT/XSDT)
+- [x] M12-1 ACPI table walker: RSDP/RSDT/XSDT validation, FADT/MADT
+      (enabled CPUs)/DMAR/IVRS presence — verify the x86 boot log lines
+      (UEFI only; the BIOS path has no RSDP yet)
 - [ ] M12-2 disk imager + `clone` command + hash verification
 - [ ] M12-3 bad-sector policy (`--continue`) + report file
 - [ ] M12-4 NTFS boot/MFT/attribute/runlist read path (fixture)
@@ -120,6 +122,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | ACPI walker on UEFI: 5 tables, fadt/madt, cpus=1 | PASS |
 | 2026-09 | `tools/smoke-bios.sh` phase 2 (i686 interrupts: IDT/PIC/PIT) | PASS |
 | 2026-09 | serial heartbeats stop after 30 s; interactive shell clean | PASS |
 | 2026-09 | `tools/smoke-bios.sh` phase 2 (i686 handoff + frame allocator) | PASS |
