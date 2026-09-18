@@ -131,7 +131,35 @@ in `kernel-core` (frame allocator, paging helpers, task stacks) and in
   asserts the payload size.
 
 The artifacts are `boot-bios/stage1.asm`, `boot-bios/stage2.asm`,
-`boot-bios/longmode.asm`, `tools/build-bios.sh` and `tools/smoke-bios.sh`.
+`boot-bios/stage2_pm.inc`, `boot-bios/longmode.asm` (debug payload),
+`tools/build-bios.sh` and `tools/smoke-bios.sh`.
+
+### 7.3 Kernel handoff results (M10-3, recorded 2026-09)
+
+- stage2 now synthesizes the BootInfo in protected mode: E820 -> 40-byte
+  `MemoryDescriptor` array (type 7 usable / 0 reserved, zero-length sentinel
+  skipped, everything below 1 MiB reported reserved so the kernel never
+  reuses the loader), BootInfo at `0x4000` with `arch = 3`, `kernel_base =
+  0x1000000`, `stack_top = 0x80000`, `boot_pml4 = 0x20000` and
+  `boot_tables_pages = 13`.
+- The kernel is loaded with **ATA PIO** (primary master, LBA28, one sector
+  per request) to physical 16 MiB, because the 16-bit DAP cannot address
+  above ~1 MiB. The build passes the kernel LBA and sector count to NASM;
+  the flat kernel is 195,608 bytes (383 sectors) at LBA 33.
+- Page tables: identity + `PHYS_OFFSET` alias for 4 GiB, 2 MiB pages,
+  shared PD pages (1 PML4 + 8 PDPT + 4 PD = 13 pages).
+- Boot log evidence: `handshake ok ... version=2`, `mm: frame allocator
+  ready: 510 MiB usable`, `mm: reclaimed 13 bootloader table pages`,
+  `userland: hello from tid 4`, `shell: ready`. Framebuffer is absent
+  (serial-only console) and SMBIOS/RSDP are 0 in v1; the diagnostics
+  degrade accordingly.
+- **Old-CPU bug found and fixed**: `sys_write` executed `stac`/`clac`
+  unconditionally, which is #UD on CPUs without SMAP (the default QEMU
+  `pc` CPU). `cpu::stac/clac` are now gated on the SMAP-active flag set by
+  `enable_smap`, so the default-CPU BIOS smoke exercises the no-SMAP path.
+- v1 limitations (recorded): BIOS attaches to legacy IDE (PIIX); AHCI/NVMe
+  discovery over BIOS is a follow-up. RSDP/SMBIOS scanning on BIOS is not
+  implemented yet (fields are 0).
 
 ## 8. Verification
 

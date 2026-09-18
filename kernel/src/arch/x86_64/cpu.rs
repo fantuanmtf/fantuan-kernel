@@ -1,6 +1,7 @@
 //! Minimal CPU-state helpers — arch code, not drivers (DESIGN.md §2.1).
 
 use core::arch::asm;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 #[inline]
 pub fn sti() {
@@ -116,19 +117,31 @@ pub fn enable_smep() -> bool {
     features().smep && cr4_set(20)
 }
 
+/// Whether SMAP is actually active (set by enable_smap at boot). Older CPUs
+/// and emulated CPUs without SMAP would take #UD on stac/clac, so the
+/// syscall copy path consults this flag instead of executing them blindly.
+static SMAP_ACTIVE: AtomicBool = AtomicBool::new(false);
+
 /// Supervisor Mode Access Prevention. Kernel code touching user pages must
 /// bracket the access with stac()/clac().
 pub fn enable_smap() -> bool {
-    features().smap && cr4_set(21)
+    let ok = features().smap && cr4_set(21);
+    SMAP_ACTIVE.store(ok, Ordering::Release);
+    ok
 }
 
 /// Set/clear the AC flag: allows supervisor access to user pages under SMAP.
+/// No-ops when SMAP is not active (the instruction would be #UD there).
 #[inline]
 pub fn stac() {
-    unsafe { asm!("stac", options(nomem, nostack, preserves_flags)) }
+    if SMAP_ACTIVE.load(Ordering::Relaxed) {
+        unsafe { asm!("stac", options(nomem, nostack, preserves_flags)) }
+    }
 }
 
 #[inline]
 pub fn clac() {
-    unsafe { asm!("clac", options(nomem, nostack, preserves_flags)) }
+    if SMAP_ACTIVE.load(Ordering::Relaxed) {
+        unsafe { asm!("clac", options(nomem, nostack, preserves_flags)) }
+    }
 }

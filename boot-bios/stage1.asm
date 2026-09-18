@@ -13,7 +13,7 @@ ORG 0x7C00
 %define STAGE2_SEG 0x0000
 %define STAGE2_OFF 0x8000
 %define STAGE2_LBA 1
-%define STAGE2_SECTORS 8
+%define STAGE2_SECTORS 32
 
 start:
     cli
