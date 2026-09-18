@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # fantuan-kernel — one-shot build & run in QEMU/OVMF.
-# Usage: tools/run.sh [--graphics] [--broken] [--broken-shim] [--smm]
-#                     [--no-smbios] [--two-fs] [--keys] [--shell-repair]
-#                     [--nvme] [--bigcluster] [--liar] [--grub-regen]
+# Usage: tools/run.sh [--arch x86_64|riscv64] [--graphics] [--broken]
+#                     [--broken-shim] [--smm] [--no-smbios] [--two-fs]
+#                     [--keys] [--shell-repair] [--nvme] [--bigcluster]
+#                     [--liar] [--grub-regen]
 #   --broken:      build the test disk with a missing EFI/BOOT/BOOTX64.EFI so
 #                  the boot-repair fallback copy can be exercised (M7.5b).
 #   --broken-shim: fallback AND shim missing — the NVRAM repair then has to
@@ -14,6 +15,22 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+# Architecture selection (prescan: --arch takes a separate argument).
+ARCH="x86_64"
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "--arch" ]; then ARCH="$a"; fi
+  prev="$a"
+done
+if [ "$ARCH" = "riscv64" ]; then
+  # RISC-V: OpenSBI (QEMU -bios default) loads the ELF at 0x80200000.
+  echo "[1/2] building kernel-riscv..."
+  ./tools/build.sh --arch riscv64
+  KERNEL="target/riscv64gc-unknown-none-elf/release/kernel-riscv"
+  echo "[2/2] starting qemu-system-riscv64..."
+  exec qemu-system-riscv64 -machine virt -bios default -nographic -kernel "$KERNEL"
+fi
 
 GRAPHICS=0
 BROKEN=0

@@ -7,3 +7,11 @@ rustflags = [
     "-C", "code-model=large",
     "-C", "link-arg=-no-pie",
 ]
+
+[target.riscv64gc-unknown-none-elf]
+rustflags = [
+    # Physical load address first, then (from M9.1b) the Sv39 high half:
+    # rustc's generic "medium" maps to LLVM medany and reaches both.
+    "-C", "code-model=medium",
+    "-C", "link-arg=-no-pie",
+]

@@ -1,8 +1,23 @@
 #!/usr/bin/env bash
-# Build order: user program -> kernel (embeds it) -> bootloader.
+# Build order (x86_64): user program -> kernel (embeds it) -> bootloader.
+# --arch riscv64 builds only the RISC-V kernel (OpenSBI is the boot path).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+ARCH="x86_64"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --arch) ARCH="${2:-}"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+if [ "$ARCH" = "riscv64" ]; then
+  echo "[riscv] building kernel-riscv..."
+  cargo build -p kernel-riscv --target riscv64gc-unknown-none-elf --release
+  exit 0
+fi
 
 echo "[user] building userland program..."
 cargo build -p fantuan-user --target x86_64-unknown-none --release
