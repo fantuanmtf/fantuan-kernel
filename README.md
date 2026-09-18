@@ -7,6 +7,19 @@ BSD diagnosis, Windows deferred.
 All repository artifacts are in English. The authoritative design lives in
 [docs/DESIGN.md](docs/DESIGN.md) — change it before changing code.
 
+## Documentation
+
+| Guide | Audience |
+|---|---|
+| [docs/USAGE.md](docs/USAGE.md) | rescue operators: booting, the shell, repair workflows |
+| [docs/BUILD.md](docs/BUILD.md) | building from source: toolchain, both arches, disk fixtures |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | running the smoke suites, `run.sh` flags, troubleshooting |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | conventions, extension recipes, testing, debugging |
+| [docs/HANDOVER.md](docs/HANDOVER.md) | taking over: status, architecture, known debt, roadmap |
+| [docs/DESIGN.md](docs/DESIGN.md) | the design of record (read before code changes) |
+| [docs/M9_KERNEL_v0.0.1.md](docs/M9_KERNEL_v0.0.1.md) | the M9 milestone plan and release checklist |
+| [docs/M9_AUDIT.md](docs/M9_AUDIT.md) | the v0.0.1 technical-debt and vulnerability audit |
+
 ## Current state: v0.0.1 — M9 complete (RISC-V port + shared core)
 
 M9 brings up a second architecture and splits the portable half of the
