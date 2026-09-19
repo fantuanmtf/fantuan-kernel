@@ -15,6 +15,9 @@ are add-ons, never linked into the kernel or base, so no GPL code can
 infect them; the desktop scope is XFCE and CDE only. The Live profile
 wipes RAM on clean shutdown (`CONFIG_SECURE_WIPE`) as a best-effort
 cold-boot (RAM-freezing) mitigation, with the limitations documented.
+Tools and packages are developed on the `fantuan-apps` and `package`
+branches and vendored into `apps/` per configuration
+([docs/APPS.md](docs/APPS.md)).
 
 All repository artifacts are in English. The authoritative design lives in
 [docs/DESIGN.md](docs/DESIGN.md) — change it before changing code.
@@ -24,6 +27,7 @@ All repository artifacts are in English. The authoritative design lives in
 | Guide | Audience |
 |---|---|
 | [docs/USAGE.md](docs/USAGE.md) | rescue operators: booting, the shell, repair workflows, support matrix |
+| [docs/APPS.md](docs/APPS.md) | app/package authors: branch model, vendoring, manifests, licensing |
 | [docs/BUILD.md](docs/BUILD.md) | building from source: toolchains, all three arches, disk fixtures |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | the smoke suites, the boot/test matrix, `run.sh` flags, troubleshooting |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | conventions, extension recipes, testing, debugging |

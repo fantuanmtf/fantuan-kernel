@@ -200,8 +200,9 @@ Design: `M14_LINUXUSERS.md`.
 - [ ] M14-5 seed/self-host chain + `/bootstrap.sh` + reproducibility hash
 - [ ] M14-6 C++ seed (clang) in the developer image
 - [ ] M14-7 hypervisor V2 (VMX first, then SVM) + guest serial
-- [ ] M14-8 full POSIX shell: toybox sh / dash / bash over the native ABI
-      (the built-in shell keeps the 12 rescue commands)
+- [ ] M14-8 full POSIX shell: bash over the native ABI (default sh,
+      registered GPLv3 separate program shipped with its sources); the
+      built-in shell keeps the rescue builtins
 
 ## v0.1.5 - M15 (desktop + isolation + MinGW)
 
@@ -296,11 +297,19 @@ kernel of a **Live OS** (not rescue-only); `CONFIG_SECURE_WIPE` clears
 RAM on clean shutdown against cold-boot attacks; tools are add-ons that
 keep GPL out of the kernel/base; the desktop scope is XFCE + CDE only.
 
+Tool/package architecture: `APPS.md` - the catalog lives on the
+`fantuan-apps` branch (vendored sources, community PRs) and the tooling
+on the `package` branch; `main` integrates vendored `apps/<name>/` trees
+with `apps.lock`. Batches: **C1** config foundation, **C2** catalog/
+appctl, **C3** bash vendor + GPL compliance, **C4** kernel subsystem
+isolation; then R7.
+
 ## Next action
 
-**R6.5 (pending owner nod) or R7**: land the Kconfig-lite configurator
-and gate `kernel-net`/tools behind it (`CONFIG_PLAN.md`), or continue
-straight to R7 (DNS + ping/nslookup/wget). Stop after each batch so the
+**C1**: land the Kconfig-lite configurator per `CONFIG_PLAN.md` /
+`APPS.md` (owner approved the config-foundation-first entry; docs pushed
+first). Then C2 catalog + appctl, C3 bash vendor + GPL compliance, C4
+kernel subsystem isolation; R7 follows. Stop after each batch so the
 owner can push. Housekeeping: hunt the intermittent riscv
 `uart::log_bytes` fault and the i686 PIO ATA polling-to-IRQ conversion
 when the i686 shell work needs it.

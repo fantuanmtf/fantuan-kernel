@@ -80,6 +80,8 @@ Owner direction 2026-09, additional constraints:
   programs ship as separate, configuration-selected programs; nothing
   GPL is ever linked into the kernel or base. The default kernel stays
   BSD/MIT/Apache only, which the tools separation is designed to keep.
+  The catalog, vendoring policy and branch model are in `APPS.md`; bash
+  is the registered GPLv3 default shell shipped with its sources.
 - **Desktop scope**: only **XFCE** and **CDE** are migration targets for
   now - small, cross-platform codebases that are tractable to port; other
   desktops are explicitly out of scope until further notice.

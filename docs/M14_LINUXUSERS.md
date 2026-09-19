@@ -56,16 +56,18 @@ address spaces, `tmpfs`, a minimal `/dev` (null/zero/tty/fb/input) and
 
 | Stage | Runs on | Produces | Notes |
 |---|---|---|---|
-| 0. Seed | image build (host cross) | `tcc` (x86_64 + i686 + arm64 backends) and `nasm` binaries; musl; toybox; bmake | the only cross-built links in the base image |
+| 0. Seed | image build (host cross) | `tcc` (x86_64 + i686 + arm64 backends) and `nasm` binaries; musl; bmake; bash (GPL, separate program with its sources) | the only cross-built links in the base image |
 | 1. Self-host | target | tcc rebuilds tcc from source | proves reproducibility; hash recorded |
 | 2. Tools | target | tcc builds NASM; bmake drives builds | NASM is BSD-2 |
-| 3. Userspace | target | C sources (toybox, Xorg, XFCE C parts) compiled on target | C++ handled by the seed below |
+| 3. Userspace | target | C sources (apps-catalog tools, Xorg, XFCE C parts) compiled on target | C++ handled by the seed below |
 | 1C. C++ seed | developer image (host cross) | clang (C/C++) for the target | ships prebuilt; documented exception |
 
 License hygiene for the base system: tcc (LGPL) and nasm (BSD-2) are *tools*
-invoked as programs; base userland prefers permissive code — **toybox
-(0BSD)** instead of busybox (GPL), **bmake (BSD)** or ninja (Apache-2.0)
-instead of GNU make, musl (MIT). Copyleft desktop packages (XFCE, Qt) are
+invoked as programs; base userland prefers permissive code from the apps
+catalog (BSD/0BSD implementations) instead of busybox (GPL), **bmake
+(BSD)** or ninja (Apache-2.0) instead of GNU make, musl (MIT). bash is
+the one registered GPLv3 program (the default shell) and ships as a
+separate program with complete corresponding sources. Copyleft desktop packages (XFCE, Qt) are
 optional developer-image programs aggregated with their sources, never
 linked into the kernel. `THIRD_PARTY.md` records every component, version,
 license and source location.
@@ -94,7 +96,7 @@ are documented then, in the threat model.
 | M14-1 | Kernel heap + VMA list + demand paging + COW (no syscalls yet; kernel tests) |
 | M14-2 | POSIX round 1: mmap/brk/open/read/write/stat/getdents; tmpfs; /dev/null/zero |
 | M14-3 | POSIX round 2: fork/execve/wait4, signals, futex, pipes |
-| M14-4 | musl port + toybox + bmake boot under the native ABI |
+| M14-4 | musl port + bmake + the first apps-catalog tools boot under the native ABI |
 | M14-5 | Seed/tcc/self-host chain + `/bootstrap.sh` + reproducibility hash |
 | M14-6 | C++ seed (clang) in the developer image; build one C++ program |
 | M14-7 | Hypervisor V2 (VMX first, SVM second) + guest serial + docs/threat model stubs |
@@ -111,8 +113,9 @@ are documented then, in the threat model.
 
 - Bootstrap: `/bootstrap.sh` produces binaries byte-identical across two
   runs (hash recorded in the smoke log).
-- Userspace: toybox commands, a shell script suite, fork/exec/pipe tests,
-  musl's own test subset where feasible.
+- Userspace: apps-catalog commands (bash as the default shell), a shell
+  script suite, fork/exec/pipe tests, musl's own test subset where
+  feasible.
 - Hypervisor: guest Linux boots to the initramfs under VMX on QEMU nested
   and on one bare host; the host survives guest faults and shutdowns.
 - All earlier smokes (x86_64 UEFI/BIOS, i686, riscv64, arm64) stay green.
