@@ -35,7 +35,10 @@ fail() { echo "SMOKE FAIL (config): $*"; exit 1; }
 ok() { echo "SMOKE PASS (config: $*)"; }
 
 boot() { # log timeout
+  # Build once outside the timeout: the config flip rebuilds three crates, and
+  # that must not eat the boot window (run.sh's own build is then incremental).
   rm -f "$1"
+  ./tools/build.sh >/dev/null 2>&1 || fail "build before boot"
   ( timeout --signal=KILL "$2" ./tools/run.sh < /dev/null > "$1" 2>&1 ) 2>/dev/null || true
 }
 

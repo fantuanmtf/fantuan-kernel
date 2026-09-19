@@ -18,10 +18,17 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Copy an embedded payload only when its bytes changed: cargo watches
+# kernel/user_program.bin, and an unconditional cp bumps the mtime and forces
+# a full kernel rebuild on every run even though the build is incremental.
+sync_embed() { # src dst
+  cmp -s "$1" "$2" || cp "$1" "$2"
+}
+
 if [ "$ARCH" = "riscv64" ]; then
   echo "[user] building userland program (riscv64)..."
   cargo build -p fantuan-user --target riscv64gc-unknown-none-elf --release
-  cp target/riscv64gc-unknown-none-elf/release/fantuan-user kernel-riscv/user_program.bin
+  sync_embed target/riscv64gc-unknown-none-elf/release/fantuan-user kernel-riscv/user_program.bin
 
   echo "[riscv] building kernel-riscv..."
   cargo build -p kernel-riscv --target riscv64gc-unknown-none-elf --release
@@ -30,7 +37,7 @@ fi
 
 echo "[user] building userland program..."
 cargo build -p fantuan-user --target x86_64-unknown-none --release
-cp target/x86_64-unknown-none/release/fantuan-user kernel/user_program.bin
+sync_embed target/x86_64-unknown-none/release/fantuan-user kernel/user_program.bin
 
 echo "[kernel] building kernel..."
 cargo build -p fantuan-kernel --target x86_64-unknown-none --release

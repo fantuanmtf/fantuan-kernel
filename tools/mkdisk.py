@@ -40,13 +40,19 @@ if GRUB_REGEN:
 KBD_TEST = "--kbd-test" in sys.argv
 # --two-fs adds a hand-built ext4 root (mounted ro by M6.5) and an XFS-magic
 # stub that must stay probe-only.
-DISK_SECTORS = 51200 if TWO_FS else 32768  # 25 / 16 MiB
+# UEFI's FAT driver refuses a FAT32 volume below 0xFFF5 clusters (EDK2
+# FatPkg/EnhancedFatDxe/Init.c), so the ESP partition is sized for 65614
+# one-sector clusters (SPF 521). The disk keeps BACKUP_GPT_SECTORS after the
+# last partition for the backup GPT the spec requires.
+BACKUP_GPT_SECTORS = 33  # 32 partition-entry sectors + the header sector
 PART_LBA = 2048
-PART_SECTORS = 30720  # 15 MiB
-PART2_LBA = 32768
+PART_SECTORS = 66688  # 32.6 MiB ESP
+PART2_LBA = 69632
 PART2_SECTORS = 8192  # 4 MiB (ext4 root fixture)
-PART3_LBA = 40960
+PART3_LBA = 77824
 PART3_SECTORS = 8192  # 4 MiB (XFS-magic probe fixture)
+_LAST_PART_END = PART3_LBA + PART3_SECTORS if TWO_FS else PART_LBA + PART_SECTORS
+DISK_SECTORS = _LAST_PART_END + BACKUP_GPT_SECTORS + 1  # 42 / 33.6 MiB
 
 out = bytearray(SECTOR * DISK_SECTORS)
 
@@ -116,11 +122,33 @@ if TWO_FS:
     name3 = "FANTUAN xfs".encode("utf-16-le")
     ent3[56:56 + len(name3)] = name3
     entries[256:384] = ent3
+# The header CRC covers exactly HeaderSize (92) bytes, not the whole sector.
+# UEFI validates that range and rejects the disk when it does not match.
 hdr[88:92] = struct.pack('<I', zlib.crc32(entries) & 0xFFFFFFFF)
-hdr[16:20] = struct.pack('<I', zlib.crc32(hdr) & 0xFFFFFFFF)
+hdr[16:20] = struct.pack('<I', zlib.crc32(bytes(hdr[:92])) & 0xFFFFFFFF)
 
 wsect(1, hdr)
 out[2 * SECTOR:2 * SECTOR + len(entries)] = entries
+
+# --- GPT: backup header + entries at the end of the disk -------------------
+LAST_LBA = DISK_SECTORS - 1
+bkp_entries_lba = LAST_LBA - 32  # 32 entry sectors immediately before the header
+out[bkp_entries_lba * SECTOR:bkp_entries_lba * SECTOR + len(entries)] = entries
+bkp = bytearray(SECTOR)
+bkp[0:8] = b"EFI PART"
+bkp[8:12] = struct.pack('<I', 0x00010000)
+bkp[12:16] = struct.pack('<I', 92)
+bkp[24:32] = struct.pack('<Q', LAST_LBA)                  # current LBA
+bkp[32:40] = struct.pack('<Q', 1)                         # primary LBA
+bkp[40:48] = struct.pack('<Q', 34)                        # first usable
+bkp[48:56] = struct.pack('<Q', DISK_SECTORS - 34)         # last usable
+bkp[56:72] = b"FANTUANDISKGUID!"                          # disk GUID
+bkp[72:80] = struct.pack('<Q', bkp_entries_lba)           # entries LBA
+bkp[80:84] = struct.pack('<I', 32)
+bkp[84:88] = struct.pack('<I', 128)
+bkp[88:92] = struct.pack('<I', zlib.crc32(entries) & 0xFFFFFFFF)
+bkp[16:20] = struct.pack('<I', zlib.crc32(bytes(bkp[:92])) & 0xFFFFFFFF)
+wsect(LAST_LBA, bkp)
 
 # M7 boot-repair fixture: the PARTUUID in fstab must equal the GPT unique
 # GUID of the FAT32 partition, in the text form Linux uses. Shared by the

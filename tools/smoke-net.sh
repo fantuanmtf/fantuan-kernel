@@ -39,7 +39,10 @@ trap cleanup EXIT
 phase_loopback() {
   local log="build/smoke-net-loopback.log"
 
+  # Build outside the boot window: the config flip rebuilds the three kconfig
+  # consumers and must not eat the QEMU timeout (run.sh then only relinks).
   rm -f "$log"
+  ./tools/build.sh >/dev/null 2>&1 || { echo "SMOKE FAIL (net loopback) - build"; exit 1; }
   timeout --signal=KILL "$NET_TIMEOUT" ./tools/run.sh \
     > "$log" < /dev/null 2>&1 || true
 
@@ -117,6 +120,7 @@ phase_slirp() {
 
   start_http_server || return 1
   rm -f "$log"
+  ./tools/build.sh >/dev/null 2>&1 || { echo "SMOKE FAIL (net slirp) - build"; exit 1; }
   timeout --signal=KILL "$NET_TIMEOUT" ./tools/run.sh --net \
     > "$log" < /dev/null 2>&1 || true
   cleanup

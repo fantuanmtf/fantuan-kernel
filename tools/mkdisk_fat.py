@@ -53,9 +53,18 @@ def build(out, part_lba, part_sectors, flags, fstab):
 
     RESERVED = 32
     N_FATS = 2
-    # --bigcluster uses 4 KiB clusters; the FAT is sized to cover the data area.
+    # --bigcluster uses 4 KiB clusters. The FAT holds 4-byte FAT32 entries and
+    # must cover the whole data area, so size it from the cluster count (a
+    # fixed size only ever fit the old 15 MiB partition), and mkdisk.py sizes
+    # the partition above UEFI's 0xFFF5-cluster FAT32 minimum.
     SPC = 8 if flags["bigcluster"] else 1
-    SPF = 30 if flags["bigcluster"] else 240
+    SPF = 1
+    while True:
+        clusters = (part_sectors - RESERVED - N_FATS * SPF) // SPC
+        need = ((clusters + 2) * 4 + SECTOR - 1) // SECTOR
+        if need <= SPF:
+            break
+        SPF = need
     CLUSTERS = (part_sectors - RESERVED - N_FATS * SPF) // SPC
     DATA_START = part_lba + RESERVED + N_FATS * SPF
 
