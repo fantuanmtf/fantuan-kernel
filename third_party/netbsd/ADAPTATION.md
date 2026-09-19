@@ -94,8 +94,8 @@ shim directory will be split per architecture when the second target lands.
 
 ## 5. License notes
 
-`tools/import_netbsd.sh` classifies each file's header; for the 246-file R4
-tree: 122 BSD-2-Clause, 115 BSD-3-Clause, 2 Public-Domain, 1 MIT (the
+`tools/import_netbsd.sh` classifies each file's header; for the 259-file R5
+tree: 124 BSD-2-Clause, 126 BSD-3-Clause, 2 Public-Domain, 1 MIT (the
 CMU/MIT-style `sys/cdefs_elf.h`), 1 Beerware (`sys/sys/timetc.h`, the
 Poul-Henning Kamp licence text) and 5 with no per-file notice at all.  The
 five are committed NetBSD-generated or historical headers: `device_if.h`,
@@ -257,4 +257,67 @@ net: icmp echo reply ok
 net: udp loopback ok (sent=1 recv=1 bytes=32)
 net: arp self-test ok (entries=1)
 net: in/out counters pkts_in=3 pkts_out=3
+```
+
+## 9. R5 outcome (2026-09): the real socket and TCP layer
+
+The import grew to 259 files.  The R5 `.c` additions are the real TCP state
+machine and socket layer: `sys/netinet/{tcp_input,tcp_output,tcp_subr,
+tcp_timer,tcp_usrreq,tcp_congctl,tcp_sack,tcp_syncache}.c` and
+`sys/kern/{uipc_socket,uipc_socket2}.c`, plus the `tcp_private.h`,
+`tcp_congctl.h` and `tcp_syncache.h` headers.  `tcp_vtw.c` is **not**
+imported: the vestigial TIME_WAIT feature is off by default and its
+`vtw_*` entry points are adapter stubs that record "not added" or assert
+(`sys/sys/md5.h` is not imported either - it carries the RSA notice - so
+`rump_md5.c`, ours, implements the RFC 1948 ISS hash the TCP code calls).
+
+`rump_sock2.c` is gone: `sbappendaddr`/`sbcreatecontrol`/`sowakeup`/
+`soisconnected`/`soreserve`/... are the imported implementations now.  Bring-up calls
+`soinit()` (socket cache, `softnet_lock`, `sb_max`) before the protocol
+`pr_init`s; the adapter's kernel socket client in `rump_tcp.c` uses the
+real `socreate`/`sobind`/`solisten`/`soconnect`/`soaccept`/`sosend`/
+`soreceive`/`soshutdown`/`soclose` path (non-blocking, polled from the net
+task) with the real `tcp_input`/`tcp_output` over the loopback pktqueue.
+New shim headers make the closure compile without importing the excluded
+subsystems: `sys/{file,filedesc,poll,kthread,buf,md5}.h`,
+`uvm/uvm_{loan,page}.h`, `netipsec/*`, `netinet6/{nd6,scope6_var,
+in6_offload,ip6protosw}.h`, `netinet/sctp_route.h`, `ddb/db_active.h`,
+`net/if_faith.h`, `compat/sys/socket.h` and the
+`opt_tcp_*`/`opt_sb_max`/`opt_sosend_loan`/... config stubs.
+
+The adapter side is split to keep every file under the 300-line rule:
+`rump_shim_ksock.c` (select/kqueue no-ops, credential/uidinfo/`chgsbsize`
+sentinels, the UVM-loan refusal so `sosend` always copies, `uiomove`,
+`proc0`/`plimit`), `rump_md5.c` (RFC 1948 ISS hash), `rump_shim_mobj.c`
+(reference-counted mutex objects - every socket shares `softnet_lock`),
+`rump_domain.c` (domain list and lookups), `rump_loss.c` (deterministic
+drop hook) and `rump_tcp.c` + `rump_tcp_conn.c` + `rump_tcp_io.c` (the
+socket client and its loopback test).
+
+The boot TCP test creates two real sockets on 127.0.0.1, completes the
+3-way handshake, transfers a deterministic 64 KiB blob (FNV-1a hash
+checked byte-for-byte), shuts down and closes gracefully, then repeats on
+a second connection while the loopback output queue drops the first two
+data segments (adapter loss injection in `pktq_enqueue`, keyed on
+client->server TCP sequence ranges) and reports the retransmission that
+recovers them.  Throughput is measured from PIT ticks.  `tools/smoke-net.sh`
+asserts the new markers.
+
+Remaining stubs after R5: raw sockets (`rip_*`), IGMP, encapsulation and
+portalgo (`rump_shim_inet.c`), vestigial TIME_WAIT (`vtw_*`), synchronous
+wqinput and `kmem_intr_*` (`rump_shim_misc.c`), pktqueue softint
+scheduling/sysctl, pfil hooks, route-socket notifications, kauth (no
+listeners -> ALLOW), single-CPU `rw_enter`/`rw_exit` no-ops and the
+select/kqueue no-ops; blocking socket waits still assert (the client
+polls).  R6 (drivers/DHCP) addresses the pktqueue/softint and driver side.
+
+Boot markers added in R5 (`tools/smoke-net.sh`):
+
+```
+net: tcp connect ok (state=ESTABLISHED)
+net: tcp transfer ok (bytes=65536 hash=ff8ebd03)
+net: tcp throughput ok (bytes=65536 ticks=40)
+net: tcp close ok (state=CLOSED)
+net: tcp retransmit ok (drops=2 retrans=2)
+net: in/out counters pkts_in=35 pkts_out=35
 ```

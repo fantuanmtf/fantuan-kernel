@@ -13,6 +13,7 @@
 #include <sys/sysctl.h>
 #include <sys/lwp.h>
 #include <sys/timevar.h>
+#include <sys/cprng.h>
 #include <net/net_stats.h>
 #include <net/if_dl.h>
 #include <netinet/in.h>
@@ -36,6 +37,24 @@ cprng_fast32(void)
 	x ^= x << 5;
 	state = x;
 	return x;
+}
+
+/* Strong cprng: still the deterministic xorshift until R8; the ISS/secret
+ * paths only need a changing value, not cryptographic guarantees. */
+struct cprng_strong;
+struct cprng_strong *kern_cprng;
+
+size_t
+cprng_strong(struct cprng_strong *ctx, void *buf, size_t len, int flags)
+{
+	uint8_t *p = buf;
+	size_t n = len;
+
+	(void)ctx;
+	(void)flags;
+	while (n-- > 0)
+		*p++ = (uint8_t)cprng_fast32();
+	return len;
 }
 
 void *

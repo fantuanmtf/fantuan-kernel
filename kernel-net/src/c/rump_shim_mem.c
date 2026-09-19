@@ -143,3 +143,28 @@ uvm_km_kmem_free(vmem_t *vm, vmem_addr_t addr, vmem_size_t size)
 	(void)vm;
 	fantuan_rump_pages_free((void *)(uintptr_t)addr, pages);
 }
+
+/* uvm_km_alloc()/free(): the socket layer's kva loan path calls these; the
+ * frame allocator provides the VA-free pages (uvm_km_kmem_alloc already
+ * identifies VA and PA here). */
+vaddr_t
+uvm_km_alloc(struct vm_map *map, vsize_t size, vsize_t align, uvm_flag_t flags)
+{
+	vmem_addr_t addr;
+
+	(void)map;
+	(void)align;
+	(void)flags;
+	if (uvm_km_kmem_alloc(NULL, size, 0, &addr) != 0)
+		return 0;
+	return (vaddr_t)addr;
+}
+
+void
+uvm_km_free(struct vm_map *map, vaddr_t addr, vsize_t size, uvm_flag_t flags)
+{
+
+	(void)map;
+	(void)flags;
+	uvm_km_kmem_free(NULL, (vmem_addr_t)addr, size);
+}

@@ -23,6 +23,8 @@ const NETBSD_CSRCS: &[&str] = &[
     "sys/kern/subr_once.c",
     "sys/kern/subr_pserialize.c",
     "sys/kern/uipc_mbuf.c",
+    "sys/kern/uipc_socket.c",
+    "sys/kern/uipc_socket2.c",
     "sys/net/bpf_stub.c",
     "sys/net/if.c",
     "sys/net/if_llatbl.c",
@@ -44,6 +46,14 @@ const NETBSD_CSRCS: &[&str] = &[
     "sys/netinet/ip_input.c",
     "sys/netinet/ip_output.c",
     "sys/netinet/ip_reass.c",
+    "sys/netinet/tcp_congctl.c",
+    "sys/netinet/tcp_input.c",
+    "sys/netinet/tcp_output.c",
+    "sys/netinet/tcp_sack.c",
+    "sys/netinet/tcp_subr.c",
+    "sys/netinet/tcp_syncache.c",
+    "sys/netinet/tcp_timer.c",
+    "sys/netinet/tcp_usrreq.c",
     "sys/netinet/udp_usrreq.c",
 ];
 
@@ -62,14 +72,21 @@ const SHIM_CSRCS: &[&str] = &[
     "rump_shim_softint.c",
     "rump_shim_inet.c",
     "rump_shim_misc.c",
-    "rump_sock2.c",
+    "rump_shim_ksock.c",
+    "rump_shim_mobj.c",
     "rump_shim_init.c",
+    "rump_domain.c",
+    "rump_loss.c",
     "rump_loopback.c",
     "rump_ip4.c",
     "rump_ping.c",
     "rump_udp.c",
+    "rump_tcp.c",
+    "rump_tcp_io.c",
+    "rump_tcp_conn.c",
     "rump_arp.c",
     "rump_selftest.c",
+    "rump_md5.c",
 ];
 
 fn main() {
@@ -95,6 +112,30 @@ fn main() {
     println!("cargo:rerun-if-changed={shim}/gif.h");
     println!("cargo:rerun-if-changed={shim}/gre.h");
     println!("cargo:rerun-if-changed={shim}/pfsync.h");
+    for h in [
+        "faith.h",
+        "sys/file.h",
+        "sys/filedesc.h",
+        "sys/poll.h",
+        "sys/kthread.h",
+        "sys/buf.h",
+        "sys/md5.h",
+        "uvm/uvm_loan.h",
+        "uvm/uvm_page.h",
+        "net/if_faith.h",
+        "netinet/sctp_route.h",
+        "netinet6/nd6.h",
+        "netinet6/scope6_var.h",
+        "netinet6/in6_offload.h",
+        "netinet6/ip6protosw.h",
+        "netipsec/ipsec.h",
+        "netipsec/ipsec6.h",
+        "netipsec/key.h",
+        "ddb/db_active.h",
+        "compat/sys/socket.h",
+    ] {
+        println!("cargo:rerun-if-changed={shim}/{h}");
+    }
 
     if target != "x86_64-unknown-none" {
         return;

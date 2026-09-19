@@ -11,6 +11,8 @@
 #include <sys/rwlock.h>
 #include <sys/lwp.h>
 #include <sys/proc.h>
+#include <sys/resource.h>
+#include <sys/resourcevar.h>
 #include <sys/sched.h>
 #include <sys/sleepq.h>
 #include <sys/syncobj.h>
@@ -82,27 +84,7 @@ lockdebug_abort(const char *func, size_t line, const volatile void *lock,
 	    ops != NULL ? ops->lo_name : "?", (const void *)lock, msg);
 }
 
-kmutex_t *
-mutex_obj_alloc(kmutex_type_t type, int ipl)
-{
-	kmutex_t *m = kmem_alloc(sizeof(*m), KM_SLEEP);
-
-	if (m == NULL)
-		panic("mutex_obj_alloc: out of memory");
-	mutex_init(m, type, ipl);
-	return m;
-}
-
-bool
-mutex_obj_free(kmutex_t *m)
-{
-
-	if (m == NULL)
-		return false;
-	mutex_destroy(m);
-	kmem_free(m, sizeof(*m));
-	return true;
-}
+/* mutex_obj_alloc/hold/free live in rump_shim_mobj.c. */
 
 /* The machine header marks the port __HAVE_RW_STUBS, so the MI kern_rwlock
  * aliases are compiled out; pre-SMP the simple enter/exit pair is enough and
@@ -258,9 +240,22 @@ percpu_create(size_t size, percpu_callback_t ctor, percpu_callback_t dtor,
 	return p;
 }
 
+/* The socket layer reads l->l_proc->p_pid, p_rlimit and l->l_cred; the
+ * kernel client has no process, so supply a minimal sentinel. */
+static struct plimit lwp0_limit;
+static struct proc proc0_store;
+
 void
 rump_shim_init_cpu(void)
 {
+	int i;
+
+	for (i = 0; i < RLIM_NLIMITS; i++) {
+		lwp0_limit.pl_rlimit[i].rlim_cur = RLIM_INFINITY;
+		lwp0_limit.pl_rlimit[i].rlim_max = RLIM_INFINITY;
+	}
+	proc0_store.p_pid = 0;
+	proc0_store.p_limit = &lwp0_limit;
 
 	cpu_info_primary.ci_self = &cpu_info_primary;
 	cpu_info_primary.ci_name = "cpu0";
@@ -270,6 +265,7 @@ rump_shim_init_cpu(void)
 	lwp0.l_cpu = &cpu_info_primary;
 	lwp0.l_stat = LSONPROC;
 	lwp0.l_mutex = NULL;
-	lwp0.l_proc = NULL;
+	lwp0.l_proc = &proc0_store;
+	lwp0.l_cred = NULL;
 	curlwp = &lwp0;
 }

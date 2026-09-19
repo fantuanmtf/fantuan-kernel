@@ -20,6 +20,17 @@
 #undef strcpy
 #undef strncpy
 #undef strlcpy
+#undef strlcat
+#undef strncmp
+
+unsigned int
+atomic_cas_uint(volatile unsigned int *p, unsigned int o, unsigned int n)
+{
+
+	__atomic_compare_exchange_n(p, &o, n, 0,
+	    __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+	return o;
+}
 
 unsigned long
 _atomic_cas_ulong(volatile unsigned long *p, unsigned long o, unsigned long n)
@@ -201,6 +212,33 @@ strlcpy(char *dst, const char *src, size_t size)
 		dst[copy] = '\0';
 	}
 	return n;
+}
+
+size_t
+strlcat(char *dst, const char *src, size_t size)
+{
+	size_t dlen = strlen(dst);
+	size_t slen = strlen(src);
+
+	if (dlen < size) {
+		size_t copy = slen >= size - dlen ? size - dlen - 1 : slen;
+
+		memcpy(dst + dlen, src, copy);
+		dst[dlen + copy] = '\0';
+	}
+	return dlen + slen;
+}
+
+int
+strncmp(const char *a, const char *b, size_t len)
+{
+
+	while (len > 0 && *a != '\0' && *a == *b) {
+		a++;
+		b++;
+		len--;
+	}
+	return len == 0 ? 0 : (unsigned char)*a - (unsigned char)*b;
 }
 
 void

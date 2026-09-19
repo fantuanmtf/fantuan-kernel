@@ -17,13 +17,6 @@
 #include <netinet6/in6.h>
 #include "rump_shim.h"
 
-int
-sofamily(const struct socket *so)
-{
-
-	return so->so_proto->pr_domain->dom_family;
-}
-
 struct sockaddr *
 sockaddr_copy(struct sockaddr *dst, socklen_t len, const struct sockaddr *src)
 {

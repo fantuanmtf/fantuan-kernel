@@ -26,10 +26,8 @@
 
 const int schedppq = 1;
 
-/* tcp_do_loopback_cksum is defined by tcp_output.c upstream; TCP is not
- * imported until R5, so the symbol lives here.  ip/udp_do_loopback_cksum
- * and icmp_dynamic_rt_msg moved to the imported R4 files. */
-int tcp_do_loopback_cksum;
+/* ip/udp_do_loopback_cksum, icmp_dynamic_rt_msg and (R5) tcp_do_loopback_cksum
+ * are defined by their imported files. */
 
 /* MODULE_HOOK() storage: compat_stub.c in a full NetBSD build. */
 struct if_cvtcmd_43_hook_t if_cvtcmd_43_hook;

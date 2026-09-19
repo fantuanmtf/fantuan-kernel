@@ -54,6 +54,13 @@ microtime(struct timeval *tv)
 }
 
 void
+getmicrouptime(struct timeval *tv)
+{
+
+	microtime(tv);
+}
+
+void
 rump_shim_tick(void)
 {
 

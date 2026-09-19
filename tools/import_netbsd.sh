@@ -124,7 +124,13 @@ FILES="
     sys/netinet/tcp_timer.h sys/netinet/tcp_var.h sys/netinet/tcp_vtw.h \
     sys/sys/once.h sys/sys/timetc.h sys/net/nd.h sys/net/if_gre.h \
     sys/netinet6/ip6_var.h sys/netinet6/in6_pcb.h sys/netinet/icmp6.h \
-    sys/sys/pcq.h"
+    sys/sys/pcq.h \
+    sys/kern/uipc_socket.c sys/kern/uipc_socket2.c \
+    sys/netinet/tcp_input.c sys/netinet/tcp_output.c sys/netinet/tcp_subr.c \
+    sys/netinet/tcp_timer.c sys/netinet/tcp_usrreq.c sys/netinet/tcp_congctl.c \
+    sys/netinet/tcp_sack.c sys/netinet/tcp_syncache.c \
+    sys/netinet/tcp_private.h sys/netinet/tcp_congctl.h \
+    sys/netinet/tcp_syncache.h"
 
 # Files with no per-file license notice, accepted explicitly.  device_if.h
 # is a committed NetBSD-generated header (no copyright block); it is part of

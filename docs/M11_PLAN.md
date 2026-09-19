@@ -116,6 +116,25 @@ client, loss/throughput tests over loopback.
 - Verify: transfer of a known blob with hash equality under an injected
   drop/reorder shim.
 
+### R5 outcome - the real socket and TCP layer
+
+R5 imported the real TCP and socket layers (`sys/netinet/tcp_input.c`,
+`tcp_output.c`, `tcp_subr.c`, `tcp_timer.c`, `tcp_usrreq.c`,
+`tcp_congctl.c`, `tcp_sack.c`, `tcp_syncache.c`,
+`sys/kern/uipc_socket.c`, `uipc_socket2.c` and the `tcp_private.h`/
+`tcp_congctl.h`/`tcp_syncache.h` headers; 259 files total) and deleted the
+R4 socket/TCP stubs (`rump_sock2.c`, the `tcp_*` panic paths).  `soinit()`
+now supplies the socket cache/`softnet_lock`, and `rump_tcp.c` drives a
+real `socreate`/`sobind`/`solisten`/`soconnect`/`soaccept`/`sosend`/
+`soreceive`/`soshutdown`/`soclose` client (non-blocking, polled from the
+net task) over the real `tcp_input`/`tcp_output`.  The boot test transfers
+a deterministic 64 KiB blob with byte/hash equality, closes gracefully,
+then repeats with the first two data segments dropped by an adapter loss
+hook in `pktq_enqueue` and reports the retransmit, plus a PIT-tick
+throughput number.  Remaining stubs (raw sockets, IGMP, portalgo, vtw,
+select/kqueue no-ops, blocking waits) are listed in `ADAPTATION.md`;
+`tools/smoke-net.sh` asserts the R5 markers.
+
 ### R6 - virtio-net + e1000 + DHCP
 
 Scope: virtio-net (MMIO first; PCI on x86_64), e1000, DHCP client.

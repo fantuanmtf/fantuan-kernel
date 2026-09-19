@@ -1,10 +1,10 @@
-/* rump_shim_net.c - net_ops registry, pktqueue and domain helpers (ours).
+/* rump_shim_net.c - net_ops registry, pktqueue and mbuf tunables (ours).
  * The ifnet core, the IPv4 stack and the route table are imported NetBSD
- * files; this file owns the driver registry (docs/M11_NET.md section 6), the
- * single-CPU pktqueue(9) replacement (the real pktqueue.c schedules per-CPU
- * softints over pcq; the adapter keeps one mbuf list per queue and drains it
- * from the net task), the domain helpers and the mbuf tunables.
- */
+ * files; this file owns the driver registry (docs/M11_NET.md section 6) and
+ * the single-CPU pktqueue(9) replacement (the real pktqueue.c schedules
+ * per-CPU softints over pcq; the adapter keeps one mbuf list per queue and
+ * drains it from the net task).  The domain list/lookups are in
+ * rump_domain.c. */
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -19,16 +19,11 @@
 #include <net/pktqueue.h>
 #include "rump_shim.h"
 
-struct domainhead domains = STAILQ_HEAD_INITIALIZER(domains);
-
 const int msize = MSIZE;
 const int mclbytes = MCLBYTES;
 int nmbclusters;
 int mblowat = 1;
 int mcllowat = 1;
-
-kmutex_t softnet_lock_store;
-kmutex_t *softnet_lock = &softnet_lock_store;
 
 #define NET_MAX_DEVICES 4
 
@@ -153,6 +148,12 @@ pktq_enqueue(pktqueue_t *pq, struct mbuf *m, const u_int flags)
 	int s;
 
 	(void)flags;
+	/* rump_loss.c (R5 test hook): free a "lost" segment while the
+	 * interface counters still count it as transmitted. */
+	if (rump_loss_drop_if_armed(pq, m)) {
+		m_freem(m);
+		return true;
+	}
 	s = splnet();
 	if (pq->pq_len >= (int)pq->pq_maxlen) {
 		pq->pq_drops++;
@@ -253,46 +254,5 @@ pktq_sysctl_setup(pktqueue_t *pq, struct sysctllog **log,
 	(void)pq, (void)log, (void)node, (void)flags;
 }
 
-struct domain *
-pffinddomain(int family)
-{
-	struct domain *dp;
-
-	DOMAIN_FOREACH(dp) {
-		if (dp->dom_family == family)
-			return dp;
-	}
-	return NULL;
-}
-
-const struct protosw *
-pffindproto(int family, int proto, int type)
-{
-	struct domain *dp;
-	const struct protosw *pr;
-
-	dp = pffinddomain(family);
-	if (dp == NULL || proto == 0)
-		return NULL;
-	for (pr = dp->dom_protosw; pr < dp->dom_protoswNPROTOSW; pr++)
-		if (pr->pr_protocol == proto && pr->pr_type == type)
-			return pr;
-	for (pr = dp->dom_protosw; pr < dp->dom_protoswNPROTOSW; pr++)
-		if (pr->pr_protocol == proto && pr->pr_type == 0)
-			return pr;
-	return NULL;
-}
-
-void
-pfctlinput(int cmd, const struct sockaddr *sa)
-{
-	struct domain *dp;
-	const struct protosw *pr;
-
-	DOMAIN_FOREACH(dp) {
-		for (pr = dp->dom_protosw; pr < dp->dom_protoswNPROTOSW; pr++) {
-			if (pr->pr_ctlinput != NULL)
-				(void)pr->pr_ctlinput(cmd, sa, NULL);
-		}
-	}
-}
+/* pffinddomain/pffindtype/pffindproto/pfctlinput and the domain list live
+ * in rump_domain.c. */

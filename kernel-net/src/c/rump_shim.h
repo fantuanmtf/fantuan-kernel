@@ -8,6 +8,8 @@
 
 struct ifnet;
 struct mbuf;
+struct socket;
+struct lwp;
 
 /* Driver-facing interface registry (docs/M11_NET.md section 6).  Drivers
  * register a table; net_ifattach() binds it to a rump ifnet. */
@@ -46,6 +48,35 @@ int rump_ping_rx(struct mbuf *);
 
 /* UDP loopback exchange over the real PCB/udp_input path (rump_udp.c). */
 int rump_udp_run(void);
+
+/* Real socket/TCP loopback tests (rump_tcp.c): 0 running, 1 done, -1 fail. */
+void rump_tcp_begin(void);
+int rump_tcp_poll(void);
+
+/* Connection helpers for the TCP test (rump_tcp_conn.c). */
+int rump_tcp_pair(uint16_t, uint16_t, struct socket **, struct socket **,
+    struct socket **, struct lwp *);
+int rump_tcp_connected(struct socket *);
+int rump_tcp_accept(struct socket *, struct socket **);
+void rump_tcp_shutdown(struct socket *, struct socket *, int *, int *);
+void rump_tcp_close(struct socket **, struct socket **, struct socket **);
+
+/* Payload/hash/non-blocking I/O for the TCP test (rump_tcp_io.c). */
+void rump_tcp_io_init(void);
+void rump_tcp_io_reset(void);
+int rump_tcp_send(struct socket *, struct lwp *);
+int rump_tcp_recv(struct socket *, size_t *);
+int rump_tcp_verify(size_t);
+uint32_t rump_tcp_hash(const uint8_t *, size_t);
+uint32_t rump_tcp_rx_hash(size_t);
+
+/* Deterministic loopback loss injection (rump_loss.c, pktq_enqueue hook). */
+void rump_loss_arm(uint16_t sport, uint16_t dport, int ndrops);
+void rump_loss_disarm(void);
+unsigned rump_loss_dropped(void);
+unsigned rump_loss_retrans(void);
+struct pktqueue;
+bool rump_loss_drop_if_armed(struct pktqueue *, struct mbuf *);
 
 /* ARP self-test on the shim ethernet interface (rump_arp.c). */
 int rump_arp_up(void);

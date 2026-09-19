@@ -35,6 +35,7 @@ enum {
 	IP4_UDP,
 	IP4_ARP_START,
 	IP4_ARP_WAIT,
+	IP4_TCP,
 	IP4_DONE,
 	IP4_STOP,
 	IP4_FAILED
@@ -100,7 +101,9 @@ void
 rump_ip4_up(void)
 {
 
-	mutex_init(softnet_lock, MUTEX_DEFAULT, IPL_SOFTNET);
+	/* Creates the socket cache and the shared softnet lock the imported
+	 * socket layer assigns to every socket. */
+	soinit();
 	ip_dad_count = 0;
 	/* main() calls this upstream; it creates the llentry pool the ARP
 	 * cache entries come from. */
@@ -168,8 +171,16 @@ rump_net_poll(void)
 		if (r > 0) {
 			printf("net: arp self-test ok (entries=%d)\n",
 			    rump_arp_entries());
-			ip4_state = IP4_DONE;
+			rump_tcp_begin();
+			ip4_state = IP4_TCP;
 		}
+		break;
+	case IP4_TCP:
+		r = rump_tcp_poll();
+		if (r < 0)
+			return ip4_fail("tcp");
+		if (r > 0)
+			ip4_state = IP4_DONE;
 		break;
 	case IP4_DONE:
 		ip4_counters(&in, &out);

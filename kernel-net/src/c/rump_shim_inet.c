@@ -20,7 +20,14 @@
 #include <netinet/igmp_var.h>
 #include <netinet/ip_encap.h>
 #include <netinet/portalgo.h>
+#include <netinet/in_systm.h>
+#include <netinet/ip.h>
 #include <netinet/ip_var.h>
+#include <netinet/tcp.h>
+#include <netinet/tcp_seq.h>
+#include <netinet/tcp_timer.h>
+#include <netinet/tcp_var.h>
+#include <netinet/tcp_vtw.h>
 #include "rump_shim.h"
 
 /* IGMP: joins are tracked by in.c only; no group reports are emitted. */
@@ -126,54 +133,58 @@ rip_ctloutput(int op, struct socket *so, struct sockopt *sopt)
 
 const struct pr_usrreqs rip_usrreqs;
 
-/* TCP: R5 imports the real state machine; until then these panic so no
- * silent half-TCP behaviour can appear. */
-void
-tcp_init(void)
+/* TCP vestigial TIME_WAIT (tcp_vtw.c) is not imported: the feature is off
+ * by default (tcp4_vtw_enable == 0) and the sysctl that would enable it is
+ * read-only, so vtw_add() reports "not added" and the remaining entry
+ * points assert if they are ever reached. */
+int
+vtw_add(int af, struct tcpcb *tp)
 {
+
+	(void)af;
+	(void)tp;
+	return 0;
 }
 
 void
-tcp_input(struct mbuf *m, int off, int proto)
+vtw_del(vtw_ctl_t *ctl, vtw_t *vtw)
 {
 
-	(void)off;
-	(void)proto;
-	m_freem(m);
-	panic("tcp_input: TCP not imported until R5");
+	(void)ctl;
+	(void)vtw;
+	panic("vtw_del: vestigial TIME_WAIT is not imported");
 }
 
-void *
-tcp_ctlinput(int cmd, const struct sockaddr *sa, void *v)
+void
+vtw_restart(vestigial_inpcb_t *vp)
 {
 
-	(void)cmd;
-	(void)sa;
-	(void)v;
-	return NULL;
+	(void)vp;
+	panic("vtw_restart: vestigial TIME_WAIT is not imported");
 }
 
 int
-tcp_ctloutput(int op, struct socket *so, struct sockopt *sopt)
+vtw_earlyinit(void)
 {
 
-	(void)op;
-	(void)so;
-	(void)sopt;
-	return EOPNOTSUPP;
+	return 0;
 }
 
-void
-tcp_fasttimo(void)
+int
+sysctl_tcp_vtw_enable(SYSCTLFN_ARGS)
 {
-}
 
-void
-tcp_drainstub(void)
-{
+	(void)name;
+	(void)namelen;
+	(void)oldp;
+	(void)oldlenp;
+	(void)newp;
+	(void)newlen;
+	(void)oname;
+	(void)l;
+	(void)rnode;
+	return 0;
 }
-
-const struct pr_usrreqs tcp_usrreqs;
 
 /* Ephemeral port allocation: only reached for port-0 binds, which the R4
  * tests do not use; a bind without an explicit port fails cleanly. */
@@ -226,25 +237,5 @@ sysctl_portalgo_reserve4(SYSCTLFN_ARGS)
 	return sysctl_portalgo_available(SYSCTLFN_CALL(rnode));
 }
 
-int
-sysctl_net_inet_ip_ports(SYSCTLFN_ARGS)
-{
-
-	return sysctl_portalgo_available(SYSCTLFN_CALL(rnode));
-}
-
-int
-sysctl_inpcblist(SYSCTLFN_ARGS)
-{
-
-	(void)name;
-	(void)namelen;
-	(void)oldp;
-	(void)oldlenp;
-	(void)newp;
-	(void)newlen;
-	(void)oname;
-	(void)l;
-	(void)rnode;
-	return 0;
-}
+/* sysctl_net_inet_ip_ports() and sysctl_inpcblist() are provided by the
+ * imported tcp_usrreq.c / in_pcb.c. */
