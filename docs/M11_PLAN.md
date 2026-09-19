@@ -108,7 +108,17 @@ full stack on aarch64; smoke phases; docs/matrices/THIRD_PARTY; 0.0.3.
 - Offline gate: `-netdev user,id=n0` (SLIRP) with host-side HTTP/DNS/TLS
   servers bound to `127.0.0.1` and reachable from the guest as `10.0.2.2`;
   a pinned CA is generated per run under `build/`.
-- External (optional): `tools/tor_relay.py` listens on a host port and
-  forwards to `127.0.0.1:9050` with SOCKS5; the guest targets
-  `10.0.2.2:<port>`. Enabled only when 9050 is reachable.
-- Never gate on external results; record them in the run report.
+- External (optional), via `tools/tor_relay.py` listening on a host port
+  and forwarding to `127.0.0.1:9050` with SOCKS5 (the guest targets
+  `10.0.2.2:<port>`; enabled only when 9050 is reachable):
+  1. `github.com` - loose proxy detection, first reachability rung;
+  2. `x.com` (Twitter) - Tor is not blocked there;
+  3. `duckduckgo.com` - Tor-friendly, serves the search page;
+  4. **Duck.AI interactive round**: one dialogue turn against
+     DuckDuckGo's AI chat (no login) proving the guest can POST user input,
+     accept and store the session cookie, and read back a model response.
+     Cookies persist in the guest for the run; no credentials are used.
+- Conformance: plain HTTP(S) fetches assert status/body markers; the AI
+  turn asserts a non-empty response body bound to the submitted prompt.
+- Never gate on external results; each is recorded as PASS/SKIP/FAIL in the
+  run report and a skipped Tor phase still leaves the offline gate green.
