@@ -283,10 +283,19 @@ workstreams (W1-W6) are closed and the release verification is in the
 snapshot table above. **Released as 0.0.2** (workspace and banners); the
 `v0.0.2` tag is local and owner-gated - this repository creates no tags.
 
+## Cross-cutting - kernel configuration (Kconfig-lite)
+
+Owner direction 2026-09: the kernel stays a kernel; the default build is
+the shell only and everything optional (tools, network, TLS, graphics,
+virtualization, desktop, bash) is selected through a `menuconfig`-style
+config. Plan, schema and profiles: `CONFIG_PLAN.md`. Proposed as **R6.5**
+between R6 and R7 so the R7 tools are config-gated from the start.
+
 ## Next action
 
-**M11 R1 / v0.0.3**: vendor the first rump slice and bring up the
-adaptation layer per `M11_PLAN.md`; stop after each R batch so the owner
-can push. Housekeeping carried into M11: hunt the intermittent riscv
-`uart::log_bytes` fault (Known issues) and convert the i686 PIO ATA path
-from polling to IRQ if the i686 shell work needs it.
+**R6.5 (pending owner nod) or R7**: land the Kconfig-lite configurator
+and gate `kernel-net`/tools behind it (`CONFIG_PLAN.md`), or continue
+straight to R7 (DNS + ping/nslookup/wget). Stop after each batch so the
+owner can push. Housekeeping: hunt the intermittent riscv
+`uart::log_bytes` fault and the i686 PIO ATA polling-to-IRQ conversion
+when the i686 shell work needs it.
