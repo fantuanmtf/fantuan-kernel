@@ -43,7 +43,7 @@ pub extern "efiapi" fn efi_main(image_handle: Handle, system_table: *mut SystemT
     for line in console::LOGO {
         console::println(con, line);
     }
-    console::println(con, "fantuan-boot v0.0.1");
+    console::println(con, "fantuan-boot v0.0.2");
     console::println(con, "self-written UEFI bootloader");
 
     let bs = unsafe { &*st.boot_services };

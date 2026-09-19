@@ -10,7 +10,7 @@
 | Version | Milestone | Progress | Verified by |
 |---|---|---|---|
 | v0.0.1 | M0-M9 (x86_64 rescue + RISC-V port) | `[##########] 100%` | tag `v0.0.1` (local) |
-| v0.0.2 | M10 legacy BIOS boot + i686 | `[########--] 75%` | `smoke-bios.sh` (2 phases), UEFI/RISC-V smokes |
+| v0.0.2 | M10 legacy BIOS boot + i686 | `[##########] 100%` | released as 0.0.2: `smoke.sh` 13/13, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3, `smoke-iso.sh` 2/2 |
 | v0.0.3 | M11 ARM64 + full TCP/HTTPS | `[#---------] 10%` | design only |
 | v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[#---------] 10%` | design only |
 | v0.0.5 | M13 graphics/input + interface freeze | `[#---------] 10%` | design only |
@@ -18,8 +18,8 @@
 | v0.1.5 | M15 desktop + isolation + MinGW | `[----------] 0%` | - |
 | v0.5.0/1.0.0 | M16 finalize | `[----------] 0%` | - |
 
-To v0.0.5: roughly **20%** (three of the four milestones have their design
-done, M10 is half implemented).
+To v0.0.5: roughly **25%** (M10 is released; M11-M13 have their designs
+done).
 
 ## v0.0.2 - M10 (BIOS boot + i686)
 
@@ -95,8 +95,16 @@ done, M10 is half implemented).
       chain copies the kernel from the preload instead of ATA. 1 GiB budget
       enforced in the writer and re-checked on the file - verify
       `tools/smoke-iso.sh` (BIOS + OVMF)
-- [ ] M10-7 docs (Windows-unsupported/PE, boot + support matrices), i686
-      smoke phases, x86_64/riscv64 regressions
+- [x] M10-7 docs (Windows-unsupported/PE page, boot + support matrices),
+      i686 smoke phases, x86_64/riscv64 regressions: `docs/WINDOWS.md`
+      added; the boot matrix lives in `OPERATIONS.md` §3 and the
+      user-facing support matrix in `USAGE.md` §9; `README.md`,
+      `BUILD.md`, `HANDOVER.md`, `DEVELOPMENT.md`, `DESIGN.md` (#4/#12/
+      #15) and this tracker updated; workspace + banners bumped to
+      `0.0.2` (syscall `ABI_VERSION` stays 1); final verification at the
+      v0.0.2 checkpoint: three release builds zero warnings,
+      `smoke.sh` 13/13, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3,
+      `smoke-iso.sh` 2/2 (see snapshots). No tag or push.
 
 ## v0.0.3 - M11 (ARM64 + network)
 
@@ -168,6 +176,11 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 (v0.0.2) | release builds zero warnings: `cargo build -p fantuan-kernel` (x86_64), `cargo build -p kernel-riscv` (riscv64), `tools/build-i686.sh` | PASS |
+| 2026-09 (v0.0.2) | `tools/smoke.sh` full 13-phase x86 suite (second run; the first hit a host-load boot timeout in phase 9, the isolated rerun passed) | PASS 13/13 |
+| 2026-09 (v0.0.2) | `tools/smoke-bios.sh` (phase 1 x86_64 MBR chain + phase 2 i686 PIO ATA VFS) | PASS 2/2 |
+| 2026-09 (v0.0.2) | `tools/smoke-riscv.sh` (third run, after two hits of the documented `uart::log_bytes` flake) | PASS 3/3 |
+| 2026-09 (v0.0.2) | `tools/smoke-iso.sh` (El Torito BIOS + OVMF 0xEF from the same ISO) | PASS 2/2 |
 | 2026-09 | virt detection on UEFI: vendor/VMX/SVM/EPT/NPT/IOMMU + matrix row + fallback verdict; MSR reads feature-gated; Intel-only MSR (microcode) vendor-gated | PASS |
 | 2026-09 | ACPI walker on UEFI: 5 tables, fadt/madt, cpus=1 | PASS |
 | 2026-09 | `tools/smoke-bios.sh` phase 2 (i686 interrupts: IDT/PIC/PIT) | PASS |
@@ -212,19 +225,23 @@ Design: `M14_LINUXUSERS.md`.
   crashed with `scause=0xd stval=0x766`; reproduced once more at the W2
   checkpoint (`scause=0xd stval=0x7f8 sepc=0x80200c4e [kernel]`, right
   after the NVRAM BootOrder line during repair); two attempts during the
-  W5 checkpoint hit it again and reruns passed. Watch item; hunt in
-  M10/M11 follow-ups.
+  W5 checkpoint hit it again and reruns passed. At the W6/M10-7 checkpoint
+  it hit once in phase C and once in phase B of two consecutive full runs
+  (`stval=0x7f8 sepc=0x80200c4e` each time); the third full run passed
+  3/3. Watch item; hunt in M11 follow-ups.
 
 ## M10 completion plan
 
 The remaining M10 work (4a2 hardening, 4b3b ELF32, 4c VFS, 6 ISO,
-optional 5 VBE, 7 docs/release) is sequenced in `M10_PLAN.md` with the
-verification and commit checkpoints for each workstream.
+in-scope 5 VBE, 7 docs/release) was sequenced in `M10_PLAN.md`; all six
+workstreams (W1-W6) are closed and the release verification is in the
+snapshot table above. **Released as 0.0.2** (workspace and banners); the
+`v0.0.2` tag is local and owner-gated - this repository creates no tags.
 
 ## Next action
 
-**W6 / M10-7**: documentation and release prep - Windows/PE non-support
-page (WinPE guidance), boot and support matrices, USAGE/OPERATIONS/DESIGN
-updates, version strings to 0.0.2, final PROGRESS ticks; then the owner
-pushes and creates the local v0.0.2 tag. The 13-phase `tools/smoke.sh`
-runs at this checkpoint.
+**M11 / v0.0.3**: ARM64 (QEMU `virt`) plus the NetBSD-derived network
+stack, `net_ops` and full TCP/HTTPS per `M11_NET.md`. Housekeeping carried
+into M11: hunt the intermittent riscv `uart::log_bytes` fault (Known
+issues) and convert the i686 PIO ATA path from polling to IRQ if the i686
+shell work needs it.

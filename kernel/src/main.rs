@@ -81,7 +81,7 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     }
 
     let _ = writeln!(s);
-    let _ = writeln!(s, "fantuan v0.0.1");
+    let _ = writeln!(s, "fantuan v0.0.2");
     let _ = writeln!(
         s,
         "handshake ok: magic={:#x} version={} rsdp={:#x}",
@@ -103,7 +103,7 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     );
     let mut con = console::Console::new(fb);
     if let Some(c) = con.as_mut() {
-        let _ = writeln!(c, "fantuan v0.0.1");
+        let _ = writeln!(c, "fantuan v0.0.2");
         let _ = writeln!(c, "handshake ok: magic={:#x} version={}", bi.magic, bi.version);
         let _ = writeln!(c, "console: GOP framebuffer {}x{}", fb.width, fb.height);
     } else {

@@ -17,19 +17,27 @@ core now runs on two architectures.
 - **Primary target**: x86_64 UEFI rescue kernel (the product).
 - **Second target**: riscv64 under OpenSBI on QEMU `virt` (portability
   proof of the arch split, not a hardware-support claim).
-- **Out of scope for v0.0.1**: SMP, networking, USB, graphics beyond the
-  GOP console, real RISC-V boards, authenticated Secure Boot on riscv.
+- **v0.0.2 adds**: a self-written legacy-BIOS boot chain for x86_64 plus a
+  32-bit i686 kernel (paging, scheduler, ring 3/ELF32, read-only PIO ATA
+  VFS, VBE text console) and a hybrid BIOS+UEFI ISO.
+- **Out of v0.0.2 scope**: SMP, networking, USB, PAE / >1 GiB on i686,
+  graphics beyond the text consoles, real RISC-V boards.
 
 ## 2. Release status
 
-- **Version**: v0.0.1, tag `v0.0.1` (annotated, **local only** — nothing
-  has been pushed).
+- **Version**: v0.0.2 (workspace + banners). The annotated `v0.0.2` tag is
+  prepared for the owner and stays **local only** — nothing has been
+  pushed; this repository does not create tags.
 - **Verified at release**: `tools/smoke.sh` 13/13 PASS (incl. SMM NVRAM
-  repair), `tools/smoke-riscv.sh` 3/3 PASS (read-only, repair YES, repair
-  NO), zero warnings on both targets, no source file > 300 lines.
-- **Audit**: `docs/M9_AUDIT.md` (18 checks with evidence; all release
-  blockers fixed or recorded).
-- **Milestone plan**: `docs/M9_KERNEL_v0.0.1.md` (M9.0–M9.5 closed).
+  repair), `tools/smoke-bios.sh` 2/2 (x86_64 MBR chain, i686 + PIO ATA
+  VFS), `tools/smoke-riscv.sh` 3/3 (read-only, repair YES, repair NO),
+  `tools/smoke-iso.sh` 2/2 (El Torito BIOS + OVMF 0xEF); zero warnings on
+  the x86_64, riscv64 and i686 builds; no source file > 300 lines.
+- **Audit**: `docs/M9_AUDIT.md` (v0.0.1, 18 checks); M10 open items are
+  tracked under "Known issues" in `docs/PROGRESS.md`.
+- **Milestone plans**: `docs/M10_PLAN.md` (W1–W6 closed) and
+  `docs/M10_BOOT_32BIT.md` (M10 design of record); the v0.0.1 plan is
+  `docs/M9_KERNEL_v0.0.1.md`.
 
 ## 3. Architecture in one page
 
@@ -50,6 +58,9 @@ core now runs on two architectures.
 
 - **Boot (x86)**: bootloader loads GOP/RSDP/memmap, `ExitBootServices`,
   passes `BootInfo`; kernel maps the higher half and starts.
+- **Boot (x86 legacy BIOS)**: `boot-bios/stage1` (MBR) -> stage2 (E820,
+  VBE mode set) -> long mode (x86_64) or 32-bit PSE paging (i686) ->
+  `BootInfo arch=3`; no Runtime Services, so NVRAM repair degrades.
 - **Boot (riscv)**: OpenSBI enters S-mode with `a0=hartid, a1=DTB`; the
   kernel parses the FDT, synthesizes a BootInfo, builds Sv39 tables
   (identity + `PHYS_OFFSET` alias) and enters the high half.
@@ -99,6 +110,7 @@ core now runs on two architectures.
 | M7 | boot-repair chain: diagnosis, FAT writes, NVRAM, Secure Boot, shell | DESIGN §9–§10 |
 | M8 | hardening (W^X/SMEP/SMAP), crypto KATs, PS/2 + GOP mirror, NVMe, authenticated variables | DESIGN §11–§13 |
 | M9 | kernel-core extraction, riscv port (boot/Sv39/traps/U-mode), virtio-mmio, shared rescue stack, audit | `M9_KERNEL_v0.0.1.md`, `M9_AUDIT.md` |
+| M10 | legacy BIOS boot chain (MBR/stage2/VBE), i686 port (32-bit paging, scheduler, ring 3/ELF32, read-only PIO ATA VFS), hybrid BIOS+UEFI ISO | `M10_BOOT_32BIT.md`, `M10_PLAN.md`, `PROGRESS.md` |
 
 ## 6. Known debt and risks
 
@@ -117,13 +129,26 @@ From `docs/M9_AUDIT.md` (all non-blocking for v0.0.1):
 - ASID is always 0 on riscv (global TLB flushes); fine for correctness,
   a future performance item.
 
+M10 additions to the debt list:
+
+- The intermittent riscv `uart::log_bytes` kernel fault
+  (`scause=0xd stval=0x7f8 sepc=0x80200c4e`) still recurs occasionally in
+  the repair phases; see `PROGRESS.md` "Known issues". Watch item for
+  M11.
+- i686 is deliberately read-only and has no interactive shell; the PIO ATA
+  path is polling-only (no IRQ) and caps the direct map at 1 GiB.
+- VBE mode setting is only exercised under QEMU/SeaBIOS; physical-firmware
+  VBE differences are untested.
+- The hybrid ISO is CD-ROM only (no isohybrid/USB `dd` support).
+
 ## 7. Roadmap
 
-The full post-v0.0.1 plan is `docs/ROADMAP_v0.0.2+.md` (M10–M16):
+The full post-v0.0.2 plan is `docs/ROADMAP_v0.0.2+.md` (M11–M16):
 
-1. **M10 — v0.0.2**: self-written BIOS boot chain + i686 port;
-   design: `M10_BOOT_32BIT.md`. Windows boot repair is permanently out of
-   scope (WinPE recommended).
+1. **M10 — v0.0.2 (shipped)**: self-written BIOS boot chain + i686 port;
+   design: `M10_BOOT_32BIT.md`, plan/verification: `M10_PLAN.md` and
+   `PROGRESS.md`. Windows boot repair is permanently out of
+   scope (WinPE recommended; see `WINDOWS.md`).
 2. **M11 — v0.0.3**: ARM64 (QEMU virt) + `net_ops` + full TCP/HTTPS
    (NetBSD-derived stack + mbedTLS; no Linux net/ code — license;
    design: `M11_NET.md`).
@@ -161,7 +186,7 @@ The full post-v0.0.1 plan is `docs/ROADMAP_v0.0.2+.md` (M10–M16):
 - **Where do I add a flag for testing?** `tools/run.sh` (prescan loop for
   `--arch`/`--disk`-style flags, main loop for x86 fixtures) and
   `tools/mkdisk.py` for fixtures; document it in
-  [OPERATIONS.md](OPERATIONS.md) §4.
+  [OPERATIONS.md](OPERATIONS.md) §5.
 - **How do I reproduce a field bug?** Capture the full serial log;
   bootrepair prints every cross-check with the values it compared, and
   `run.sh` logs are complete transcripts.

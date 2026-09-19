@@ -1,6 +1,6 @@
 # Build Guide
 
-How to build fantuan-kernel v0.0.1 (x86_64 and riscv64) from source.
+How to build fantuan-kernel v0.0.2 (x86_64, i686 and riscv64) from source.
 For *running* what you built see [USAGE.md](USAGE.md); for the CI-style
 checks see [OPERATIONS.md](OPERATIONS.md).
 
@@ -12,7 +12,7 @@ checks see [OPERATIONS.md](OPERATIONS.md).
 | `x86_64-unknown-none` | x86_64 kernel, userland | add target |
 | `x86_64-unknown-uefi` | UEFI bootloader | add target |
 | `riscv64gc-unknown-none-elf` | RISC-V kernel, userland | add target |
-| nightly + `rust-src` | i686 (32-bit) kernel only, planned v0.0.2+ | `rustup toolchain install nightly --profile minimal --component rust-src`; built with `-Z build-std=core -Z json-target-spec --target targets/i686-fantuan-none.json` |
+| nightly + `rust-src` | i686 (32-bit) kernel | `rustup toolchain install nightly --profile minimal --component rust-src`; the crate pins nightly via `kernel-i686/rust-toolchain.toml` and builds core from source with `-Z build-std=core -Z json-target-spec --target targets/i686-fantuan-none.json` |
 | `qemu-system-x86_64` + OVMF (`edk2-ovmf`) | run/test x86_64 | SMM OVMF optional |
 | `qemu-system-riscv64` (>= 9) | run/test riscv64 | OpenSBI `fw_dynamic` ships with QEMU |
 | `clang` + `llvm-ar` | build the C driver layer for riscv64 | any recent LLVM |
@@ -34,22 +34,27 @@ shell (`export PATH="$HOME/.cargo/bin:$PATH"`).
 ```
 abi/           fantuan-abi    BootInfo ABI + syscall numbers + PHYS_OFFSET
 boot/          fantuan-boot   UEFI bootloader (x86_64-unknown-uefi)
+boot-bios/     stage1 (MBR) + stage2 (E820/VBE/long mode or i686)
 kernel/        fantuan-kernel x86_64 kernel (x86_64-unknown-none)
-kernel-core/   kernel-core    portable half shared by both kernels
+kernel-i686/   kernel-i686    32-bit kernel (nightly + custom target JSON)
+kernel-core/   kernel-core    portable half shared by all three kernels
 kernel-riscv/  kernel-riscv   riscv64 kernel (riscv64gc-unknown-none-elf)
-user/          fantuan-user   the userland test program (both arches)
+user/          fantuan-user   the userland test program (all arches)
 drivers/c/     C driver layer: blk.c + blk_ops + ahci/nvme/i8042/virtio_mmio
-tools/         build/run/smoke scripts + mkdisk.py
+tools/         build/run/smoke scripts + mkdisk.py + mkiso.py
 docs/          DESIGN.md (authoritative), milestone/award docs, this set
 ```
 
-All crates are version `0.0.1` (`panic = "abort"`, release `opt-level = "z"`).
+All crates are version `0.0.2` (`panic = "abort"`, release `opt-level = "z"`).
 
 ## 3. Build with the scripts (recommended)
 
 ```sh
 tools/build.sh                 # x86: userland -> kernel -> bootloader
 tools/build.sh --arch riscv64  # riscv: userland -> kernel-riscv
+tools/build-i686.sh            # i686: userland (ELF32) -> 32-bit kernel
+tools/build-bios.sh            # BIOS image from the x86_64 kernel
+tools/build-iso.sh             # hybrid BIOS+UEFI ISO (build/fantuan.iso)
 ```
 
 Artifacts:
@@ -61,6 +66,8 @@ Artifacts:
 | UEFI bootloader | `target/x86_64-unknown-uefi/release/fantuan-boot.efi` |
 | riscv userland (embedded by `kernel-riscv/build.rs`) | `kernel-riscv/user_program.bin` |
 | riscv kernel (loaded by OpenSBI at `0x80200000`) | `target/riscv64gc-unknown-none-elf/release/kernel-riscv` |
+| i686 kernel flat binary (BIOS stage2 loads it) | `build/kernel-i686.bin` |
+| BIOS boot image / hybrid ISO | `build/bios.img`, `build/bios-i686.img`, `build/fantuan.iso` |
 
 Both `user_program.bin` files are generated and git-ignored; never edit them.
 
@@ -81,9 +88,12 @@ cargo build -p kernel-riscv    --target riscv64gc-unknown-none-elf --release
 # library-only checks
 cargo build -p kernel-core     --target x86_64-unknown-none --release
 cargo build -p kernel-core     --target riscv64gc-unknown-none-elf --release
+
+# i686 chain (nightly crate; wraps build-std + the custom target JSON)
+./tools/build-i686.sh
 ```
 
-A clean build must produce **zero warnings** on both targets; treat a new
+A clean build must produce **zero warnings** on all targets; treat a new
 warning as a build break.
 
 ## 5. What the build scripts generate
@@ -128,8 +138,10 @@ python3 tools/mkdisk.py --grub-regen build/test.img    # autorun runs grub-fix i
 
 ## 8. Versioning
 
-The workspace version is the release version (`0.0.1` at the v0.0.1 tag).
-Banners print `fantuan v0.0.1` on both arches. The BootInfo ABI carries its
-own `BOOT_VERSION` (append-only) and the syscall numbers live in
-`abi/src/lib.rs` (append-only, never renumber). See [DEVELOPMENT.md](DEVELOPMENT.md)
-for the release checklist.
+The workspace version is the release version (`0.0.2` since the v0.0.2
+release; `0.0.1` was the M9 release). Banners print `fantuan v0.0.2` on
+every arch (i686 says `(i686)`, riscv says `(riscv64)`; the UEFI loader
+prints `fantuan-boot v0.0.2`). The BootInfo ABI carries its own
+`BOOT_VERSION` (append-only), the syscall `ABI_VERSION` stays 1, and the
+syscall numbers live in `abi/src/lib.rs` (append-only, never renumber).
+See [DEVELOPMENT.md](DEVELOPMENT.md) for the release checklist.

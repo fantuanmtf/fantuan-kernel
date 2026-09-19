@@ -60,9 +60,17 @@ UEFI firmware
      ExitBootServices (retry on map-key change), build BootInfo
   -> build initial page tables (identity 4 GiB + PHYS_OFFSET alias, 2 MiB pages),
      enable paging, jump to the higher-half kernel entry
-  -> assembly entry stub: reload GDT/IDT, set kernel stack, jump to kmain
-  -> kmain (Rust)
+   -> assembly entry stub: reload GDT/IDT, set kernel stack, jump to kmain
+   -> kmain (Rust)
 ```
+
+The v0.0.2 legacy-BIOS chain (`boot-bios/`, M10) is a second front end to
+the same BootInfo ABI: the 512-byte stage1 (MBR) loads stage2, which
+collects E820, sets VBE when available, loads the flat kernel and hands
+over `BootInfo arch = 3`; x86_64 continues into long mode, i686 into
+32-bit PSE paging. There are no Runtime Services on that path
+(`runtime_services = 0`), so NVRAM repair degrades honestly. Design of
+record: `M10_BOOT_32BIT.md`.
 
 - **v1 kernel image delivery**: the kernel (flat binary, linked at 0x1000000 —
   16 MiB) is read from `\fantuan\kernel.bin` on the ESP via the firmware's Simple
@@ -637,12 +645,17 @@ fantuan-kernel/
   originally planned linuxulator layer moved to M14 (see the roadmap).
 - **M9** — DONE: RISC-V port behind the arch/ HAL (see §14 and
   `M9_KERNEL_v0.0.1.md`); v0.0.1 released.
-- **M10–M16** — planned: legacy BIOS boot + i686 (M10), ARM64 + full
+- **M10** — DONE: legacy BIOS boot chain (`boot-bios/`, `BootInfo
+  arch = 3`) and the i686 port (32-bit paging, IDT/PIC/PIT, scheduler,
+  ring 3 + ELF32 over `int 0x80`, read-only PIO ATA + shared VFS, VBE
+  text console), plus the self-written hybrid BIOS+UEFI ISO; shipped as
+  v0.0.2 (`M10_BOOT_32BIT.md`, `M10_PLAN.md`, `PROGRESS.md`).
+- **M11–M16** — planned: ARM64 + full
   TCP/HTTPS (M11), disk imaging + NTFS read-only + AMD probe + virtualization
   detection (M12), graphics/input and interface freeze (M13), Linux userspace
   + in-system bootstrap + hypervisor V2 (M14), XFCE/Qt + disk-service VM +
   MinGW script (M15), finalize (M16). Design documents:
-  `ROADMAP_v0.0.2+.md`, `M10_BOOT_32BIT.md`, `M14_LINUXUSERS.md`.
+  `ROADMAP_v0.0.2+.md`, `M14_LINUXUSERS.md`.
 
 ## 13. Governing Principles
 
@@ -773,19 +786,21 @@ core portable. The reference platform is QEMU `virt` with OpenSBI
 - **Unknown hardware behaviour**: everything is spiked on QEMU before it is
   coded; no register offsets from memory (the M8.1 workflow).
 
-## 15. Beyond v0.0.1 (planned)
+## 15. Beyond v0.0.2 (planned)
 
-The v0.0.2 -> v1.0.0 roadmap is `docs/ROADMAP_v0.0.2+.md` (milestones M10–M16,
+The v0.0.2 -> v1.0.0 roadmap is `docs/ROADMAP_v0.0.2+.md` (milestones M11–M16,
 cross-cutting foundations F1–F9, the virtualization compatibility matrix and
-the licensing policy). Two designs are written ahead of their code, per
+the licensing policy). One design is written ahead of its code, per
 governing principle 5:
 
-- `docs/M10_BOOT_32BIT.md` — the self-written BIOS boot chain and the i686
-  port (BootInfo `arch = 3`, E820, VBE/serial, 32-bit memory model,
-  `int 0x80`, ELF32, pointer-width audit).
 - `docs/M14_LINUXUSERS.md` — the POSIX syscall surface, musl port, the seed
   -> self-host -> build toolchain chain (C++ seed as a recorded exception)
   and hypervisor V2.
 
+The M10 design (`docs/M10_BOOT_32BIT.md`) is delivered as v0.0.2: the
+self-written BIOS boot chain, the i686 port (32-bit memory model, ELF32,
+`int 0x80`, pointer-width audit) and the hybrid ISO builder.
+
 Policy notes: the kernel and base image remain BSD/MIT/Apache-only (no GPL),
-and Windows boot repair is permanently out of scope (WinPE is recommended).
+and Windows boot repair is permanently out of scope (WinPE is recommended;
+see `docs/WINDOWS.md`).

@@ -9,7 +9,7 @@ diagnose and repair a broken machine. For building it see
 
 A self-written rescue kernel. It boots on bare metal or in QEMU, inspects
 storage and boot-chain problems read-only, and only writes when an operator
-explicitly turns on repair mode and confirms with `YES`. Two architectures:
+explicitly turns on repair mode and confirms with `YES`. The main paths:
 
 | | x86_64 | riscv64 |
 |---|---|---|
@@ -19,7 +19,10 @@ explicitly turns on repair mode and confirms with `YES`. Two architectures:
 | UEFI/NVRAM repair | yes (Runtime Services) | no (diagnosis only, honest degrade) |
 | Shell commands | 12 | 9 (no hwdiag/lsdev/crypto-selftest) |
 
-Current release: **v0.0.1** (see [HANDOVER.md](HANDOVER.md) for status).
+Current release: **v0.0.2** (see [HANDOVER.md](HANDOVER.md) for status).
+The release adds a self-written legacy-BIOS boot chain (x86_64 and i686)
+that works on machines without UEFI; the i686 kernel is read-only against
+disks. See §9 for the support matrix.
 
 ## 2. Quick start
 
@@ -38,9 +41,19 @@ x86: bootloader banner -> `handshake ok` -> memory map summary ->
 hardware/storage diagnostic stages -> VFS mount -> userland demo tasks ->
 the shell prompt `shell> `.
 
-riscv: OpenSBI banner -> `fantuan v0.0.1 (riscv64)` -> FDT memory/CPU
+riscv: OpenSBI banner -> `fantuan v0.0.2 (riscv64)` -> FDT memory/CPU
 report -> Sv39 tables -> `blk: virtio registered` -> VFS + read-only
 boot-repair diagnosis -> scheduler and user tasks -> `shell> `.
+
+BIOS (x86_64): `fantuan-bios stage2 (M10-3)` -> E820 -> `handshake ok` ->
+long-mode kernel -> tasks, userland, `shell> ` on serial only (the BIOS
+path has no GOP console).
+
+BIOS (i686): `fantuan v0.0.2 (i686) - BIOS handoff` -> VBE text console
+(serial mirror) or `fb: unavailable (serial console)` -> memmap, frame
+allocator, IDT/PIC/PIT, scheduler, ELF32 user tasks and the read-only VFS
+-> the kernel halts after the demo lines; there is no interactive shell on
+i686 yet.
 
 The shell is also fed by an autorun script when the ESP contains
 `EFI/fantuan/shell.cmd` (see the `--keys` / `--shell-repair` fixtures).
@@ -93,6 +106,10 @@ values.
     root (`/boot` inventory + `/etc/fstab`), publishes and re-reads it.
 - **On riscv** the FAT write path and fallback copy work over virtio-blk;
   the NVRAM half reports `runtime services unavailable` and is skipped.
+- **On i686 (BIOS)** everything is read-only: the PIO ATA block layer has
+  no write path, so `grub-fix repair`/`install` are unavailable and `cat`
+  is the deepest operation. There are also no Runtime Services on BIOS, so
+  NVRAM repair is absent on both BIOS paths.
 
 ## 6. Typical rescue workflows
 
@@ -123,27 +140,34 @@ values.
 
 ## 8. Windows is not supported — use WinPE
 
-fantuan-kernel diagnoses and repairs **Linux and BSD** boot chains only. The
-Windows boot chain is closed source and cannot be reverse-engineered
-reliably, so there are deliberately no Windows repair tools here. For a
-broken Windows installation, boot the vendor's **WinPE** / Windows
-installation media and use its built-in Startup Repair.
+fantuan-kernel diagnoses and repairs **Linux and BSD** boot chains only;
+Windows/PE repair is a permanent non-goal. For a broken Windows boot use
+the vendor's **WinPE** / installation media and `bootrec`/`bcdboot`; the
+read-only NTFS tooling planned for M12 never writes to Windows volumes.
+Full rationale and commands: [WINDOWS.md](WINDOWS.md).
 
-This kernel can still help indirectly (planned, see
-[ROADMAP_v0.0.2+.md](ROADMAP_v0.0.2+.md)): the disk imager takes a full
-backup before you touch anything, NTFS read-only mounting lets you inspect
-files, and the firmware/boot-entry diagnostics tell you whether the
-ESP/NVRAM state is sane.
+## 9. Support matrix (v0.0.2)
 
-## 9. Support matrix (v0.0.1 now, roadmap planned)
-
-| Area | now (v0.0.1) | planned |
+| Area | now (v0.0.2) | planned |
 |---|---|---|
-| Firmware | UEFI (x86_64), OpenSBI (riscv64) | BIOS (v0.0.2) |
-| Architecture | x86_64, riscv64 | i686 (v0.0.2), arm64 (v0.0.3) |
-| Storage | AHCI, NVMe, virtio-mmio | more drivers (v0.0.4) |
-| Filesystems | FAT32 (write-gated), ext4 (ro), others probe-only | NTFS read-only (v0.0.4) |
+| Firmware / boot | UEFI (x86_64), legacy BIOS (x86_64 + i686), OpenSBI (riscv64) | arm64 (v0.0.3) |
+| Architecture | x86_64, i686 (32-bit, nightly toolchain), riscv64 | arm64 (v0.0.3) |
+| Storage | AHCI, NVMe, virtio-mmio; i686 legacy PIO ATA (read-only) | more drivers (v0.0.4) |
+| Filesystems | FAT32 (write-gated on x86_64/riscv), ext4 (ro), others probe-only; i686 read-only | NTFS read-only (v0.0.4) |
 | Network | none | full TCP/HTTPS (v0.0.3) |
-| Graphics | serial + GOP console | framebuffer/KMS API (v0.0.5), XFCE/Qt (v0.1.5) |
+| Graphics | serial + GOP console; VBE text console (i686, serial mirror) | framebuffer/KMS API (v0.0.5), XFCE/Qt (v0.1.5) |
 | Virtualization | none | detect (v0.0.4), minimal hypervisor (v0.1.0), isolated mounting (v0.1.5) |
 | Windows boot repair | not supported | not supported — use WinPE |
+
+Boot paths and their repair capability:
+
+| Boot path | Console | Repair capability | Known limits |
+|---|---|---|---|
+| x86_64 UEFI | GOP + serial | FAT + NVRAM (Runtime Services) | none for the rescue scope |
+| x86_64 BIOS | serial only | FAT only (no NVRAM) | no GOP/ACPI/SMBIOS in the BIOS boot yet |
+| i686 BIOS | VBE text + serial | none (read-only block layer) | 1 GiB direct-map cap, no PAE, no shell yet |
+| riscv64 (OpenSBI) | NS16550 UART | FAT only (no NVRAM) | no UEFI, SMART unsupported on virtio |
+| Hybrid ISO | as the firmware path | as the firmware path | CD-ROM only (no isohybrid/USB `dd`), 1 GiB budget |
+
+The test evidence behind each row lives in
+[OPERATIONS.md](OPERATIONS.md) §3 (boot matrix).

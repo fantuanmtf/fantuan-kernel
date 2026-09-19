@@ -28,7 +28,7 @@ authoritative design), then this file.
 9. **No allocator**: `kernel-core` and both kernels are `no_std` without
    `alloc`. Use fixed buffers and `static mut` scratch; `core::fmt` writes
    go through the `kernel-core::log` sink.
-10. **One nightly exception**: the planned i686 crate builds with nightly
+10. **One nightly exception**: the i686 crate builds with nightly
     `-Z build-std` and `targets/i686-fantuan-none.json` because stable has
     no 32-bit bare-metal target; every other crate stays on stable.
 
@@ -37,8 +37,11 @@ authoritative design), then this file.
 ```
 abi/        BootInfo layout, PHYS_OFFSET (cfg per arch), syscall numbers
 boot/       UEFI bootloader: GOP, RSDP, memory map, kernel load, ExitBootServices
+boot-bios/  BIOS chain: stage1 (MBR) + stage2 (E820, VBE, long mode / i686)
 kernel/     x86_64 kernel: arch/*, crypto/*, smbios/*, font, input glue,
             x86-only diag (cpu/gpu) and shell commands, build.rs C/asm glue
+kernel-i686/ 32-bit kernel (own nightly crate): 32-bit paging, IDT/PIC/PIT,
+            scheduler, ring 3 / int 0x80, PIO ATA, VBE console
 kernel-riscv/ riscv64 kernel: main.rs boot, paging, trap, syscall bridge,
             sbi, timer, task, fdt, uart, cpu, drivers, shell table
 kernel-core/ portable half: frame, task, syscall, elf, user, log, input,
@@ -46,7 +49,7 @@ kernel-core/ portable half: frame, task, syscall, elf, user, log, input,
             bootrepair/*, shell/*
 user/       userland test ELF (cfg-split trampoline: int 0x60 / ecall)
 drivers/c/  blk registry + blk_ops; ahci, nvme, i8042 (x86), virtio_mmio (riscv)
-tools/      build/run/smoke scripts, mkdisk.py, kbd_test.sh
+tools/      build/run/smoke scripts, mkdisk.py, mkiso.py, kbd_test.sh
 docs/       DESIGN.md, milestone plan, audit, this documentation set
 ```
 
@@ -118,8 +121,11 @@ swap, x86 uses the TSS `rsp0`.
 | Check | Command | Notes |
 |---|---|---|
 | both builds, zero warnings | `tools/build.sh` + `tools/build.sh --arch riscv64` | fastest signal |
+| i686 build, zero warnings | `tools/build-i686.sh` | nightly `-Z build-std`; the only nightly step |
 | full x86 acceptance | `tools/smoke.sh` | 13 phases, ~25 min, needs SMM OVMF for phases 11–13 |
+| legacy BIOS acceptance | `tools/smoke-bios.sh` | 2 phases: x86_64 MBR chain, i686 chain + PIO ATA VFS |
 | riscv acceptance | `tools/smoke-riscv.sh` | 3 phases (read-only, repair YES, repair NO) |
+| hybrid ISO acceptance | `tools/smoke-iso.sh` | 2 phases: El Torito BIOS + OVMF 0xEF |
 | quick boot sanity | `timeout 80 tools/run.sh < /dev/null \| grep ...` | use while iterating |
 | targeted shell phase | `timeout 160 tools/run.sh --keys --broken` | autorun exercises 9 commands |
 
@@ -153,6 +159,7 @@ lines; when you change an output string, update the corresponding grep.
   Follow the existing history (`git log`) for tone.
 - Never commit generated artifacts (`kernel*/user_program.bin` are
   gitignored) or secrets.
-- **Do not commit/push/tag unless asked.** The v0.0.1 tag is local.
-- Release flow: see `docs/M9_KERNEL_v0.0.1.md` §11 and
-  [OPERATIONS.md](OPERATIONS.md) §8.
+- **Do not commit/push/tag unless asked.** The v0.0.1 and v0.0.2 tags stay
+  local (the v0.0.2 tag is owner-gated after review).
+- Release flow: see `docs/M9_KERNEL_v0.0.1.md` §11 (v0.0.1) and
+  [OPERATIONS.md](OPERATIONS.md) §9.

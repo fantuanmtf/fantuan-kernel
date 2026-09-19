@@ -10,11 +10,13 @@ itself see [USAGE.md](USAGE.md); for builds see [BUILD.md](BUILD.md).
 |---|---|---|
 | `tools/build.sh [--arch riscv64]` | build all artifacts for one arch | < 1 min |
 | `tools/smoke.sh` | full x86 acceptance suite (13 phases) | ~25 min |
+| `tools/smoke-bios.sh` | legacy BIOS chain: x86_64 + i686 (2 phases) | ~2 min |
 | `tools/smoke-riscv.sh` | riscv acceptance suite (3 phases) | ~4 min |
+| `tools/smoke-iso.sh` | hybrid ISO: BIOS El Torito + UEFI 0xEF (2 phases) | ~3 min |
 | `tools/run.sh [flags]` | single interactive/scripted boot | until you quit |
 | `tools/kbd_test.sh` | QEMU-monitor keyboard injection (x86) | ~1 min |
 
-Both smoke scripts bound every QEMU run with `timeout --signal=KILL` and
+All smoke scripts bound every QEMU run with `timeout --signal=KILL` and
 exit non-zero on the first failing phase. Logs land in `build/*.log`.
 
 ## 2. The x86 suite (`tools/smoke.sh`, 13 phases)
@@ -39,7 +41,36 @@ Phases 2, 9, 11–13 need the SMM OVMF build in `build/ovmf-smm/`
 (`OVMF_CODE_4M.ms.fd` + `OVMF_VARS_4M.fd`); the script copies the vars
 template before phases 11–13 because NVRAM repairs mutate it.
 
-## 3. The riscv suite (`tools/smoke-riscv.sh`, 3 phases)
+## 3. Boot matrix (verified paths)
+
+| Boot path | Firmware / loader | Suite | What is verified |
+|---|---|---|---|
+| x86_64 UEFI | OVMF + `boot/` (GOP + serial) | `smoke.sh` 13/13 | VFS, diagnostics, boot repair, NVRAM (SMM), userland, shell; `-cpu max` exercises SMEP/SMAP |
+| x86_64 MBR/BIOS | SeaBIOS + `boot-bios/` stage1/stage2 | `smoke-bios.sh` phase 1 | E820 -> BootInfo `arch=3` -> long mode -> ATA PIO kernel load -> tasks + shell on serial-only |
+| i686 BIOS | SeaBIOS + the 32-bit stage2 variant | `smoke-bios.sh` phase 2 | 32-bit handoff, PSE paging, frame allocator, IDT/PIC/PIT, scheduler, ELF32 ring 3 via `int 0x80`, PIO ATA + shared VFS (read-only) |
+| i686 BIOS + data disk | as above, kernel on the primary **slave** (`build-bios.sh --arch i686 --slave`), `build/test.img` on the primary master | `smoke-bios.sh` phase 2 | the PIO ATA driver reads the delivered test disk while the firmware boots the slave image |
+| riscv64 | OpenSBI `fw_dynamic`, QEMU `virt` (no UEFI involved) | `smoke-riscv.sh` 3/3 | boot/Sv39/traps/SBI timer, U-mode + fault kill/reap, virtio-mmio, VFS/boot-repair, shell, repair YES/NO gate |
+| Hybrid ISO BIOS | SeaBIOS `-cdrom`, El Torito no-emulation preload | `smoke-iso.sh` phase 1 | the x86_64 kernel reaches the shell from the ISO; the CD chain copies the kernel from the firmware preload instead of ATA |
+| Hybrid ISO UEFI | OVMF `-cdrom`, platform id 0xEF FAT ESP | `smoke-iso.sh` phase 2 | OVMF mounts the 0xEF FAT image and boots the same kernel to VFS + shell |
+| VBE console (i686) | SeaBIOS `-vga std` + stage2 VBE 2.0 mode set | `smoke-bios.sh` phase 2 asserts `fb: 1024x768x32` + `fb: console up`; the W5 checkpoint added a headless screendump decode and the `-vga none` fallback run | 1024x768x32 text console with serial mirroring; without VBE the kernel logs `fb: unavailable (serial console)` and continues on serial |
+
+Known limitations across the matrix:
+
+- **i686 direct-map cap**: only the first 1 GiB of physical RAM is aliased
+  (3G/1G split); the frame allocator caps usable RAM and logs the
+  truncation (`510 MiB usable` in the 512 MiB QEMU run). No PAE.
+- **i686 is read-only**: the PIO ATA block layer has no write path, so
+  repair commands are unavailable there (no NVRAM on BIOS either).
+- **i686 has no shell yet**: the kernel runs the demo/userland sequence
+  and halts; VFS coverage is boot-time assertion, not shell.
+- **ISO is CD-ROM only**: no isohybrid MBR and no USB `dd` support; the
+  builder enforces the 1 GiB budget and `smoke-iso.sh` re-checks it.
+- **VBE is QEMU-only**: physical-firmware VBE is untested (SeaBIOS `-vga
+  std` is the only environment exercised).
+- **riscv has no UEFI**: OpenSBI is the boot path; Runtime Services are
+  absent and NVRAM repair degrades honestly.
+
+## 4. The riscv suite (`tools/smoke-riscv.sh`, 3 phases)
 
 | Phase | What it proves |
 |---|---|
@@ -51,7 +82,7 @@ Phase A drives the shell by piping commands into QEMU's serial console
 (`sleep 5; printf 'diskhealth\ncat HELLO.TXT\n'; sleep ...`) — the pipe
 stays open so QEMU does not see EOF. The same technique drives phases B/C.
 
-## 4. `tools/run.sh` flags
+## 5. `tools/run.sh` flags
 
 | Flag | Effect |
 |---|---|
@@ -73,22 +104,24 @@ stays open so QEMU does not see EOF. The same technique drives phases B/C.
 x86 `run.sh` also rebuilds the ESP in `build/esp/` and objcopies the kernel
 to `build/esp/fantuan/kernel.bin` on every run.
 
-## 4.1 Manual (interactive) boot testing
+## 5.1 Manual (interactive) boot testing
 
 | Path | Command | What you get |
 |---|---|---|
 | UEFI x86_64 | `tools/run.sh` | full rescue stack: VFS, diagnostics, userland, interactive shell on serial |
 | UEFI x86_64 GUI | `tools/run.sh --graphics` | the same plus a GOP window (serial stays on stdio) |
 | BIOS x86_64 | `tools/run-bios.sh` | the M10 BIOS chain and an interactive shell; the image has no partitions, so `lsos`/`cat` report no filesystems |
-| BIOS i686 | `tools/run-bios.sh --arch i686` | the 32-bit bring-up lines (handoff, memmap, frame allocator); no shell until M10-4b2 |
+| BIOS i686 | `tools/run-bios.sh --arch i686` | the 32-bit bring-up lines (handoff, memmap, frame allocator, interrupts, ELF32 user tasks, VBE console); no disk, so `ata: no primary master (VFS skipped)`, and no shell yet |
+| BIOS i686 + VFS | `tools/build-bios.sh --arch i686 --slave` + the QEMU layout in `smoke-bios.sh` | the same bring-up with `build/test.img` on the primary master (read-only VFS) |
+| Hybrid ISO | `tools/build-iso.sh` then `qemu-system-x86_64 -cdrom build/fantuan.iso -nographic` | the same kernel via El Torito on BIOS; OVMF boots the 0xEF ESP path (`smoke-iso.sh` shows the exact invocation) |
 | RISC-V | `tools/run.sh --arch riscv64 --disk --two-fs` | OpenSBI + virtio-blk + VFS/shell |
 
 Useful shell commands: `help`, `bootinfo`, `lsos`, `diskhealth` (SMART needs
 AHCI/NVMe; the BIOS IDE path degrades), `cat <path>`. Quit QEMU with
 `Ctrl-A X`. For fixture variants (`--broken`, `--keys`, `--shell-repair`,
-`--nvme`, `--smm`) see the table below.
+`--nvme`, `--smm`) see the flags table above.
 
-## 5. Driving and debugging a run
+## 6. Driving and debugging a run
 
 - **Serial console**: `-nographic` maps it to your terminal; `Ctrl-A X` quits.
 - **QEMU monitor**: run with a monitor socket/channel when you need
@@ -101,7 +134,7 @@ AHCI/NVMe; the BIOS IDE path degrades), `cat <path>`. Quit QEMU with
 - **Machine-check on riscv**: the kernel prints `trap:`/`exc` lines with
   `scause/stval/sepc`; `[user]` faults also name the killed task.
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
@@ -113,7 +146,7 @@ AHCI/NVMe; the BIOS IDE path degrades), `cat <path>`. Quit QEMU with
 | QEMU survives a smoke timeout | the scripts use `--signal=KILL`; a stray instance can be killed by matching its disk path |
 | `cargo` cannot find `core` | wrong toolchain — use the script wrapper or `export PATH="$HOME/.cargo/bin:$PATH"` |
 
-## 7. Maintenance
+## 8. Maintenance
 
 - **Regenerate a fixture**: `python3 tools/mkdisk.py --<variant> build/test.img`.
 - **SMM vars store**: phases 11–13 copy `build/ovmf-smm/OVMF_VARS_4M.fd`
@@ -123,7 +156,15 @@ AHCI/NVMe; the BIOS IDE path degrades), `cat <path>`. Quit QEMU with
 - **Line-size rule**: `find . -name '*.rs' ...` — nothing under `kernel*`,
   `abi`, `user`, `boot`, `drivers` may exceed 300 lines.
 
-## 8. Release operations
+## 9. Release operations
+
+The v0.0.2 release (M10) bumped the workspace to `0.0.2`, updated the
+banners to `fantuan v0.0.2`, added this boot/support matrix and the
+`WINDOWS.md` non-support page, and re-ran the full matrix on the release
+build: `tools/smoke.sh` 13/13, `tools/smoke-bios.sh` 2/2,
+`tools/smoke-riscv.sh` 3/3, `tools/smoke-iso.sh` 2/2, three release builds
+with zero warnings. The v0.0.2 tag stays local and owner-gated (see
+`M10_PLAN.md` §W6); this repository does not create or push tags.
 
 The v0.0.1 release followed the checklist in
 `docs/M9_KERNEL_v0.0.1.md` §11: workspace bumps to `0.0.1`, banners print

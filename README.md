@@ -1,8 +1,9 @@
 # fantuan-kernel
 
 A self-written operating system kernel targeting **live rescue systems**:
-diagnose hardware and boot-chain problems, then repair them — Linux first,
-BSD diagnosis, Windows deferred.
+diagnose hardware and boot-chain problems, then repair them — Linux and
+BSD only; Windows repair is permanently out of scope
+([docs/WINDOWS.md](docs/WINDOWS.md), use WinPE).
 
 All repository artifacts are in English. The authoritative design lives in
 [docs/DESIGN.md](docs/DESIGN.md) — change it before changing code.
@@ -11,16 +12,18 @@ All repository artifacts are in English. The authoritative design lives in
 
 | Guide | Audience |
 |---|---|
-| [docs/USAGE.md](docs/USAGE.md) | rescue operators: booting, the shell, repair workflows |
-| [docs/BUILD.md](docs/BUILD.md) | building from source: toolchain, both arches, disk fixtures |
-| [docs/OPERATIONS.md](docs/OPERATIONS.md) | running the smoke suites, `run.sh` flags, troubleshooting |
+| [docs/USAGE.md](docs/USAGE.md) | rescue operators: booting, the shell, repair workflows, support matrix |
+| [docs/BUILD.md](docs/BUILD.md) | building from source: toolchains, all three arches, disk fixtures |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | the smoke suites, the boot/test matrix, `run.sh` flags, troubleshooting |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | conventions, extension recipes, testing, debugging |
 | [docs/HANDOVER.md](docs/HANDOVER.md) | taking over: status, architecture, known debt, roadmap |
 | [docs/DESIGN.md](docs/DESIGN.md) | the design of record (read before code changes) |
-| [docs/M9_KERNEL_v0.0.1.md](docs/M9_KERNEL_v0.0.1.md) | the M9 milestone plan and release checklist |
+| [docs/M10_PLAN.md](docs/M10_PLAN.md) | the M10 (v0.0.2) completion plan and release checkpoints |
+| [docs/M10_BOOT_32BIT.md](docs/M10_BOOT_32BIT.md) | design: BIOS boot chain + i686 port (v0.0.2) |
+| [docs/WINDOWS.md](docs/WINDOWS.md) | Windows/PE non-support: why, and what to use instead |
+| [docs/M9_KERNEL_v0.0.1.md](docs/M9_KERNEL_v0.0.1.md) | the M9/v0.0.1 milestone plan and release checklist |
 | [docs/M9_AUDIT.md](docs/M9_AUDIT.md) | the v0.0.1 technical-debt and vulnerability audit |
 | [docs/ROADMAP_v0.0.2+.md](docs/ROADMAP_v0.0.2+.md) | the v0.0.2 -> v1.0.0 roadmap (M10–M16) |
-| [docs/M10_BOOT_32BIT.md](docs/M10_BOOT_32BIT.md) | design: BIOS boot chain + i686 port (v0.0.2) |
 | [docs/M14_LINUXUSERS.md](docs/M14_LINUXUSERS.md) | design: Linux userspace, bootstrap chain, hypervisor V2 (v0.1.0) |
 | [docs/M11_NET.md](docs/M11_NET.md) | design: NetBSD-derived network stack (v0.0.3) |
 | [docs/M12_TOOLS_HW.md](docs/M12_TOOLS_HW.md) | design: disk imager, NTFS read-only, GPU probe, virt detection (v0.0.4) |
@@ -28,7 +31,24 @@ All repository artifacts are in English. The authoritative design lives in
 | [THIRD_PARTY.md](THIRD_PARTY.md) | third-party components, licenses and origin register |
 | [docs/PROGRESS.md](docs/PROGRESS.md) | live progress tracker for v0.0.2 -> v0.1.5 |
 
-## Current state: v0.0.1 — M9 complete (RISC-V port + shared core)
+## Current state: v0.0.2 — M10 complete (legacy BIOS + i686)
+
+M10 makes the rescue kernel reachable on machines without UEFI and on
+32-bit x86 CPUs. A self-written BIOS chain (`boot-bios/` stage1 in the MBR
+plus stage2) collects E820, sets a VBE mode when available, loads the flat
+kernel and hands over a `BootInfo arch=3`. The x86_64 kernel boots from it
+with a serial-only console and the full shell; the new `kernel-i686/` port
+brings up 32-bit PSE paging, a 3G/1G memory split capped at 1 GiB, frame
+allocator, IDT/PIC/PIT, round-robin scheduling, ring 3 with ELF32 user
+tasks over `int 0x80`, a VBE text console with serial fallback, and a
+read-only PIO ATA + shared-VFS path to the test disk. M10 also ships
+`tools/mkiso.py` (a self-written ISO9660 + El Torito builder) for a hybrid
+BIOS+UEFI ISO under the 1 GiB budget. This is the v0.0.2 release; the full
+verification is `smoke.sh` 13/13, `smoke-bios.sh` 2/2,
+`smoke-riscv.sh` 3/3, `smoke-iso.sh` 2/2 (see
+[PROGRESS.md](docs/PROGRESS.md) and [OPERATIONS.md](docs/OPERATIONS.md)
+§3). Windows boot repair stays permanently unsupported
+([WINDOWS.md](docs/WINDOWS.md)).
 
 M9 brings up a second architecture and splits the portable half of the
 kernel into `kernel-core`: the riscv64 kernel boots under OpenSBI (QEMU
@@ -80,12 +100,17 @@ the GPT + FAT32 test disk including the ESP fixture (`--broken` /
 - `boot/` — self-written UEFI bootloader in Rust (`x86_64-unknown-uefi`),
   hand-rolled against the UEFI spec: GOP, RSDP, memory map, kernel load via
   Simple File System Protocol, ExitBootServices with map-key retry.
+- `boot-bios/` — self-written legacy-BIOS chain: 512-byte stage1 (MBR,
+  `int 0x13` LBA) + stage2 (E820, VBE, long mode / 32-bit PIE paging,
+  `BootInfo arch=3`).
 - `boot/entry.S` — the "forever assembly": kernel entry stub (GDT, stack,
   BSS zeroing).
 - `kernel/` — minimal `no_std` Rust kernel (`x86_64-unknown-none`):
   BootInfo handshake validation, 16550 serial, PIT sleep + PC-speaker beeps,
   GOP framebuffer console with the embedded Spleen 8x16 font.
-- `kernel-core/` — the portable half shared by both kernels: frame
+- `kernel-i686/` — the 32-bit kernel (nightly + `targets/i686-fantuan-none.json`):
+  32-bit paging, IDT/PIC/PIT, scheduler, ring 3/ELF32, PIO ATA, VBE console.
+- `kernel-core/` — the portable half shared by all three kernels: frame
   allocator, scheduler, syscall semantics, ELF loader, VFS, diagnostics,
   boot repair and the shell, with per-arch hooks installed at boot.
 - `kernel-riscv/` — riscv64 kernel (`riscv64gc-unknown-none-elf`): Sv39
@@ -96,17 +121,23 @@ the GPT + FAT32 test disk including the ESP fixture (`--broken` /
 ## Quickstart
 
 Requirements: Rust (stable) with targets `x86_64-unknown-uefi`,
-`x86_64-unknown-none` and `riscv64gc-unknown-none-elf`, QEMU (x86_64 and
-riscv64), OVMF (`edk2-ovmf`), binutils (objcopy), clang + llvm-ar (riscv C
-drivers), python3 (disk fixtures).
+`x86_64-unknown-none` and `riscv64gc-unknown-none-elf`, nightly + `rust-src`
+(i686 only), QEMU (x86_64 and riscv64), OVMF (`edk2-ovmf`), NASM (BIOS
+stages), binutils (objcopy), clang + llvm-ar (riscv C drivers), python3
+(disk/ISO fixtures).
 
 ```sh
 rustup target add x86_64-unknown-uefi x86_64-unknown-none riscv64gc-unknown-none-elf
+rustup toolchain install nightly --profile minimal --component rust-src
 tools/run.sh                             # x86: serial console
 tools/run.sh --graphics                  # x86: window (GOP console)
+tools/run-bios.sh                        # x86_64: legacy BIOS chain
+tools/run-bios.sh --arch i686            # i686: BIOS bring-up (no shell yet)
 tools/run.sh --arch riscv64 --disk --two-fs   # riscv: OpenSBI + virtio-blk + shell
 tools/smoke.sh                           # x86 CI-style (13 phases)
+tools/smoke-bios.sh                      # BIOS CI-style (x86_64 + i686, 2 phases)
 tools/smoke-riscv.sh                     # riscv CI-style (bounded, serial-fed shell)
+tools/smoke-iso.sh                       # hybrid ISO CI-style (BIOS + UEFI, 2 phases)
 ```
 
 In QEMU, quit with `Ctrl-A X` (headless) or close the window.

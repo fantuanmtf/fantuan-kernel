@@ -1,8 +1,9 @@
 # M10 completion plan (v0.0.2)
 
-Status: approved working plan, 2026-09. Tracks the remaining M10 work from
-`PROGRESS.md` in dependency order. Each workstream is one commit with a
-"Verified:" paragraph; the repo owner pushes after the full set is green.
+Status: complete, 2026-09 — W1–W6 closed, v0.0.2 released (local; the
+owner pushes and creates the `v0.0.2` tag). The per-workstream commit and
+verification record is in `PROGRESS.md`; this file keeps the plan as
+written before the code.
 
 ## Definition of done (v0.0.2)
 
