@@ -40,6 +40,10 @@ start:
     call serial_puts
     call e820_print_all
 
+%ifdef I686
+    call vbe_setup
+%endif
+
     mov si, msg_long
     call serial_puts
 
@@ -227,6 +231,7 @@ gdt_ptr:
     dw gdt_end - gdt - 1
     dd gdt
 
+%include "stage2_vbe.inc"
 %include "stage2_pm.inc"
 
 %ifdef CD_BOOT

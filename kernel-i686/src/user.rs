@@ -1,7 +1,8 @@
 //! i686 user mode (M10-4b3b): per-task page directories, the shared ELF32
 //! loader and the ring-3 task spawn path. The stage2 page directory stays the
-//! kernel's; each user task gets a fresh PD whose kernel half (PDEs 768..1024,
-//! the PHYS_OFFSET alias) is copied and whose user half is empty. Ring 3
+//! kernel's; each user task gets a fresh PD whose kernel half (PDEs 767..1024:
+//! the 0xBFC00000 framebuffer slot plus the PHYS_OFFSET alias) is copied and
+//! whose user half is empty. Ring 3
 //! passes eax = number and ebx/ecx/edx/esi/edi as the five arguments; the
 //! shared dispatch in `kernel_core::syscall` provides the semantics
 //! (SYS_WRITE is (buf, len), see fantuan-abi).
@@ -29,6 +30,9 @@ const P_PSE: u32 = 1 << 7;
 const ADDR_MASK: u32 = 0xFFFF_F000;
 /// First PDE of the kernel half (0xC0000000 / 4 MiB, PSE).
 const KERNEL_PDE: usize = 768;
+/// PDE of the 0xBFC00000 VBE framebuffer slot (M10-5); cloned into every user
+/// PD so the mirrored console stays visible from ring 3.
+const FB_PDE: usize = 767;
 
 static FAULT_STUB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/user_stub.bin"));
 
@@ -52,10 +56,10 @@ pub fn new_root() -> u64 {
     unsafe {
         let pd = crate::phys_to_virt(pd_phys as u64) as *mut u32;
         let src = crate::phys_to_virt(cr3() as u64) as *const u32;
-        for i in 0..KERNEL_PDE {
+        for i in 0..FB_PDE {
             pd.add(i).write_volatile(0);
         }
-        for i in KERNEL_PDE..1024 {
+        for i in FB_PDE..1024 {
             pd.add(i).write_volatile(src.add(i).read_volatile());
         }
     }

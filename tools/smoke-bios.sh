@@ -55,6 +55,8 @@ rm -f "$LOG2"
 run_disk build/bios-i686.img build/test.img "$LOG2" 45
 if grep -q "fantuan v0.0.1 (i686) - BIOS handoff" "$LOG2" \
    && grep -q "handshake ok: arch=3 kernel_base=0x1000000 stack_top=0x80000" "$LOG2" \
+   && grep -q "fb: 1024x768x32 pitch=4096 at 0xBFC00000" "$LOG2" \
+   && grep -q "fb: console up" "$LOG2" \
    && grep -q "memmap: 6 descriptors" "$LOG2" \
    && grep -q "base=0x100000 pages=130784 type=7" "$LOG2" \
    && grep -q "mm: frame allocator ready: 510 MiB usable" "$LOG2" \

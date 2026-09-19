@@ -142,4 +142,22 @@ pub struct BootInfo {
     pub arch: u32,
     pub hartid: u64,
     pub dtb: u64,
+    // M10-5 additions (append-only, 32-bit BIOS BootInfo only):
+    /// Physical address of the VBE linear framebuffer, or 0 when VBE is
+    /// unavailable (the kernel falls back to the serial console).
+    pub fb_phys: u64,
+    /// Framebuffer bytes per scanline.
+    pub fb_pitch: u32,
+    /// Framebuffer width in pixels.
+    pub fb_width: u16,
+    /// Framebuffer height in scanlines.
+    pub fb_height: u16,
+    /// Framebuffer bits per pixel (16/24/32 are console-supported).
+    pub fb_bpp: u8,
+    pub _pad_fb: [u8; 3],
+    /// Physical address of the BIOS-copied 8x16 font, or 0 when VBE failed.
+    pub fb_font_phys: u32,
 }
+
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(core::mem::size_of::<BootInfo>() == 160);

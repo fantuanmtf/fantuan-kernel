@@ -153,13 +153,13 @@ memmap_synth:
 .done:
     ret
 
-; --- BootInfo (repr(C), size 152; see abi/src/lib.rs) --------------------------
+; --- BootInfo (repr(C); 64-bit size 152, i686 size 160; see abi/src/lib.rs) ---
 
 bootinfo_build:
 %ifdef I686
     ; 32-bit BootInfo: pointer-size usize fields and 4-byte u64 alignment.
     xor eax, eax
-    mov ecx, 136 / 4
+    mov ecx, 160 / 4
     mov edi, BOOTINFO_PHYS
     rep stosd
     mov edi, BOOTINFO_PHYS
@@ -174,6 +174,19 @@ bootinfo_build:
     mov dword [edi + 84], PML4_PHYS      ; boot_pml4
     mov dword [edi + 92], BOOT_TABLES_PAGES
     mov dword [edi + 116], 3             ; arch = 3 (BIOS)
+    ; M10-5 framebuffer fields (32-bit BootInfo offsets 136..160)
+    mov eax, [vbe_fb_phys]
+    mov [edi + 136], eax                 ; fb_phys (low dword; high is 0)
+    mov eax, [vbe_pitch]
+    mov [edi + 144], eax                 ; fb_pitch
+    movzx eax, word [vbe_width]
+    mov [edi + 148], ax                  ; fb_width
+    movzx eax, word [vbe_height]
+    mov [edi + 150], ax                  ; fb_height
+    mov al, [vbe_bpp]
+    mov [edi + 152], al                  ; fb_bpp
+    mov eax, [vbe_font_phys]
+    mov [edi + 156], eax                 ; fb_font_phys
 %else
     xor eax, eax
     mov ecx, 152 / 4
@@ -256,6 +269,17 @@ tables32_build:
     inc ebx
     cmp ebx, 256
     jb .alias
+    ; M10-5: PDE 767 (0xBFC00000) maps the 4 MiB-aligned VBE LFB range in
+    ; every address space; the kernel and the per-task clones reach the
+    ; console there instead of through the 1 GiB-bounded PHYS_OFFSET alias.
+    mov eax, [vbe_fb_phys]
+    test eax, eax
+    jz .no_fb
+    and eax, 0xFFC00000
+    or eax, 0x83
+    mov [PML4_PHYS + 767 * 4], eax
+.no_fb:
+    ret
 
 
 ; --- ATA PIO kernel load -------------------------------------------------------

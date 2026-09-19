@@ -17,6 +17,7 @@ use fantuan_abi::{BootInfo, BOOT_MAGIC, BOOT_VERSION, PHYS_OFFSET};
 
 mod ata;
 mod cpu;
+mod fb;
 mod idt;
 mod pic;
 mod pit;
@@ -72,6 +73,11 @@ fn phys_to_virt(p: u64) -> u64 {
 
 fn kmain(bi: *const BootInfo) -> ! {
     let bi = unsafe { &*bi };
+    // M10-5: bring the VBE console up first and mirror serial to it, so the
+    // banner and every milestone below are visible on both channels.
+    if fb::init(bi) {
+        serial::set_mirror(fb::putc);
+    }
     serial::puts("\nfantuan v0.0.1 (i686) - BIOS handoff\n");
 
     if bi.magic != BOOT_MAGIC || bi.version != BOOT_VERSION {

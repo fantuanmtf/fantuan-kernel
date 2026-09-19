@@ -77,7 +77,16 @@ done, M10 is half implemented).
       boots the kernel image as primary slave via
       `build-bios.sh --slave` so the test disk can be primary master,
       while `run-bios.sh --arch i686` stays master (no disk)
-- [ ] M10-5 VBE framebuffer console on BIOS (optional; serial is the base)
+- [x] M10-5 VBE framebuffer console (owner made it in-scope): stage2
+      queries VBE (4F00/4F01, controller info prefilled "VBE2"; SeaBIOS
+      answers "VESA" so both signatures accepted) and sets
+      1024x768x32 with the LFB bit; the 32-bit BootInfo gains append-only
+      fb fields (136 -> 160 B, 64-bit layout untouched); the LFB maps at
+      the dedicated PDE 767 (VA 0xBFC00000) in the stage2 PD and every
+      per-task PD clones 767..1024; the 8x16 ROM font arrives via INT 10h
+      1130; `kernel-i686/src/fb.rs` is the 32/24/16-bpp text console with
+      serial mirroring and an `fb: unavailable (serial console)` fallback
+      - verify BIOS phase 2 plus the headless screendump check
 - [x] M10-6 self-written hybrid ISO: `tools/mkiso.py` builds a level-1
       ISO9660 image (PVD, L/M path tables) with El Torito BIOS
       no-emulation (full preload to 0x7C00/0x8000; SeaBIOS rejects AH=42h
@@ -176,6 +185,8 @@ Design: `M14_LINUXUSERS.md`.
 | 2026-09 | i686 PIO ATA + shared VFS on the mkdisk fixture (phase 2 asserts VFS/ESP lines) | PASS |
 | 2026-09 | hybrid ISO BIOS boot (El Torito no-emulation) | PASS |
 | 2026-09 | hybrid ISO UEFI boot (OVMF mounts the 0xEF FAT image) | PASS |
+| 2026-09 | i686 VBE 1024x768x32 console (headless screendump, 45,777 lit pixels, text decoded) | PASS |
+| 2026-09 | i686 framebuffer fallback under `-vga none` (serial identical) | PASS |
 | 2026-09 | x86 full suite `tools/smoke.sh` 13/13 | PASS (at v0.0.1) |
 
 ## Known issues
@@ -200,8 +211,9 @@ Design: `M14_LINUXUSERS.md`.
 - **riscv `uart::log_bytes` fault (one-off)**: one repair run (of three)
   crashed with `scause=0xd stval=0x766`; reproduced once more at the W2
   checkpoint (`scause=0xd stval=0x7f8 sepc=0x80200c4e [kernel]`, right
-  after the NVRAM BootOrder line during repair) and the immediate rerun
-  passed all three phases. Watch item; hunt in M10/M11 follow-ups.
+  after the NVRAM BootOrder line during repair); two attempts during the
+  W5 checkpoint hit it again and reruns passed. Watch item; hunt in
+  M10/M11 follow-ups.
 
 ## M10 completion plan
 
@@ -211,7 +223,8 @@ verification and commit checkpoints for each workstream.
 
 ## Next action
 
-**W5 / M10-5**: VBE framebuffer console - stage2 queries the VBE 2.0
-info block and sets one linear mode, kernel-i686 brings up a text console
-on it with the serial path as the fallback. W6 (docs + 0.0.2) follows; the
-owner pushes and tags after the set is green.
+**W6 / M10-7**: documentation and release prep - Windows/PE non-support
+page (WinPE guidance), boot and support matrices, USAGE/OPERATIONS/DESIGN
+updates, version strings to 0.0.2, final PROGRESS ticks; then the owner
+pushes and creates the local v0.0.2 tag. The 13-phase `tools/smoke.sh`
+runs at this checkpoint.
