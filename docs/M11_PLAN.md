@@ -48,9 +48,16 @@ alloc/free over the frame allocator, thread context -> cooperative
 tasks, callouts driven by the PIT tick, panic/printf -> serial. Prove it by
 running an allocation/refcount/callout self-test task in QEMU.
 
-- Verify: three (later four) arch builds zero warnings; the QEMU self-test
-  prints refcount churn and periodic callout firing; THIRD_PARTY register
-  rows for every imported file.
+- Outcome (2026-09 spike, see `third_party/netbsd/ADAPTATION.md`): 139
+  files pinned at `e145e524ee8362fa7d14824b2921b0ba1b694bfe`; all 9 imported
+  `.c` files compile freestanding for `x86_64-unknown-none`
+  (`third_party/netbsd/build_spike.sh` 9/9 OK) against 27 machine + 22
+  config shim headers; the link leaves 104 unresolved NetBSD services. R2
+  starts with libkern/atomics, the frame-backed kmem/pool, then the PIT
+  callout tick and cooperative sleepq/turnstile; the QEMU refcount/callout
+  self-test moves to R2 with those services.
+- Verify: three arch builds zero warnings; `THIRD_PARTY.md` register plus
+  `third_party/netbsd/MANIFEST.tsv` cover every imported file.
 - Risk: source-list/build integration; missing NetBSD subr pulls; licenses.
 
 ### R2 - net_ops registry + loopback

@@ -1,0 +1,30 @@
+/* fantuan adaptation shim: x86_64 VM parameters (not upstream NetBSD).
+ * Constants only; the imported MI slice never maps user VA in the spike.
+ */
+#ifndef FANTUAN_MACHINE_VMPARAM_H
+#define FANTUAN_MACHINE_VMPARAM_H
+
+#define PAGE_SHIFT 12
+#define PAGE_SIZE (1 << PAGE_SHIFT)
+#define PAGE_MASK (PAGE_SIZE - 1)
+#define PAGER_MAP_DEFAULT_SIZE (512 * 1024 * 1024)
+#define UBC_WINSHIFT 16
+#define UBC_NWINS 4096
+#define MAXTSIZ (8L * 1024 * 1024 * 1024)
+#define DFLDSIZ (256 * 1024 * 1024)
+#define MAXDSIZ (8L * 1024 * 1024 * 1024)
+#define DFLSSIZ (4 * 1024 * 1024)
+#define MAXSSIZ (128 * 1024 * 1024)
+#define USRIOSIZE 300
+#define VM_MIN_ADDRESS 0
+#define VM_MAXUSER_ADDRESS (0x00007f8000000000 - PAGE_SIZE)
+#define VM_MAX_ADDRESS 0x00007fbfdfeff000
+#define VM_MIN_KERNEL_ADDRESS_DEFAULT 0xffff800000000000
+#define VM_MAX_KERNEL_ADDRESS_DEFAULT 0xffffa00000000000
+#define VM_MIN_KERNEL_ADDRESS VM_MIN_KERNEL_ADDRESS_DEFAULT
+#define VM_MAX_KERNEL_ADDRESS VM_MAX_KERNEL_ADDRESS_DEFAULT
+#define PDP_SIZE 1
+#define USRSTACK VM_MAXUSER_ADDRESS
+#define __HAVE_PMAP_PHYSSEG
+
+#endif
