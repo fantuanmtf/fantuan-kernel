@@ -6,6 +6,10 @@ export PATH="$HOME/.cargo/bin:$PATH"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Kernel config (C1): materialize the default `net` profile on first build so
+# the build stays incremental; C4 flips the default to minimal.
+[ -f .config ] || ./tools/kconfig.py --profile net >/dev/null
+
 ARCH="x86_64"
 while [ $# -gt 0 ]; do
   case "$1" in

@@ -5,6 +5,9 @@
 set -euo pipefail
 export PATH="$HOME/.cargo/bin:$PATH"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Kernel config (C1): materialize the default `net` profile on first build.
+[ -f "$ROOT/.config" ] || "$ROOT/tools/kconfig.py" --profile net >/dev/null
 cd "$ROOT/kernel-i686"
 
 # Cargo treats --target <path.json> as an opaque string: editing the spec

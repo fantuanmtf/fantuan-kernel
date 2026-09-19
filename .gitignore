@@ -5,6 +5,10 @@
 /kernel/user_program.bin
 /kernel-riscv/user_program.bin
 
+# Kconfig-lite selection + generated features (C1)
+/.config
+/build/config/
+
 # Python bytecode cache (tools/*.py)
 __pycache__/
 

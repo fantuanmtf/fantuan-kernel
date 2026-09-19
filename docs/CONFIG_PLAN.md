@@ -53,6 +53,38 @@ Profiles: `minimal` (SHELL + RESCUE_REPAIR), `net` (adds NET + TOOLS),
    code arrives). `tools/smoke-config.sh` builds each profile and checks
    the presence/absence invariants.
 
+## Implemented in C1 (2026-09)
+
+The foundation is in: `config/Kconfig` (12 bool symbols, `depends on`,
+prompt/help and the documented `CONFIG_APP_*` hook - fragments land in
+`config/apps/*.kconfig` and are merged when present), `tools/kconfig.py`,
+`tools/kconfig_emit.rs` (shared build-script helper) and
+`tools/smoke-config.sh`.
+
+```sh
+tools/kconfig.py --profile net        # minimal|net|desktop|hypervisor|all
+tools/kconfig.py --text               # show the effective configuration
+tools/kconfig.py --symbol NET=N       # flip a symbol (repeatable)
+tools/kconfig.py --check              # validate depends / reject impossible
+tools/kconfig.py --olddefconfig       # fill new symbols with defaults
+tools/kconfig.py --emit               # build/config/features.{rs,env}, hashed
+tools/smoke-config.sh                 # profile invariants + budget + increment
+```
+
+Every crate's `build.rs` (kernel, kernel-riscv, kernel-i686, kernel-core,
+kernel-net) calls the shared `tools/kconfig_emit.rs` helper: it reads
+`.config` and emits `cargo:rustc-cfg=kconfig_<lower>` plus the matching
+`cargo:rustc-check-cfg` for every symbol, so builds stay zero-warning on
+all targets. Gated end-to-end: `kernel/src/main.rs`, `kernel/src/timer.rs`
+and `kernel/src/net.rs` behind `kconfig_net`, and the rump self-test task
+behind `kconfig_debug_selftest`.
+
+Default-profile caveat: a missing `.config` (and the build scripts) resolve
+to the `net` profile so current behavior is preserved; **C4 flips the
+default to `minimal`** and makes the `kernel-net` dependency conditional.
+Until then `kernel-net` stays an unconditional dependency (its build.rs
+consumes the config too).
+
 ## Budgets, incrementality and the Live direction
 
 Owner direction 2026-09, additional constraints:

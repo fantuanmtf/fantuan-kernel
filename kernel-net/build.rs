@@ -10,6 +10,8 @@ use std::env;
 use std::path::Path;
 use std::process::Command;
 
+include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../tools/kconfig_emit.rs"));
+
 const NETBSD_CSRCS: &[&str] = &[
     "sys/kern/subr_evcnt.c",
     "sys/kern/kern_mutex.c",
@@ -98,6 +100,7 @@ const SHIM_CSRCS: &[&str] = &[
 ];
 
 fn main() {
+    kconfig_emit();
     let dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let target = env::var("TARGET").unwrap();
     let netbsd = format!("{dir}/../third_party/netbsd");

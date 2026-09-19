@@ -7,6 +7,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 mkdir -p build
 
+# Kernel config (C1): materialize the default `net` profile on first build.
+[ -f .config ] || ./tools/kconfig.py --profile net >/dev/null
+
 ARCH="x86_64"
 if [ "${1:-}" = "--arch" ] && [ "${2:-}" = "i686" ]; then
   ARCH="i686"

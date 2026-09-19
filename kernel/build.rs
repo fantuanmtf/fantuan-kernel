@@ -9,7 +9,10 @@
 use std::env;
 use std::fs;
 
+include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../tools/kconfig_emit.rs"));
+
 fn main() {
+    kconfig_emit();
     let dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     println!("cargo:rerun-if-changed={dir}/link.ld");
     println!("cargo:rerun-if-changed={dir}/src/consts.rs");

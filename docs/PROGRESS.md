@@ -217,6 +217,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | C1 config foundation: `tools/smoke-config.sh` PASS (net/minimal invariants, 2 MiB budget check with 1-byte over-budget simulation, `DEBUG_SELFTEST` flip rebuilds only the three config consumers); `smoke-net.sh` PASS, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3 (phase A rerun once after the documented serial-input flake); three-target builds zero warnings | PASS |
 | 2026-09 (v0.0.2) | release builds zero warnings: `cargo build -p fantuan-kernel` (x86_64), `cargo build -p kernel-riscv` (riscv64), `tools/build-i686.sh` | PASS |
 | 2026-09 (v0.0.2) | `tools/smoke.sh` full 13-phase x86 suite (second run; the first hit a host-load boot timeout in phase 9, the isolated rerun passed) | PASS 13/13 |
 | 2026-09 (v0.0.2) | `tools/smoke-bios.sh` (phase 1 x86_64 MBR chain + phase 2 i686 PIO ATA VFS) | PASS 2/2 |
@@ -304,12 +305,25 @@ with `apps.lock`. Batches: **C1** config foundation, **C2** catalog/
 appctl, **C3** bash vendor + GPL compliance, **C4** kernel subsystem
 isolation; then R7.
 
+- [x] C1 config foundation: `config/Kconfig` (12 symbols + documented
+      `CONFIG_APP_*` hook, fragments merged from `config/apps/*.kconfig`),
+      `tools/kconfig.py` (menu/`--text`/`--olddefconfig`/`--symbol`/
+      `--profile minimal|net|desktop|hypervisor|all`/`--check`/`--emit`),
+      shared `tools/kconfig_emit.rs` so every crate's build.rs emits
+      `cargo:rustc-cfg=kconfig_<lower>` + check-cfg, `kconfig_net` gating
+      of `kernel/src/{main,timer,net}.rs` and `kconfig_debug_selftest` for
+      the rump self-test, and `tools/smoke-config.sh` (net/minimal
+      invariants, 300 MiB budget, incrementality) - verify
+      `tools/smoke-config.sh`, three-target zero-warning builds.
+      Default-profile caveat: the build scripts default to `net` until C4
+      flips the default to `minimal` and makes `kernel-net` conditional.
+
 ## Next action
 
-**C1**: land the Kconfig-lite configurator per `CONFIG_PLAN.md` /
-`APPS.md` (owner approved the config-foundation-first entry; docs pushed
-first). Then C2 catalog + appctl, C3 bash vendor + GPL compliance, C4
-kernel subsystem isolation; R7 follows. Stop after each batch so the
-owner can push. Housekeeping: hunt the intermittent riscv
-`uart::log_bytes` fault and the i686 PIO ATA polling-to-IRQ conversion
-when the i686 shell work needs it.
+**C2**: catalog + appctl per `APPS.md` / `CONFIG_PLAN.md` (C1 landed: the
+Kconfig-lite configurator, the cfg plumbing and the `tools/smoke-config.sh`
+gate). Then C3 bash vendor + GPL compliance, C4 kernel subsystem isolation
+(flips the default profile to `minimal` and makes `kernel-net`
+conditional); R7 follows. Stop after each batch so the owner can push.
+Housekeeping: hunt the intermittent riscv `uart::log_bytes` fault and the
+i686 PIO ATA polling-to-IRQ conversion when the i686 shell work needs it.

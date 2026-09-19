@@ -3,9 +3,9 @@
 //! (kernel log, frame allocator, PIT ticks, cooperative sleep) and starts
 //! the deferred-softint and self-test tasks.
 //!
-//! Behaviour without the `rump-selftest` feature: the adapter is brought up
-//! and the softint drainer runs, but no self-test task is spawned and no
-//! `rump:` markers are printed.
+//! Behaviour with `CONFIG_DEBUG_SELFTEST=n`: the adapter is brought up and
+//! the softint drainer runs, but no self-test task is spawned and no `rump:`
+//! markers are printed.
 
 use core::sync::atomic::Ordering;
 
@@ -109,6 +109,6 @@ pub fn init() {
     });
     crate::task::spawn(kernel_net::softintd);
     crate::task::spawn(kernel_net::loopback_task);
-    #[cfg(feature = "rump-selftest")]
+    #[cfg(kconfig_debug_selftest)]
     crate::task::spawn(kernel_net::selftest_task);
 }

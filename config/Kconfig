@@ -1,0 +1,102 @@
+# fantuan-kernel configuration schema (Kconfig-lite, C1).
+#
+# Read by tools/kconfig.py; consumed by every Rust crate's build.rs through
+# the generated `cargo:rustc-cfg=kconfig_<lower>` lines. Syntax:
+#
+#   config NAME
+#       bool "prompt"
+#       default y|n
+#       depends on NAME
+#       help
+#           free-form text
+#
+# App catalog fragments (C2): tools/appctl generates config/apps/<name>.kconfig
+# with symbols named APP_<NAME>; kconfig.py merges every config/apps/*.kconfig
+# fragment automatically when the directory exists. App symbols keep the
+# CONFIG_APP_* prefix and never enter the kernel/base layer.
+
+config SHELL
+    bool "Rescue shell (kernel-core)"
+    default y
+    help
+        The built-in rescue shell; the only always-on user interface.
+        Disabling it leaves the boot banner only (debug builds).
+
+config BASH
+    bool "Full POSIX shell (M14-8)"
+    default y
+    help
+        The full POSIX shell shipped as a separate GPLv3 program with its
+        sources (APPS.md); the built-in shell keeps the rescue builtins.
+
+config TOOLS
+    bool "Userland tool set"
+    default n
+    depends on SHELL
+    help
+        The configured userland tools (ping/nslookup/wget/... once R7
+        lands). Tools are add-ons and are never linked into the kernel.
+
+config NET
+    bool "NetBSD rump network stack (M11)"
+    default n
+    help
+        The imported rump/NetBSD network stack (kernel-net). Off means the
+        kernel boots without any networking code paths.
+
+config NET_DRIVERS
+    bool "Network drivers (e1000 / virtio-net)"
+    default n
+    depends on NET
+    help
+        The physical network adapters behind the net_ops registry.
+
+config TLS
+    bool "TLS / HTTPS (mbedTLS, M11 R8)"
+    default n
+    depends on NET
+    help
+        The TLS stack used by HTTPS tools; requires NET.
+
+config VIRT
+    bool "Hypervisor V2 (M14-7)"
+    default n
+    help
+        The in-kernel hypervisor (VMX first, then SVM); off in every
+        profile except hypervisor/all.
+
+config GRAPHICS
+    bool "fb_info / KMS API (M13)"
+    default n
+    help
+        The framebuffer/KMS graphics contract and its kernel demos.
+
+config DESKTOP
+    bool "Desktop session (M15)"
+    default n
+    depends on GRAPHICS
+    help
+        The XFCE/CDE desktop layer; requires GRAPHICS.
+
+config RESCUE_REPAIR
+    bool "Boot-repair paths"
+    default y
+    help
+        The read-only boot-repair diagnosis; disabling removes the repair
+        commands from the rescue shell.
+
+config DEBUG_SELFTEST
+    bool "rump/scheduler self-tests"
+    default n
+    depends on NET
+    help
+        The in-kernel self-test tasks that print the `rump:` markers used
+        by tools/smoke-net.sh; off in release-shrunk builds.
+
+config SECURE_WIPE
+    bool "Shutdown RAM wipe (Live profile)"
+    default n
+    help
+        Overwrite kernel memory, page caches, framebuffer and free RAM on
+        clean shutdown/reboot (cold-boot mitigation; crashes cannot wipe).
+        Enable in Live images; off elsewhere.

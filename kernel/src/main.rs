@@ -40,6 +40,7 @@ mod font;
 mod input;
 mod kbd;
 mod mm;
+#[cfg(kconfig_net)]
 mod net;
 mod panic;
 mod shell;
@@ -72,11 +73,7 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
 
     // Handshake: validate what the bootloader handed over (DESIGN.md §4).
     if bi.magic != BOOT_MAGIC || bi.version != BOOT_VERSION {
-        let _ = writeln!(
-            s,
-            "fatal: bad handshake magic={:#x} version={}",
-            bi.magic, bi.version
-        );
+        let _ = writeln!(s, "fatal: bad handshake magic={:#x} version={}", bi.magic, bi.version);
         pit::beep_n(4, pit::BeepLen::Short);
         halt_forever();
     }
@@ -88,11 +85,7 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         "handshake ok: magic={:#x} version={} rsdp={:#x}",
         bi.magic, bi.version, bi.rsdp
     );
-    let _ = writeln!(
-        s,
-        "kernel_base={:#x} stack_top={:#x}",
-        bi.kernel_base, bi.stack_top
-    );
+    let _ = writeln!(s, "kernel_base={:#x} stack_top={:#x}", bi.kernel_base, bi.stack_top);
     print_memmap_summary(&mut s, bi);
 
     // Output channel 2: GOP framebuffer console (skipped when headless).
@@ -214,6 +207,7 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     let _ = writeln!(s, "sched: 3 kernel demo tasks spawned (quantum 100 ms)");
 
     // M11 R2: NetBSD rump adaptation layer (pools, callouts, mbufs).
+    #[cfg(kconfig_net)]
     net::init();
 
     // --- M8.3c: memory hardening (NX + SMEP/SMAP) --------------------------
