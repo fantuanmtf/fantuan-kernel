@@ -68,7 +68,15 @@ done, M10 is half implemented).
       classified as safe in the audit - three-target builds zero warnings,
       UEFI boot + BIOS/riscv smokes PASS (13-phase suite at the final
       checkpoint)
-- [ ] M10-4c i686 VFS on the test disk (after b3)
+- [x] M10-4c i686 VFS on the test disk: PIO ATA primary-channel driver
+      (`kernel-i686/src/ata.rs`, LBA28/LBA48 identify, bounded polling),
+      the shared `kernel-core::vfs` mounts the same mkdisk fixture (FAT32
+      ESP) and the boot prints `fs: part 1`, `vfs: HELLO.TXT`,
+      `vfs: INFO.TXT => 1000`, `esp: EFI/BOOT/BOOTX64.EFI` - verify BIOS
+      phase 2. Reads only on i686 (write/repair stubs return -1); the smoke
+      boots the kernel image as primary slave via
+      `build-bios.sh --slave` so the test disk can be primary master,
+      while `run-bios.sh --arch i686` stays master (no disk)
 - [ ] M10-5 VBE framebuffer console on BIOS (optional; serial is the base)
 - [ ] M10-6 hybrid ISO image builder with the 1 GB size check
 - [ ] M10-7 docs (Windows-unsupported/PE, boot + support matrices), i686
@@ -158,6 +166,7 @@ Design: `M14_LINUXUSERS.md`.
 | 2026-09 | i686 ring 3 via `iretd` + `int 0x80` (built-in stub writes and exits) | PASS |
 | 2026-09 | W1/M10-4a2 hardening: three-target builds + BIOS/riscv smokes after the `to_usize` pass | PASS |
 | 2026-09 | i686 ELF32 userland (shared `user/` crate) + per-task PD + user-fault kill | PASS |
+| 2026-09 | i686 PIO ATA + shared VFS on the mkdisk fixture (phase 2 asserts VFS/ESP lines) | PASS |
 | 2026-09 | x86 full suite `tools/smoke.sh` 13/13 | PASS (at v0.0.1) |
 
 ## Known issues
@@ -193,8 +202,7 @@ verification and commit checkpoints for each workstream.
 
 ## Next action
 
-**W3 / M10-4c**: i686 VFS on the test disk — PIO ATA block driver,
-partition scan and the shared `kernel-core::vfs` mount with the phase-2
-smoke asserting the VFS fixture lines. W4 (ISO), W5 (VBE, in scope) and
-W6 (docs + 0.0.2) follow; the owner pushes and tags after the set is
-green.
+**W4 / M10-6**: self-written ISO9660 + El Torito hybrid image builder
+(`tools/iso/` + `tools/build-iso.sh`, <=1 GB check) booting the BIOS image
+from CD and exposing the ESP for UEFI. W5 (VBE, in scope) and W6 (docs +
+0.0.2) follow; the owner pushes and tags after the set is green.

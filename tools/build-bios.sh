@@ -11,21 +11,29 @@ ARCH="x86_64"
 if [ "${1:-}" = "--arch" ] && [ "${2:-}" = "i686" ]; then
   ARCH="i686"
 fi
+# --slave: assemble stage2 to read the kernel image from the primary slave
+# (the i686 smoke uses this so the test disk stays the primary master).
+SLAVE=0
+for a in "$@"; do
+  [ "$a" = "--slave" ] && SLAVE=1
+done
 
 STAGE2_SECTORS=32
 KERNEL_LBA=$((1 + STAGE2_SECTORS))
+
+NASM_FLAGS=""
+[ "$SLAVE" = "1" ] && NASM_FLAGS="-D KERNEL_DRIVE_SLAVE=1"
 
 if [ "$ARCH" = "i686" ]; then
   echo "[1/3] building the i686 kernel..."
   ./tools/build-i686.sh >/dev/null
   cp build/kernel-i686.bin build/kernel-bios.bin
-  NASM_FLAGS="-D I686=1"
+  NASM_FLAGS="$NASM_FLAGS -D I686=1"
   IMG=build/bios-i686.img
 else
   echo "[1/3] building the x86_64 kernel..."
   cargo build -p fantuan-kernel --target x86_64-unknown-none --release >/dev/null
   objcopy -O binary target/x86_64-unknown-none/release/fantuan-kernel build/kernel-bios.bin
-  NASM_FLAGS=""
   IMG=build/bios.img
 fi
 KSIZE=$(stat -c %s build/kernel-bios.bin)

@@ -9,11 +9,13 @@
 #![no_main]
 
 use core::arch::asm;
+use core::fmt::Write;
 use core::panic::PanicInfo;
 use core::ptr::addr_of_mut;
 
 use fantuan_abi::{BootInfo, BOOT_MAGIC, BOOT_VERSION, PHYS_OFFSET};
 
+mod ata;
 mod cpu;
 mod idt;
 mod pic;
@@ -116,6 +118,29 @@ fn kmain(bi: *const BootInfo) -> ! {
         } else {
             "mm: frame self-test FAILED\n"
         });
+    }
+
+    // --- M10-4c: PIO ATA + the shared VFS on the test disk (read-only) ------
+    if ata::init() {
+        ata::install_hooks();
+        let mut s = kernel_core::log::Log::new();
+        let _ = writeln!(s, "ata: primary master ready, {} sectors", ata::sectors());
+        match kernel_core::vfs::init() {
+            Some(vfs) => {
+                let _ = writeln!(s, "vfs: ok");
+                let stage2: [kernel_core::diag::Check; 1] = [kernel_core::diag::Check {
+                    name: "storage",
+                    run: kernel_core::diag::storage::check,
+                }];
+                kernel_core::diag::run_stage("2 storage", &stage2);
+                kernel_core::bootrepair::diagnose(&mut s, &vfs, bi.runtime_services);
+            }
+            None => {
+                let _ = writeln!(s, "vfs: unavailable (boot continues)");
+            }
+        }
+    } else {
+        serial::puts("ata: no primary master (VFS skipped)\n");
     }
 
     // --- M10-4b3: GDT/TSS (needed before the ring-3 syscall gate) -----------

@@ -11,6 +11,12 @@ BITS 32
 %ifndef KERNEL_SECTORS
 %define KERNEL_SECTORS 1
 %endif
+; The i686 smoke boots the kernel image as the primary slave so the test disk
+; can be the primary master (the PIO ATA driver's target); the x86_64 BIOS
+; path keeps the primary master. tools/build-bios.sh --slave sets this.
+%ifndef KERNEL_DRIVE_SLAVE
+%define KERNEL_DRIVE_SLAVE 0
+%endif
 
 %ifdef I686
 %define BOOT_TABLES_PAGES 1
@@ -279,7 +285,11 @@ ata_read_sector:
     mov eax, ebx
     shr eax, 24
     and al, 0x0F
-    or al, 0xE0
+%if KERNEL_DRIVE_SLAVE
+    or al, 0xF0                           ; kernel image on the primary slave
+%else
+    or al, 0xE0                           ; kernel image on the primary master
+%endif
     mov dx, 0x1F6
     out dx, al
     xor eax, eax
