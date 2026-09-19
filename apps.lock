@@ -1,0 +1,8 @@
+# apps.lock - vendored application trees pinned by tools/appctl (C2).
+# Schema: version = 1 and one [[app]] table per vendored app with the
+# fields name, version, license, gpl, source, rev and sha256 (tree hash).
+# Do not edit by hand; use `tools/appctl/appctl.py add|sync|remove`.
+
+version = 1
+
+# Empty: no app is vendored yet; the owner picks the catalog list.

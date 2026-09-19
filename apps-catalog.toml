@@ -1,0 +1,28 @@
+# Catalog sources for tools/appctl (C2). See apps/README.md and docs/APPS.md.
+version = 1
+
+[default]
+source = "fantuan-apps"
+
+[[source]]
+name = "fantuan-apps"
+kind = "git"
+repo = "self"
+url = "git@github.com:fantuanmtf/fantuan-kernel.git"
+branch = "fantuan-apps"
+apps = "apps"
+enabled = true
+
+# Optional local overlay: any directory with the same apps/<name>/ layout.
+# Disabled by default; enable it here or use `sync --from <path>`.
+[[source]]
+name = "overlay"
+kind = "path"
+path = "../fantuan-apps-overlay"
+apps = "apps"
+enabled = false
+
+[licensing]
+# GPL apps accepted in the apps layer (registered in THIRD_PARTY.md).
+# Empty until C3 registers bash.
+gpl_allow = []

@@ -72,6 +72,51 @@ gpl = false                     # true only in the apps layer, never linked
 - Manifests are content-hashed and each app builds in its own directory:
   adding or removing one app rebuilds only that app plus image assembly.
 
+## Implemented in C2 (2026-09)
+
+`main` carries the integration side: `apps/README.md`, `apps-catalog.toml`
+(default source = the `fantuan-apps` branch of this repo, optional disabled
+`overlay` local path, `[licensing] gpl_allow` = the apps-layer list) and an
+empty `apps.lock`. `tools/appctl/` is the same stdlib client that lives on the
+`package` branch:
+
+```sh
+tools/appctl/appctl.py list
+tools/appctl/appctl.py add <name> [--from <branch|path>]
+tools/appctl/appctl.py sync [--from <branch|path>] [--name <name>]
+tools/appctl/appctl.py upgrade [--name <name>]
+tools/appctl/appctl.py verify [--name <name>] [--apps-layer]
+tools/appctl/appctl.py menu
+tools/appctl/appctl.py sbom [-o sbom.json]
+```
+
+- `add`/`sync` copy `{manifest.toml,README.md,patches/,src/}` and pin the
+  source name, the resolved revision (`git rev-parse` for git sources) and the
+  tree sha256 in `apps.lock`. Schema: `version = 1` plus one `[[app]]` table
+  per app (`name`, `version`, `license`, `gpl`, `source`, `rev`, `sha256`);
+  the tree hash is sha256 over the sorted `"<relpath> <file-sha256>"` lines.
+- `upgrade` re-syncs newer revisions and restores every local patch listed in
+  the manifest.
+- `verify` recomputes the hash, requires name/version/SPDX license/
+  description/`abi_min`/build, checks `abi_min <= fantuan_abi::ABI_VERSION`
+  and enforces the **GPL firewall**: a `gpl = true` manifest is refused in the
+  kernel/base layer and accepted only with `--apps-layer` **and** an entry in
+  `[licensing] gpl_allow`. Failures exit 1.
+- `menu` writes one `config/apps/<name>.kconfig` per non-refused app with the
+  `CONFIG_APP_<NAME>` bool and the manifest description as prompt/help;
+  `tools/kconfig.py` merges every fragment. GPL apps outside the allow list
+  are skipped.
+- `sbom` prints JSON (`name`, `version`, `license`, `gpl`, `source`, `rev`,
+  `sha256`).
+- `tools/smoke-apps.sh` proves the pipeline offline on a fixture catalog
+  (add/sync/lock hash, kernel-layer GPL refusal, apps-layer allow list, menu +
+  `kconfig.py --check`, sbom, remove, corruption).
+
+Branch skeletons live (gitignored) in `build/branch-skeletons/`; the
+owner-run `tools/mkbranches.sh` creates/updates the local `fantuan-apps` and
+`package` branches from `main` and prints the `git push -u origin ...`
+commands. It never runs automatically. No real app is vendored yet.
+
 ## Budgets
 
 - Boot + kernel + shell stay within **300 MiB** (hard build check); the

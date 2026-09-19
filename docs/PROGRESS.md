@@ -217,6 +217,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | C2 catalog/appctl: `tools/smoke-apps.sh` PASS (fixture add/sync + lock sha256, kernel-layer GPL refusal plus apps-layer allow list, menu fragment merged by `tools/kconfig.py --check`, SBOM JSON, remove cleanup, corrupt-tree failure); `bash -n tools/{smoke-apps,mkbranches}.sh` clean; three-target builds zero warnings | PASS |
 | 2026-09 | C1 config foundation: `tools/smoke-config.sh` PASS (net/minimal invariants, 2 MiB budget check with 1-byte over-budget simulation, `DEBUG_SELFTEST` flip rebuilds only the three config consumers); `smoke-net.sh` PASS, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3 (phase A rerun once after the documented serial-input flake); three-target builds zero warnings | PASS |
 | 2026-09 (v0.0.2) | release builds zero warnings: `cargo build -p fantuan-kernel` (x86_64), `cargo build -p kernel-riscv` (riscv64), `tools/build-i686.sh` | PASS |
 | 2026-09 (v0.0.2) | `tools/smoke.sh` full 13-phase x86 suite (second run; the first hit a host-load boot timeout in phase 9, the isolated rerun passed) | PASS 13/13 |
@@ -301,7 +302,9 @@ keep GPL out of the kernel/base; the desktop scope is XFCE + CDE only.
 Tool/package architecture: `APPS.md` - the catalog lives on the
 `fantuan-apps` branch (vendored sources, community PRs) and the tooling
 on the `package` branch; `main` integrates vendored `apps/<name>/` trees
-with `apps.lock`. Batches: **C1** config foundation, **C2** catalog/
+with `apps.lock`. GitHub carries every branch (`main`, `fantuan-apps`,
+`package`); Codeberg mirrors the **pure kernel only** (`main`), no catalog
+or tooling branches. Batches: **C1** config foundation, **C2** catalog/
 appctl, **C3** bash vendor + GPL compliance, **C4** kernel subsystem
 isolation; then R7.
 
@@ -317,13 +320,28 @@ isolation; then R7.
       `tools/smoke-config.sh`, three-target zero-warning builds.
       Default-profile caveat: the build scripts default to `net` until C4
       flips the default to `minimal` and makes `kernel-net` conditional.
+- [x] C2 catalog + appctl: `apps/README.md`, `apps-catalog.toml`
+      (`fantuan-apps` git source + disabled `overlay` path, `[licensing]
+      gpl_allow` = the apps-layer list), empty `apps.lock`, and
+      `tools/appctl/` (stdlib; `list`/`add`/`remove`/`sync`/`upgrade`/
+      `verify`/`menu`/`sbom`) with sha256 tree pins, the
+      `abi_min <= fantuan_abi ABI_VERSION` check, the GPL firewall
+      (kernel/base refuses `gpl = true`; `--apps-layer` accepts only listed
+      names), generated `config/apps/<name>.kconfig` fragments merged by
+      `tools/kconfig.py`, and the offline fixture gate `tools/smoke-apps.sh`.
+      Branch skeletons (gitignored) under `build/branch-skeletons/` plus the
+      owner-run `tools/mkbranches.sh` for the local `fantuan-apps`/`package`
+      branches (push commands printed, never run automatically) - verify
+      `tools/smoke-apps.sh`, `bash -n tools/{smoke-apps,mkbranches}.sh`,
+      three-target zero-warning builds. No real app vendored yet (the owner
+      picks the list); bash lands in C3.
 
 ## Next action
 
-**C2**: catalog + appctl per `APPS.md` / `CONFIG_PLAN.md` (C1 landed: the
-Kconfig-lite configurator, the cfg plumbing and the `tools/smoke-config.sh`
-gate). Then C3 bash vendor + GPL compliance, C4 kernel subsystem isolation
-(flips the default profile to `minimal` and makes `kernel-net`
+**C3**: vendor bash (the GPLv3 default shell) with its sources and `COPYING`,
+register it in `apps-catalog.toml` `[licensing] gpl_allow` and
+`THIRD_PARTY.md`, and wire the GPL compliance checks. Then C4 kernel subsystem
+isolation (flips the default profile to `minimal` and makes `kernel-net`
 conditional); R7 follows. Stop after each batch so the owner can push.
 Housekeeping: hunt the intermittent riscv `uart::log_bytes` fault and the
 i686 PIO ATA polling-to-IRQ conversion when the i686 shell work needs it.
