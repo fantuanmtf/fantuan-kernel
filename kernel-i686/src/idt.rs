@@ -74,10 +74,14 @@ pub fn init() {
 
 static EXC_COUNT: AtomicU64 = AtomicU64::new(0);
 
-/// Called from `isr_common` (isr_stubs.S). The stub drops the vector plus
-/// the dummy/error word after this returns.
+/// Called from `isr_common` (isr_stubs.S) with the pushad frame pointer. The
+/// stub drops the frame pointer argument plus the vector/error word after
+/// this returns. Frame layout (low to high): edi, esi, ebp, esp, ebx, edx,
+/// ecx, eax, vector, error, eip, cs, eflags [, esp, ss].
 #[no_mangle]
-pub extern "C" fn isr_dispatch(vector: u32, error: u32) {
+pub extern "C" fn isr_dispatch(frame: *mut u32) {
+    let vector = unsafe { frame.add(8).read() };
+    let error = unsafe { frame.add(9).read() };
     if vector >= 32 {
         let irq = vector - 32;
         if irq == 0 {
@@ -86,6 +90,21 @@ pub extern "C" fn isr_dispatch(vector: u32, error: u32) {
         }
         pic::eoi(irq as u8);
         return;
+    }
+
+    // A ring-3 exception kills the task, never the kernel (M10-4b3b).
+    let cs = unsafe { frame.add(11).read() };
+    let eip = unsafe { frame.add(10).read() };
+    if cs & 3 == 3 {
+        serial::puts("user fault: tid ");
+        serial::put_dec(kernel_core::task::current_id());
+        serial::puts(" killed (vec ");
+        serial::put_dec(vector as u64);
+        serial::puts(" eip ");
+        serial::put_hex(eip as u64);
+        serial::puts(")\n");
+        EXC_COUNT.fetch_add(1, Ordering::Relaxed);
+        kernel_core::task::exit(1);
     }
 
     serial::puts("exc ");

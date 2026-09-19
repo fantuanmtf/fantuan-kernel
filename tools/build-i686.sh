@@ -3,6 +3,7 @@
 # stable has no bare-metal i686 target, so the crate pins nightly + rust-src
 # and builds core from source for targets/i686-fantuan-none.json.
 set -euo pipefail
+export PATH="$HOME/.cargo/bin:$PATH"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT/kernel-i686"
 
@@ -17,6 +18,9 @@ if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" != "$HASH" ]; then
   cargo clean
 fi
 echo "$HASH" > "$STAMP"
+
+# The kernel embeds the shared user crate as an ELF32 image (M10-4b3b).
+"$ROOT/tools/build-user-i686.sh" >/dev/null
 
 cargo build --release
 objcopy -O binary target/i686-fantuan-none/release/kernel-i686 "$ROOT/build/kernel-i686.bin"

@@ -78,11 +78,10 @@ isr_common:
     mov eax, [esp + 32]   /* vector */
     cmp eax, 128
     je isr_syscall
-    mov edx, [esp + 36]   /* error code or dummy */
-    push edx
+    mov eax, esp          /* &pushad frame for isr_dispatch         */
     push eax
     call isr_dispatch
-    add esp, 8            /* drop the two dispatch arguments        */
+    add esp, 4            /* drop the dispatch argument             */
     jmp isr_return
 isr_syscall:
     mov eax, esp          /* &pushad frame for syscall_handle       */

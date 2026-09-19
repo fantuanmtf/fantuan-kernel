@@ -137,10 +137,22 @@ fn kmain(bi: *const BootInfo) -> ! {
     task::init_arch();
     kernel_core::task::init(0x80000);
     task::spawn_demos();
-    let utid = user::spawn_stub();
-    serial::puts("user: ring-3 stub spawned as tid ");
-    serial::put_dec(utid);
-    serial::puts("\n");
+    match user::spawn_user(user::USER_ELF) {
+        Some(tid) => {
+            serial::puts("user: elf32 userland spawned as tid ");
+            serial::put_dec(tid);
+            serial::puts("\n");
+        }
+        None => serial::puts("user: ELF32 userland load failed\n"),
+    }
+    match user::spawn_fault_stub() {
+        Some(tid) => {
+            serial::puts("user: fault stub spawned as tid ");
+            serial::put_dec(tid);
+            serial::puts("\n");
+        }
+        None => serial::puts("user: fault stub spawn failed\n"),
+    }
 
     cpu::sti();
     serial::puts("interrupts: enabled\n");

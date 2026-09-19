@@ -6,6 +6,11 @@
 //! range-checked against the image and kernel-half vaddrs are rejected, so a
 //! malformed ELF fails the load instead of panicking or writing kernel page
 //! tables.
+//!
+//! M10-4b3b: the loader accepts ELFCLASS32 (EM_386, the i686 kernel) as well
+//! as ELFCLASS64. The two header layouts differ only in field widths and the
+//! ELF32 program-header order (p_flags follows p_memsz); both are widened to
+//! u64 here so the checks below are shared verbatim.
 
 use fantuan_abi::PHYS_OFFSET;
 
@@ -15,18 +20,108 @@ use crate::user::{self, Prot};
 
 const ELF_MAGIC: [u8; 4] = [0x7F, b'E', b'L', b'F'];
 const PT_LOAD: u32 = 1;
+const ELF32_HEADER: usize = 52;
 const ELF64_HEADER: usize = 64;
-/// 64-bit program header size (phentsize must be at least this).
-const PHENT_SIZE: usize = 56;
+/// Minimum program-header size per class (e_phentsize must be at least this).
+const PHENT32_SIZE: usize = 32;
+const PHENT64_SIZE: usize = 56;
+const EM_386: u16 = 0x03;
+
+struct Header {
+    class32: bool,
+    entry: u64,
+    phoff: u64,
+    phentsize: usize,
+    phnum: usize,
+}
+
+struct Phdr {
+    p_type: u32,
+    p_flags: u32,
+    p_offset: u64,
+    p_vaddr: u64,
+    p_filesz: u64,
+    p_memsz: u64,
+}
+
+fn u16_at(b: &[u8], o: usize) -> usize {
+    u16::from_le_bytes([b[o], b[o + 1]]) as usize
+}
+
+fn u32_at(b: &[u8], o: usize) -> u64 {
+    u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]) as u64
+}
+
+fn u64_at(b: &[u8], o: usize) -> u64 {
+    u64::from_le_bytes(b[o..o + 8].try_into().unwrap())
+}
+
+/// Parse the class-specific ELF header fields. Returns None when the class
+/// does not match the kernel's machine.
+fn parse_header(elf: &[u8], machine: u16) -> Option<Header> {
+    if elf[4] == 1 {
+        if machine != EM_386 {
+            return None;
+        }
+        Some(Header {
+            class32: true,
+            entry: u32_at(elf, 24),
+            phoff: u32_at(elf, 28),
+            phentsize: u16_at(elf, 42),
+            phnum: u16_at(elf, 44),
+        })
+    } else if elf[4] == 2 {
+        if machine == EM_386 {
+            return None;
+        }
+        Some(Header {
+            class32: false,
+            entry: u64_at(elf, 24),
+            phoff: u64_at(elf, 32),
+            phentsize: u16_at(elf, 54),
+            phnum: u16_at(elf, 56),
+        })
+    } else {
+        None
+    }
+}
+
+/// Read one program header; the caller guarantees `ph.len()` is at least the
+/// class's minimum size.
+fn parse_phdr(ph: &[u8], class32: bool) -> Phdr {
+    if class32 {
+        Phdr {
+            p_type: u32_at(ph, 0) as u32,
+            p_flags: u32_at(ph, 24) as u32,
+            p_offset: u32_at(ph, 4),
+            p_vaddr: u32_at(ph, 8),
+            p_filesz: u32_at(ph, 16),
+            p_memsz: u32_at(ph, 20),
+        }
+    } else {
+        Phdr {
+            p_type: u32_at(ph, 0) as u32,
+            p_flags: u32_at(ph, 4) as u32,
+            p_offset: u64_at(ph, 8),
+            p_vaddr: u64_at(ph, 16),
+            p_filesz: u64_at(ph, 32),
+            p_memsz: u64_at(ph, 40),
+        }
+    }
+}
 
 pub fn load(elf: &[u8]) -> Option<(u64, u64)> {
     let ops = user::ops();
-    if elf.len() < ELF64_HEADER || elf[0..4] != ELF_MAGIC {
+    if elf.len() < ELF32_HEADER || elf[0..4] != ELF_MAGIC {
         (ops.log)("elf: bad magic or too small");
         return None;
     }
-    if elf[4] != 2 || elf[5] != 1 {
-        (ops.log)("elf: not 64-bit LE");
+    if elf[4] != 1 && elf[4] != 2 {
+        (ops.log)("elf: bad ELF class");
+        return None;
+    }
+    if elf[5] != 1 {
+        (ops.log)("elf: not little-endian");
         return None;
     }
     if u16::from_le_bytes([elf[16], elf[17]]) != 2 {
@@ -37,14 +132,21 @@ pub fn load(elf: &[u8]) -> Option<(u64, u64)> {
         (ops.log)("elf: wrong machine");
         return None;
     }
-    let entry = u64::from_le_bytes(elf[24..32].try_into().ok()?);
-    let phoff = u64::from_le_bytes(elf[32..40].try_into().ok()?);
-    let phentsize = u16::from_le_bytes([elf[54], elf[55]]) as usize;
-    let phnum = u16::from_le_bytes([elf[56], elf[57]]) as usize;
+    let min_header = if elf[4] == 1 { ELF32_HEADER } else { ELF64_HEADER };
+    if elf.len() < min_header || (elf[4] == 1) != (ops.machine == EM_386) {
+        (ops.log)("elf: class/machine mismatch");
+        return None;
+    }
+    let hdr = parse_header(elf, ops.machine)?;
+    let entry = hdr.entry;
+    let phoff = hdr.phoff;
+    let phentsize = hdr.phentsize;
+    let phnum = hdr.phnum;
 
     // The program-header table must lie inside the image (checked math: the
     // values come from the file and must not wrap).
-    if phentsize < PHENT_SIZE || phnum == 0 {
+    let min_phent = if hdr.class32 { PHENT32_SIZE } else { PHENT64_SIZE };
+    if phentsize < min_phent || phnum == 0 {
         (ops.log)("elf: bad program-header table");
         return None;
     }
@@ -72,14 +174,14 @@ pub fn load(elf: &[u8]) -> Option<(u64, u64)> {
 
     for i in 0..phnum {
         let ph = &elf[phoff + i * phentsize..][..phentsize];
-        if u32::from_le_bytes([ph[0], ph[1], ph[2], ph[3]]) != PT_LOAD {
+        let ph = parse_phdr(ph, hdr.class32);
+        if ph.p_type != PT_LOAD {
             continue;
         }
-        let p_flags = u32::from_le_bytes([ph[4], ph[5], ph[6], ph[7]]);
-        let p_offset = u64::from_le_bytes(ph[8..16].try_into().ok()?);
-        let p_vaddr = u64::from_le_bytes(ph[16..24].try_into().ok()?);
-        let p_filesz = u64::from_le_bytes(ph[32..40].try_into().ok()?);
-        let p_memsz = u64::from_le_bytes(ph[40..48].try_into().ok()?);
+        let p_offset = ph.p_offset;
+        let p_vaddr = ph.p_vaddr;
+        let p_filesz = ph.p_filesz;
+        let p_memsz = ph.p_memsz;
         // The segment must fit the user half and its file bytes must exist.
         if p_vaddr.checked_add(p_memsz)? > PHYS_OFFSET {
             (ops.log)("elf: PT_LOAD overflows the user half");
@@ -90,7 +192,7 @@ pub fn load(elf: &[u8]) -> Option<(u64, u64)> {
             return None;
         }
         // W^X from the program-header flags (PF_X = 1, PF_W = 2).
-        let prot = match (p_flags & 2 != 0, p_flags & 1 != 0) {
+        let prot = match (ph.p_flags & 2 != 0, ph.p_flags & 1 != 0) {
             (false, false) => Prot::Ro,
             (true, false) => Prot::Rw,
             (false, true) => Prot::Rx,

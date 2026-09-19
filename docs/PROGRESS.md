@@ -53,9 +53,14 @@ done, M10 is half implemented).
       `tools/smoke-bios.sh` phase 2 (two traps found on the way: the iret
       CS selector needs RPL 3 for the DPL-3 code segment, and SYS_WRITE is
       `(buf, len)` per fantuan-abi, not the Linux fd form)
-- [ ] M10-4b3b i686 user mode (ELF32): `EM_386` in the shared loader,
-      per-task page directories, the shared user crate built for i686,
-      user faults kill the task instead of halting
+- [x] M10-4b3b i686 user mode (ELF32): the shared loader is class-aware
+      (ELFCLASS32 for EM_386, ELFCLASS64 as before, fields widened to u64
+      before the shared checks); per-task page directories for i686 (alias
+      PDEs cloned, user half empty, CR3 switched); the shared `user/` crate
+      built for the custom target (`tools/build-user-i686.sh`) and embedded;
+      user faults (saved CS RPL 3) kill the task - verify BIOS phase 2
+      (`userland:` lines, forced `ud2` fault `user fault: tid N killed` and
+      both reaps)
 - [x] M10-4a2 pointer-width hardening: `mem::to_usize` helper; 14
       on-disk/ELF narrowing sites converted in `elf.rs`, `frame.rs`,
       `ext4/{dir,extents,mod}.rs`, `shell/cat.rs` (checks now run on the
@@ -152,6 +157,7 @@ Design: `M14_LINUXUSERS.md`.
 | 2026-09 | i686 scheduler after the ISR `popad` fix (2 tasks, 500 ticks, quiet) | PASS |
 | 2026-09 | i686 ring 3 via `iretd` + `int 0x80` (built-in stub writes and exits) | PASS |
 | 2026-09 | W1/M10-4a2 hardening: three-target builds + BIOS/riscv smokes after the `to_usize` pass | PASS |
+| 2026-09 | i686 ELF32 userland (shared `user/` crate) + per-task PD + user-fault kill | PASS |
 | 2026-09 | x86 full suite `tools/smoke.sh` 13/13 | PASS (at v0.0.1) |
 
 ## Known issues
@@ -174,7 +180,10 @@ Design: `M14_LINUXUSERS.md`.
   `tools/smoke-bios.sh` phase 2 now asserts the demo tasks and their quiet
   lines (PASS).
 - **riscv `uart::log_bytes` fault (one-off)**: one repair run (of three)
-  crashed with `scause=0xd stval=0x766`; not reproduced since. Watch item.
+  crashed with `scause=0xd stval=0x766`; reproduced once more at the W2
+  checkpoint (`scause=0xd stval=0x7f8 sepc=0x80200c4e [kernel]`, right
+  after the NVRAM BootOrder line during repair) and the immediate rerun
+  passed all three phases. Watch item; hunt in M10/M11 follow-ups.
 
 ## M10 completion plan
 
@@ -184,8 +193,8 @@ verification and commit checkpoints for each workstream.
 
 ## Next action
 
-**W1 / M10-4a2**: start the plan in `M10_PLAN.md` — harden the 81
-`as usize` narrowing sites (rules + inventory in `M10_BOOT_32BIT.md` 7.5)
-through a checked conversion helper, then run the three smoke suites.
-W2 (ELF32), W3 (VFS), W4 (ISO), W5 (VBE, now in scope) and W6 (docs +
-0.0.2) follow; the owner pushes and tags after the set is green.
+**W3 / M10-4c**: i686 VFS on the test disk — PIO ATA block driver,
+partition scan and the shared `kernel-core::vfs` mount with the phase-2
+smoke asserting the VFS fixture lines. W4 (ISO), W5 (VBE, in scope) and
+W6 (docs + 0.0.2) follow; the owner pushes and tags after the set is
+green.

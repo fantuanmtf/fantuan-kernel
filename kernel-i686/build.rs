@@ -21,8 +21,7 @@ fn main() {
         .file(format!("{dir}/src/user_entry.S"))
         .compile("isrobj");
 
-    // The ring-3 test program is a flat binary (org 0x400000) assembled by
-    // nasm, then embedded with include_bytes! in user.rs.
+    // The ring-3 fault stub is a flat binary (org 0x400000) assembled by nasm.
     println!("cargo:rerun-if-changed={dir}/src/user_stub.asm");
     let out = std::env::var("OUT_DIR").unwrap();
     let status = std::process::Command::new("nasm")
@@ -30,6 +29,21 @@ fn main() {
         .arg(format!("{out}/user_stub.bin"))
         .arg(format!("{dir}/src/user_stub.asm"))
         .status()
-        .expect("nasm is required to build the i686 ring-3 stub");
+        .expect("nasm is required to build the i686 ring-3 fault stub");
     assert!(status.success(), "nasm failed on user_stub.asm");
+
+    // The shared user crate built for the ELF32 target (M10-4b3b); embedded
+    // with include_bytes! in user.rs.
+    let elf = format!("{dir}/../build/user-i686.elf");
+    println!("cargo:rerun-if-changed={elf}");
+    if !std::path::Path::new(&elf).exists() {
+        panic!(
+            "build/user-i686.elf is missing — build the user crate first (tools/build-user-i686.sh or tools/build-i686.sh)"
+        );
+    }
+    std::fs::write(
+        format!("{out}/user_i686.rs"),
+        format!("pub static USER_ELF: &[u8] = include_bytes!({elf:?});\n"),
+    )
+    .unwrap();
 }

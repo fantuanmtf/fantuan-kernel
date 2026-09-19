@@ -40,6 +40,48 @@ mod arch {
     }
 }
 
+#[cfg(target_arch = "x86")]
+mod arch {
+    use core::arch::global_asm;
+
+    global_asm!(
+        ".global _start",
+        "_start:",
+        "    call    user_main",
+        "    ud2",
+        // Syscall trampoline: cdecl args on the stack, repacked into
+        // eax = number and ebx/ecx/edx/esi/edi = args (the kernel's pushad
+        // frame order; LLVM reserves esi, hence the hand-written path).
+        ".global syscall_trampoline",
+        "syscall_trampoline:",
+        "    push    ebx",
+        "    push    esi",
+        "    push    edi",
+        "    mov     eax, [esp + 16]",
+        "    mov     ebx, [esp + 20]",
+        "    mov     ecx, [esp + 24]",
+        "    mov     edx, [esp + 28]",
+        "    mov     esi, [esp + 32]",
+        "    mov     edi, [esp + 36]",
+        "    int     0x80",
+        "    pop     edi",
+        "    pop     esi",
+        "    pop     ebx",
+        "    ret",
+    );
+
+    extern "C" {
+        fn syscall_trampoline(n: u32, a1: u32, a2: u32, a3: u32, a4: u32, a5: u32) -> u32;
+    }
+
+    pub fn syscall(n: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64 {
+        unsafe {
+            syscall_trampoline(n as u32, a1 as u32, a2 as u32, a3 as u32, a4 as u32, a5 as u32)
+                as u64
+        }
+    }
+}
+
 #[cfg(target_arch = "riscv64")]
 mod arch {
     use core::arch::{asm, global_asm};

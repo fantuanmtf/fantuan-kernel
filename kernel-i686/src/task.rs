@@ -5,20 +5,27 @@
 //! rotates the demo tasks next to M10-4b2a.
 //!
 //! The 32-bit context switch and the TaskOps the shared scheduler needs.
-//! Per-task address spaces and the TSS arrive with ring 3 (M10-4b3); tasks
-//! share the stage2 page directory, so vm_root stays 0.
+//! Kernel tasks carry the stage2 page directory as their vm_root; user tasks
+//! carry a per-task PD (M10-4b3b), and the context switch reloads CR3.
 
 use crate::serial::{put_dec, puts};
 use crate::{demo, pit};
 
 extern "C" {
-    fn context_switch(old_rsp: *mut u64, new_sp: u64, new_cr3: u64);
+    // u32 args: on i386 cdecl a u64 arg occupies two stack slots, which would
+    // shift the 32-bit offsets context.S reads (a silent "keep CR3").
+    fn context_switch(old_rsp: *mut u64, new_sp: u32, new_cr3: u32);
 }
 
-/// Kernel-core keeps addresses in u64; the 32-bit context switch works with
-/// the low 32 bits (all kernel memory is below 4 GiB here).
-fn arch_switch(old: *mut u64, new_sp: u64, _new_vm: u64) {
-    unsafe { context_switch(old, new_sp, 0) }
+/// The stage2 page directory CR3 pointed at on entry: the kernel's own
+/// address space, used for kernel tasks and as the clone source for user PDs.
+static mut KERNEL_CR3: u32 = 0;
+
+/// Kernel-core keeps addresses in u64; all i686 kernel and user addresses are
+/// below 4 GiB, so the low 32 bits are the value. Zero means "keep the current
+/// CR3" in context.S, so kernel tasks carry KERNEL_CR3 instead.
+fn arch_switch(old: *mut u64, new_sp: u64, new_vm: u64) {
+    unsafe { context_switch(old, new_sp as u32, new_vm as u32) }
 }
 
 fn arch_set_kernel_stack(top: u64, _is_user: bool) {
@@ -43,10 +50,12 @@ extern "C" fn task_entry() -> ! {
 }
 
 fn arch_kernel_vm_root() -> u64 {
-    0 // shared address space (stage2 page directory)
+    unsafe { KERNEL_CR3 as u64 }
 }
 
-fn arch_free_user_vm(_vm: u64) {}
+fn arch_free_user_vm(vm: u64) {
+    crate::user::free_root(vm);
+}
 
 fn arch_now_ticks() -> u64 {
     pit::ticks()
@@ -58,8 +67,16 @@ fn arch_on_reap(tid: u64) {
     puts("\n");
 }
 
+fn arch_log(s: &str) {
+    puts(s);
+    puts("\n");
+}
+
 /// Install the ops; call before kernel_core::task::init.
 pub fn init_arch() {
+    let cr3: u32;
+    unsafe { core::arch::asm!("mov {}, cr3", out(reg) cr3, options(nomem, nostack)) };
+    unsafe { KERNEL_CR3 = cr3 };
     kernel_core::task::set_ops(kernel_core::task::TaskOps {
         switch: arch_switch,
         set_kernel_stack: arch_set_kernel_stack,
@@ -69,6 +86,14 @@ pub fn init_arch() {
         phys_to_virt: crate::phys_to_virt,
         now_ticks: arch_now_ticks,
         on_reap: arch_on_reap,
+    });
+    kernel_core::user::set_ops(kernel_core::user::UserOps {
+        machine: 0x03, // EM_386: ELFCLASS32 user images
+        new_root: crate::user::new_root,
+        map: crate::user::map,
+        free_root: crate::user::free_root,
+        phys_to_virt: crate::phys_to_virt,
+        log: arch_log,
     });
 }
 
