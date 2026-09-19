@@ -104,6 +104,25 @@ mutex_obj_free(kmutex_t *m)
 	return true;
 }
 
+/* The machine header marks the port __HAVE_RW_STUBS, so the MI kern_rwlock
+ * aliases are compiled out; pre-SMP the simple enter/exit pair is enough and
+ * matches the earlier rwlock stub contract.  The writer preference is
+ * irrelevant on one CPU. */
+void
+rw_enter(krwlock_t *rw, const krw_t op)
+{
+
+	(void)rw;
+	(void)op;
+}
+
+void
+rw_exit(krwlock_t *rw)
+{
+
+	(void)rw;
+}
+
 krwlock_t *
 rw_obj_alloc(void)
 {

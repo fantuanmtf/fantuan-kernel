@@ -1,17 +1,18 @@
-/* rump_shim_net.c - net_ops registry, packet queue and domain helpers
- * (ours).  The ifnet core is the imported NetBSD if.c; this file owns the
- * fantuan-side driver registry (docs/M11_NET.md section 6), the single-CPU
- * mbuf packet queue that stands in for pktqueue(9) until the softint-driven
- * IP input path lands (R4), and the mbuf tunables.
+/* rump_shim_net.c - net_ops registry, pktqueue and domain helpers (ours).
+ * The ifnet core, the IPv4 stack and the route table are imported NetBSD
+ * files; this file owns the driver registry (docs/M11_NET.md section 6), the
+ * single-CPU pktqueue(9) replacement (the real pktqueue.c schedules per-CPU
+ * softints over pcq; the adapter keeps one mbuf list per queue and drains it
+ * from the net task), the domain helpers and the mbuf tunables.
  */
 #include <sys/types.h>
 #include <sys/param.h>
+#include <sys/systm.h>
+#include <sys/kmem.h>
 #include <sys/mbuf.h>
 #include <sys/domain.h>
 #include <sys/protosw.h>
-#include <sys/pslist.h>
-#include <sys/psref.h>
-#include <sys/lwp.h>
+#include <sys/mutex.h>
 #include <sys/socket.h>
 #include <sys/socketvar.h>
 #include <net/if.h>
@@ -25,6 +26,9 @@ const int mclbytes = MCLBYTES;
 int nmbclusters;
 int mblowat = 1;
 int mcllowat = 1;
+
+kmutex_t softnet_lock_store;
+kmutex_t *softnet_lock = &softnet_lock_store;
 
 #define NET_MAX_DEVICES 4
 
@@ -64,17 +68,11 @@ int
 net_ifattach(const struct net_ops *ops, struct ifnet *ifp)
 {
 	struct netdev *nd = net_find(ops);
-	int error;
 
 	if (nd == NULL)
 		return -1;
 	nd->nd_ifp = ifp;
 	nd->nd_priv = ifp;
-	if (ops->init != NULL) {
-		error = ops->init(ifp);
-		if (error != 0)
-			return error;
-	}
 	return 0;
 }
 
@@ -107,65 +105,152 @@ net_recv(void *frame, size_t max)
 	return netdevs[0].nd_ops->recv(netdevs[0].nd_priv, frame, max);
 }
 
-/* pktqueue(9) stand-in: one queue drained by the loopback task.  The
- * struct is opaque in pktqueue.h (its owner is pktqueue.c, not imported). */
+/* pktqueue(9) replacement: one mbuf list per queue plus the drain callback
+ * ip_input.c/if_arp.c register at creation time.  Enqueueing marks the queue
+ * scheduled; the net task calls rump_pktq_drain() and the callback loops
+ * pktq_dequeue() until the queue is empty (softint semantics, one CPU). */
 struct pktqueue {
 	struct mbuf *pq_head;
 	struct mbuf *pq_tail;
 	int pq_len;
+	u_int pq_maxlen;
+	bool pq_scheduled;
+	u_int pq_drops;
+	void (*pq_func)(void *);
+	void *pq_arg;
+	LIST_ENTRY(pktqueue) pq_link;
 };
 
-static struct pktqueue ip_pktq_store;
-pktqueue_t *ip_pktq = &ip_pktq_store;
+static LIST_HEAD(, pktqueue) pktqueue_list = LIST_HEAD_INITIALIZER(pktqueue_list);
 
-void
-rump_netq_enqueue(struct mbuf *m)
+pktqueue_t *
+pktq_create(size_t maxlen, void (*func)(void *), void *arg)
 {
-	int s = splnet();
+	pktqueue_t *pq;
 
-	m->m_nextpkt = NULL;
-	if (ip_pktq->pq_tail != NULL)
-		ip_pktq->pq_tail->m_nextpkt = m;
-	else
-		ip_pktq->pq_head = m;
-	ip_pktq->pq_tail = m;
-	ip_pktq->pq_len++;
-	splx(s);
+	pq = kmem_zalloc(sizeof(*pq), KM_SLEEP);
+	if (pq == NULL)
+		return NULL;
+	pq->pq_maxlen = (u_int)maxlen;
+	pq->pq_func = func;
+	pq->pq_arg = arg;
+	LIST_INSERT_HEAD(&pktqueue_list, pq, pq_link);
+	return pq;
 }
 
-struct mbuf *
-rump_netq_dequeue(void)
+void
+pktq_destroy(pktqueue_t *pq)
 {
-	struct mbuf *m;
-	int s = splnet();
 
-	m = ip_pktq->pq_head;
-	if (m != NULL) {
-		ip_pktq->pq_head = m->m_nextpkt;
-		if (ip_pktq->pq_head == NULL)
-			ip_pktq->pq_tail = NULL;
-		m->m_nextpkt = NULL;
-		ip_pktq->pq_len--;
-	}
-	splx(s);
-	return m;
+	pktq_flush(pq);
+	LIST_REMOVE(pq, pq_link);
+	kmem_free(pq, sizeof(*pq));
 }
 
 bool
 pktq_enqueue(pktqueue_t *pq, struct mbuf *m, const u_int flags)
 {
+	int s;
 
-	(void)pq;
 	(void)flags;
-	if (ip_pktq->pq_len >= 64)
+	s = splnet();
+	if (pq->pq_len >= (int)pq->pq_maxlen) {
+		pq->pq_drops++;
+		splx(s);
 		return false;
-	rump_netq_enqueue(m);
+	}
+	m->m_nextpkt = NULL;
+	if (pq->pq_tail != NULL)
+		pq->pq_tail->m_nextpkt = m;
+	else
+		pq->pq_head = m;
+	pq->pq_tail = m;
+	pq->pq_len++;
+	pq->pq_scheduled = true;
+	splx(s);
 	return true;
 }
 
-void
-pktq_ifdetach(void)
+struct mbuf *
+pktq_dequeue(pktqueue_t *pq)
 {
+	struct mbuf *m;
+	int s;
+
+	s = splnet();
+	m = pq->pq_head;
+	if (m != NULL) {
+		pq->pq_head = m->m_nextpkt;
+		if (pq->pq_head == NULL)
+			pq->pq_tail = NULL;
+		m->m_nextpkt = NULL;
+		pq->pq_len--;
+		if (pq->pq_len == 0)
+			pq->pq_scheduled = false;
+	}
+	splx(s);
+	return m;
+}
+
+void
+rump_pktq_drain(void)
+{
+	pktqueue_t *pq, *next;
+	void (*func)(void *);
+
+	for (pq = LIST_FIRST(&pktqueue_list); pq != NULL; pq = next) {
+		next = LIST_NEXT(pq, pq_link);
+		if (!pq->pq_scheduled || pq->pq_func == NULL)
+			continue;
+		func = pq->pq_func;
+		func(pq->pq_arg);
+	}
+}
+
+void
+pktq_barrier(pktqueue_t *pq)
+{
+	(void)pq;
+}
+
+void
+pktq_ifdetach(void) {}	/* no per-CPU queues to detach */
+
+void
+pktq_flush(pktqueue_t *pq)
+{
+	struct mbuf *m;
+
+	while ((m = pktq_dequeue(pq)) != NULL)
+		m_freem(m);
+}
+
+int
+pktq_set_maxlen(pktqueue_t *pq, size_t maxlen)
+{
+
+	if (maxlen == 0)
+		return EINVAL;
+	pq->pq_maxlen = (u_int)maxlen;
+	return 0;
+}
+
+uint32_t
+pktq_rps_hash(const pktq_rps_hash_func_t *hash, const struct mbuf *m)
+{
+
+	(void)hash;
+	(void)m;
+	return 0;
+}
+
+const pktq_rps_hash_func_t pktq_rps_hash_default = NULL;
+
+void
+pktq_sysctl_setup(pktqueue_t *pq, struct sysctllog **log,
+    const struct sysctlnode *node, const int flags)
+{
+	(void)pq, (void)log, (void)node, (void)flags;
 }
 
 struct domain *
@@ -177,6 +262,24 @@ pffinddomain(int family)
 		if (dp->dom_family == family)
 			return dp;
 	}
+	return NULL;
+}
+
+const struct protosw *
+pffindproto(int family, int proto, int type)
+{
+	struct domain *dp;
+	const struct protosw *pr;
+
+	dp = pffinddomain(family);
+	if (dp == NULL || proto == 0)
+		return NULL;
+	for (pr = dp->dom_protosw; pr < dp->dom_protoswNPROTOSW; pr++)
+		if (pr->pr_protocol == proto && pr->pr_type == type)
+			return pr;
+	for (pr = dp->dom_protosw; pr < dp->dom_protoswNPROTOSW; pr++)
+		if (pr->pr_protocol == proto && pr->pr_type == 0)
+			return pr;
 	return NULL;
 }
 
@@ -193,5 +296,3 @@ pfctlinput(int cmd, const struct sockaddr *sa)
 		}
 	}
 }
-
-

@@ -17,6 +17,7 @@ int stathz = 0;
 int profhz = 0;
 
 volatile time_t time_uptime;
+volatile time_t time_second;
 
 static volatile int intr_depth;
 
@@ -43,11 +44,22 @@ nanotime(struct timespec *ts)
 }
 
 void
+microtime(struct timeval *tv)
+{
+	uint64_t ticks = fantuan_rump_ticks();
+
+	tv->tv_sec = (time_t)(ticks / (uint64_t)hz);
+	tv->tv_usec = (suseconds_t)((ticks % (uint64_t)hz) *
+	    (1000000 / (uint64_t)hz));
+}
+
+void
 rump_shim_tick(void)
 {
 
 	intr_depth++;
 	time_uptime = (time_t)(fantuan_rump_ticks() / (uint64_t)hz);
+	time_second = time_uptime;
 	callout_hardclock();
 	intr_depth--;
 }

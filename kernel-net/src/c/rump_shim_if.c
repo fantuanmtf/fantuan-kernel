@@ -98,6 +98,26 @@ pfil_run_ifhooks(pfil_head_t *ph, unsigned long cmd, struct ifnet *ifp)
 	(void)ifp;
 }
 
+int
+pfil_run_hooks(pfil_head_t *ph, struct mbuf **mp, struct ifnet *ifp, int dir)
+{
+
+	(void)ph;
+	(void)mp;
+	(void)ifp;
+	(void)dir;
+	return 0;
+}
+
+void
+pfil_run_addrhooks(pfil_head_t *ph, unsigned long cmd, struct ifaddr *ifa)
+{
+
+	(void)ph;
+	(void)cmd;
+	(void)ifa;
+}
+
 struct khook_list {
 	int khl_dummy;
 };

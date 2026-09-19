@@ -1,4 +1,4 @@
-/* fantuan adaptation layer for the NetBSD rump slice (M11 R2).
+/* fantuan adaptation layer for the NetBSD rump slice (M11 R2-R4).
  * Internal interface between the adapter C files and the Rust half of
  * kernel-net; ours, not upstream. */
 #ifndef FANTUAN_RUMP_SHIM_H
@@ -27,16 +27,31 @@ void net_ifdetach(const struct net_ops *);
 int net_send(const void *, size_t);
 int net_recv(void *, size_t);
 
-void rump_netq_enqueue(struct mbuf *);
-struct mbuf *rump_netq_dequeue(void);
+/* pktqueue(9) replacement (rump_shim_net.c): drained from the net task. */
+void rump_pktq_drain(void);
 
-/* Loopback bring-up (rump_loopback.c) and the ping state machine
- * (rump_ping.c). */
+/* Real IPv4 bring-up and the boot test state machine (rump_ip4.c). */
+void rump_ip4_up(void);
+int rump_net_poll(void);
+
+/* Loopback lo0 bring-up (rump_loopback.c). */
 void rump_loopback_up(void);
-void rump_loopback_rx(struct mbuf *);
 struct ifnet *rump_loopback_ifp(void);
 int rump_loopback_ready(void);
-int rump_net_poll(void);
+
+/* ICMP echo client over ip_output (rump_ping.c). */
+void rump_ping_begin(void);
+int rump_ping_poll(void);
+int rump_ping_rx(struct mbuf *);
+
+/* UDP loopback exchange over the real PCB/udp_input path (rump_udp.c). */
+int rump_udp_run(void);
+
+/* ARP self-test on the shim ethernet interface (rump_arp.c). */
+int rump_arp_up(void);
+void rump_arp_test_start(void);
+int rump_arp_test_poll(void);
+int rump_arp_entries(void);
 
 void fantuan_rump_log(const void *, size_t);
 void fantuan_rump_panic(const void *, size_t) __attribute__((noreturn));

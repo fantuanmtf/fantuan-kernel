@@ -106,15 +106,36 @@ FILES="
     sys/netinet/in_systm.h sys/netinet/in_var.h sys/netinet/ip.h \
     sys/netinet/ip_encap.h sys/netinet/ip_var.h \
     sys/netinet6/in6.h sys/netinet6/in6_var.h sys/netmpls/mpls.h \
-    sys/secmodel/secmodel.h sys/sys/pmf.h sys/sys/stat.h"
+    sys/secmodel/secmodel.h sys/sys/pmf.h sys/sys/stat.h \
+    sys/netinet/ip_input.c sys/netinet/ip_output.c sys/netinet/ip_icmp.c \
+    sys/netinet/ip_reass.c sys/netinet/in.c sys/netinet/in_pcb.c \
+    sys/netinet/in_proto.c sys/netinet/udp_usrreq.c sys/netinet/if_arp.c \
+    sys/netinet/in_cksum.c sys/netinet/in4_cksum.c sys/netinet/cpu_in_cksum.c \
+    sys/netinet/in_offload.c \
+    sys/kern/subr_hash.c sys/kern/subr_once.c \
+    sys/net/if_llatbl.c sys/net/nd.c \
+    sys/netinet/in_pcb.h sys/netinet/in_proto.h sys/netinet/ip_private.h \
+    sys/netinet/ip_icmp.h sys/netinet/icmp_var.h sys/netinet/icmp_private.h \
+    sys/netinet/udp.h sys/netinet/udp_var.h sys/netinet/udp_private.h \
+    sys/netinet/in_ifattach.h sys/netinet/in_gif.h sys/netinet/ip_mroute.h \
+    sys/netinet/igmp.h sys/netinet/igmp_var.h sys/netinet/wqinput.h \
+    sys/netinet/portalgo.h sys/netinet/ip6.h sys/netinet/tcp.h \
+    sys/netinet/tcp_debug.h sys/netinet/tcp_fsm.h sys/netinet/tcp_seq.h \
+    sys/netinet/tcp_timer.h sys/netinet/tcp_var.h sys/netinet/tcp_vtw.h \
+    sys/sys/once.h sys/sys/timetc.h sys/net/nd.h sys/net/if_gre.h \
+    sys/netinet6/ip6_var.h sys/netinet6/in6_pcb.h sys/netinet/icmp6.h \
+    sys/sys/pcq.h"
 
 # Files with no per-file license notice, accepted explicitly.  device_if.h
 # is a committed NetBSD-generated header (no copyright block); it is part of
 # NetBSD src and stays under NetBSD's BSD terms, see THIRD_PARTY.md.
 # in_selsrc.h and cprng_fast.h are likewise NetBSD project headers whose
-# notice lives in the source file, not the header.
+# notice lives in the source file, not the header.  in_ifattach.h is a
+# one-function prototype header and ip_mroute.h carries only the NetBSD RCS
+# id plus a historical BBN authorship note; both stay under the tree's terms.
 NOHEADER_OK="sys/sys/device_if.h sys/netinet/in_selsrc.h \
-    sys/crypto/cprng_fast/cprng_fast.h"
+    sys/crypto/cprng_fast/cprng_fast.h sys/netinet/in_ifattach.h \
+    sys/netinet/ip_mroute.h"
 
 license_of() {
     local f="$1"
@@ -127,6 +148,8 @@ license_of() {
     head="$(head -70 "$f")"
     if echo "$head" | grep -qi 'public domain'; then
         echo "Public-Domain"
+    elif echo "$head" | grep -q 'BEER-WARE LICENSE'; then
+        echo "Beerware"
     elif echo "$head" | grep -q 'Redistribution and use in source and binary forms'; then
         if echo "$head" | grep -q 'Neither the name'; then
             echo "BSD-3-Clause"

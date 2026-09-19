@@ -1,7 +1,8 @@
 //! kernel-net - the fantuan adaptation layer for the NetBSD rump slice
-//! (M11 R2). The imported NetBSD sources plus the C shim live in this
+//! (M11 R2-R4). The imported NetBSD sources plus the C shim live in this
 //! crate's build archive; this module owns the Rust<->C hook surface and
-//! the two kernel tasks that drive softints and the boot self-test.
+//! the kernel tasks that drive softints, the IPv4 boot tests and the
+//! self-test.
 //!
 //! No kernel-core dependency: the kernel installs an `Env` of callbacks
 //! (log, frame pages, PIT ticks, cooperative sleep) before `init()`.

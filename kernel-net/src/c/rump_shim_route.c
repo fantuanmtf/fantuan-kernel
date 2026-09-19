@@ -26,10 +26,10 @@
 
 const int schedppq = 1;
 
-int ip_do_loopback_cksum;
+/* tcp_do_loopback_cksum is defined by tcp_output.c upstream; TCP is not
+ * imported until R5, so the symbol lives here.  ip/udp_do_loopback_cksum
+ * and icmp_dynamic_rt_msg moved to the imported R4 files. */
 int tcp_do_loopback_cksum;
-int udp_do_loopback_cksum;
-bool icmp_dynamic_rt_msg;
 
 /* MODULE_HOOK() storage: compat_stub.c in a full NetBSD build. */
 struct if_cvtcmd_43_hook_t if_cvtcmd_43_hook;
@@ -54,13 +54,15 @@ kauth_authorize_network(kauth_cred_t cred, kauth_action_t action,
     enum kauth_network_req req, void *arg0, void *arg1, void *arg2)
 {
 
+	/* No kauth scopes/listeners are registered in the slice, which is the
+	 * ALLOW case; DEFER would turn every in_control/bind into EPERM. */
 	(void)cred;
 	(void)action;
 	(void)req;
 	(void)arg0;
 	(void)arg1;
 	(void)arg2;
-	return KAUTH_RESULT_DEFER;
+	return KAUTH_RESULT_ALLOW;
 }
 
 kauth_cred_t
@@ -157,27 +159,39 @@ rt_setmetrics(void *m, struct rtentry *rt)
 }
 
 void
-lltable_prefix_free(const int af, const struct sockaddr *dst,
-    const struct sockaddr *mask, const u_int flags)
+rt_addrmsg_src(int type, struct ifaddr *ifa, const struct sockaddr *src)
 {
 
-	(void)af;
+	rt_addrmsg(type, ifa);
+	(void)src;
+}
+
+void
+rt_clonedmsg(int type, const struct sockaddr *dst, const struct sockaddr *ll,
+    const uint8_t *enaddr, const struct ifnet *ifp)
+{
+
+	(void)type;
 	(void)dst;
-	(void)mask;
-	(void)flags;
+	(void)ll;
+	(void)enaddr;
+	(void)ifp;
+}
+
+int
+rt_msg3(int type, struct rt_addrinfo *info, void *data,
+    struct rt_walkarg *w, int *lenp)
+{
+
+	(void)type;
+	(void)info;
+	(void)data;
+	(void)w;
+	(void)lenp;
+	return 0;
 }
 
 void
 encapinit(void)
 {
-}
-
-void
-in_undefer_cksum(struct mbuf *m, size_t off, int flags)
-{
-
-	(void)m;
-	(void)off;
-	(void)flags;
-	panic("in_undefer_cksum: hardware offload not supported (R3)");
 }

@@ -91,6 +91,24 @@ phases.
 Scope: address config, ARP cache, ICMP echo, UDP sockets; diagnostics.
 - Verify: loopback suite with counters; malformed-packet guards.
 
+### R4 outcome - the real IPv4 stack on loopback
+
+R4 imported the IPv4 closure (`ip_input.c`, `ip_output.c`, `ip_icmp.c`,
+`ip_reass.c`, `in.c`, `in_pcb.c`, `in_proto.c`, `udp_usrreq.c`,
+`if_arp.c`, `in_cksum.c`, `in4_cksum.c`, `cpu_in_cksum.c`,
+`in_offload.c`, `if_llatbl.c`, `nd.c`, `subr_hash.c`, `subr_once.c` and
+their headers; 246 files total) and deleted the R3 ICMP responder.  lo0
+now runs `ip_output` -> `looutput` -> the adapter pktqueue -> real
+`ip_input` -> `icmp_input`, and the boot ping reads its echo reply from
+the R4 `rip_input` stub.  A UDP exchange over two real `inpcb`s bound to
+127.0.0.1 checks payload/hash equality and PCB states, and an ARP
+request/reply pair on a shim ethernet interface exercises `arpintr` ->
+`in_arpinput` -> `arpresolve` and the real lltable cache.  The remaining
+stubs are peripheral to this path: TCP, raw sockets, IGMP, encapsulation,
+the socket layer, portalgo and pktqueue softint scheduling (single-CPU
+list drained by the net task).  `tools/smoke-net.sh` asserts the R4
+markers; `smoke-bios.sh` (2/2) and `smoke-riscv.sh` (3/3) stay green.
+
 ### R5 - TCP + socket layer
 
 Scope: TCP state machine on the rump stack, socket API for the kernel

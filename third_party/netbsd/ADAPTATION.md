@@ -94,13 +94,17 @@ shim directory will be split per architecture when the second target lands.
 
 ## 5. License notes
 
-`tools/import_netbsd.sh` classifies each file's header: 76 BSD-2-Clause,
-59 BSD-3-Clause, 2 Public-Domain, 1 MIT (the CMU/MIT-style `sys/cdefs_elf.h`).
-One file, `sys/sys/device_if.h`, has no per-file notice at all (NetBSD
-committed generated header); it is imported as-is and recorded as `UNKNOWN`
-in `MANIFEST.tsv`. This is the only license item needing owner review for the
-distribution; it is NetBSD project source and is covered by NetBSD's
-BSD-licensed tree, but the header itself makes no statement.
+`tools/import_netbsd.sh` classifies each file's header; for the 246-file R4
+tree: 122 BSD-2-Clause, 115 BSD-3-Clause, 2 Public-Domain, 1 MIT (the
+CMU/MIT-style `sys/cdefs_elf.h`), 1 Beerware (`sys/sys/timetc.h`, the
+Poul-Henning Kamp licence text) and 5 with no per-file notice at all.  The
+five are committed NetBSD-generated or historical headers: `device_if.h`,
+`in_selsrc.h`, `cprng_fast.h`, `in_ifattach.h` (thin prototype header) and
+`ip_mroute.h` (RCS id plus a historical BBN note).  They are imported as-is
+and recorded as `UNKNOWN` in `MANIFEST.tsv`; all are NetBSD project source
+covered by NetBSD's BSD-licensed tree, but the headers themselves make no
+statement, so they remain the license items needing owner review for the
+distribution.
 
 ## 6. R2 outcome (2026-09): the adapter runs in-kernel
 
@@ -190,4 +194,67 @@ net: lo0 up 127.0.0.1/8
 net: ping 127.0.0.1 ok (seq=1 rtt=10 ticks)
 net: icmp echo reply ok
 net: in/out counters pkts_in=2 pkts_out=2
+```
+
+## 8. R4 outcome (2026-09): the real IPv4 stack
+
+The import grew to 246 files. The R4 `.c` additions are the IPv4 core and
+its checksum/link-layer support: `sys/netinet/{ip_input,ip_output,ip_icmp,
+ip_reass,in,in_pcb,in_proto,udp_usrreq,if_arp,in_cksum,in4_cksum,
+cpu_in_cksum,in_offload}.c`, `sys/net/{if_llatbl,nd}.c` and
+`sys/kern/{subr_hash,subr_once}.c`, plus their header closure
+(`in_pcb.h`, `ip_icmp.h`, `ip_private.h`, `icmp_var.h`/`icmp_private.h`,
+`udp.h`/`udp_var.h`/`udp_private.h`, `in_ifattach.h`, `in_gif.h`,
+`ip_mroute.h`, `igmp_var.h`, `wqinput.h`, `portalgo.h`, the unconditional
+TCP/IPv6 header pulls of `tcp_vtw.h`/`in_proto.c`, `sys/once.h`,
+`sys/timetc.h`, `if_gre.h`, `sys/pcq.h`).  (`ip_id.c` does not exist at
+this commit: IP ID allocation is the `ip_newid`/`ip_randomid` inline pair
+in `in_var.h`.)  `shim/include/` adds the
+config-generated `arp.h` (with `NARP 1`, keeping in.c's ARP lltable
+attachment), `arcnet.h`, `gif.h`, `gre.h`, `pfsync.h` and the `opt_*`
+headers the IPv4 files include.
+
+Bring-up (`kernel-net/src/c/rump_ip4.c`): attach `inetdomain`/`arpdomain`
+to the adapter domain list, run every protocol `pr_init` from their
+protosw arrays (so `ip_init`, `icmp_init`, `udp_init` and `arp_init`
+create the packet queue, counters, PCB table and lltable), call
+`lltableinit()` (main() does this upstream; it creates the llentry pool),
+then `rt_init`/`ifinit`/`loopattach` and `in_control(SIOCAIFADDR)` for
+lo0 127.0.0.1/8 and the shim ether 10.0.0.1/24.  `pktqueue.c` is replaced
+by a single-CPU implementation in `rump_shim_net.c` (one mbuf list per
+queue, callback drained by the net task); `softnet_lock` is a real MI
+mutex.  `ip_output -> looutput -> pktq_enqueue(ip_pktq) -> ipintr ->
+ip_input/ip_icmp` is the live packet path; the echo reply is delivered to
+the boot ping by the R4 `rip_input` stub in `rump_shim_inet.c` (raw
+sockets are R5).
+
+Tests: the ping client (`rump_ping.c`) builds the ICMP echo and calls
+`ip_output`, measuring the reply RTT from the PIT tick.  The UDP test
+(`rump_udp.c`) creates two fake sockets with real `inpcb`s (bind
+127.0.0.1:24001/24002, connect), sends through `udp_output` and reads the
+delivered datagram from the receiver's `so_rcv` after `udp_input`; the
+receive-path slice `sbappendaddr()` lives in `rump_sock2.c` until R5
+imports `uipc_socket2.c`.  The ARP test (`rump_arp.c`) builds a shim
+`IFT_ETHER` ifnet whose `if_output` captures frames, enqueues a synthetic
+ARP request on the real `arp_pktq` (the ether_input equivalent) and
+checks that `in_arpinput` learned the sender and reflected a reply, then
+injects the peer's reply and resolves the entry through `arpresolve`.
+
+Remaining stubs (documented in the adapter, R5 work): the socket layer
+and raw sockets (`rump_sock2.c`, `rip_*`), TCP (`tcp_*` panic), IGMP,
+encapsulation and portalgo (`rump_shim_inet.c`), synchronous wqinput and
+task-context `kmem_intr_*` (`rump_shim_misc.c`), pktqueue softint
+scheduling/sysctl, pfil hooks, route-socket notifications and kauth
+(no listeners -> ALLOW), and the single-CPU `rw_enter`/`rw_exit` no-ops.
+
+Boot markers (UEFI and `tools/smoke-net.sh`):
+
+```
+net: lo0 up 127.0.0.1/8
+net: ip4 input ok (pkts_in=2)
+net: ping 127.0.0.1 ok (seq=1 rtt=10 ticks)
+net: icmp echo reply ok
+net: udp loopback ok (sent=1 recv=1 bytes=32)
+net: arp self-test ok (entries=1)
+net: in/out counters pkts_in=3 pkts_out=3
 ```

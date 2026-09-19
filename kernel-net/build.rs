@@ -19,15 +19,32 @@ const NETBSD_CSRCS: &[&str] = &[
     "sys/kern/kern_timeout.c",
     "sys/kern/subr_psref.c",
     "sys/kern/subr_pool.c",
+    "sys/kern/subr_hash.c",
+    "sys/kern/subr_once.c",
     "sys/kern/subr_pserialize.c",
     "sys/kern/uipc_mbuf.c",
     "sys/net/bpf_stub.c",
     "sys/net/if.c",
+    "sys/net/if_llatbl.c",
     "sys/net/if_loop.c",
     "sys/net/if_stats.c",
+    "sys/net/nd.c",
     "sys/net/radix.c",
     "sys/net/route.c",
     "sys/net/rtbl.c",
+    "sys/netinet/cpu_in_cksum.c",
+    "sys/netinet/if_arp.c",
+    "sys/netinet/in.c",
+    "sys/netinet/in4_cksum.c",
+    "sys/netinet/in_cksum.c",
+    "sys/netinet/in_offload.c",
+    "sys/netinet/in_pcb.c",
+    "sys/netinet/in_proto.c",
+    "sys/netinet/ip_icmp.c",
+    "sys/netinet/ip_input.c",
+    "sys/netinet/ip_output.c",
+    "sys/netinet/ip_reass.c",
+    "sys/netinet/udp_usrreq.c",
 ];
 
 const SHIM_CSRCS: &[&str] = &[
@@ -43,9 +60,15 @@ const SHIM_CSRCS: &[&str] = &[
     "rump_shim_route.c",
     "rump_shim_sock.c",
     "rump_shim_softint.c",
+    "rump_shim_inet.c",
+    "rump_shim_misc.c",
+    "rump_sock2.c",
     "rump_shim_init.c",
     "rump_loopback.c",
+    "rump_ip4.c",
     "rump_ping.c",
+    "rump_udp.c",
+    "rump_arp.c",
     "rump_selftest.c",
 ];
 
@@ -67,6 +90,11 @@ fn main() {
     println!("cargo:rerun-if-changed={shim}/ether.h");
     println!("cargo:rerun-if-changed={shim}/bridge.h");
     println!("cargo:rerun-if-changed={shim}/carp.h");
+    println!("cargo:rerun-if-changed={shim}/arp.h");
+    println!("cargo:rerun-if-changed={shim}/arcnet.h");
+    println!("cargo:rerun-if-changed={shim}/gif.h");
+    println!("cargo:rerun-if-changed={shim}/gre.h");
+    println!("cargo:rerun-if-changed={shim}/pfsync.h");
 
     if target != "x86_64-unknown-none" {
         return;

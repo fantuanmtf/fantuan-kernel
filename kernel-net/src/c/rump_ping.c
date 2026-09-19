@@ -1,9 +1,10 @@
-/* rump_ping.c - ICMP echo over loopback, the R3 stand-in for the real
- * ip_input.c/ip_icmp.c path (ours).  rump_net_poll() drains the packet
- * queue: an echo request is turned around in place (addresses swapped,
- * type 8 -> 0, checksums redone) and fed back through if_output; the echo
- * reply is handed to the ping client's recv op and matched by id/seq.
- * Timing uses the PIT tick (100 Hz).  Bounded retries, then quiet.
+/* rump_ping.c - ICMP echo client over the real IPv4 path (ours).
+ * The request is handed to ip_output(); looutput queues it on ip_pktq and
+ * the net task runs ip_input -> icmp_input, which reflects the echo request
+ * to an echo reply through icmp_reflect() -> ip_output again.  The reply
+ * comes back through ip_input and lands in rip_input(), whose R4 stub hands
+ * ICMP echo replies to rump_ping_rx() here.  Bounded retries on the PIT
+ * tick; no blocking waits.
  */
 #include <sys/types.h>
 #include <sys/param.h>
@@ -17,6 +18,8 @@
 #include <netinet/in_systm.h>
 #include <netinet/in_var.h>
 #include <netinet/ip.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/ip_var.h>
 #include "rump_shim.h"
 
 #define PING_IDENT	0x4c54
@@ -24,211 +27,144 @@
 #define PING_TRIES	3
 #define PING_TIMEOUT	50	/* PIT ticks (100 Hz): 0.5 s per try */
 
-struct lo_icmp {
-	uint8_t		type;
-	uint8_t		code;
-	uint16_t	cksum;
-	uint16_t	id;
-	uint16_t	seq;
-};
-
 static int ping_phase;
-static int ping_try;
-static int ping_seq = 1;
+static int ping_tries;
+static int ping_seq;
+static int ping_last_seq;
 static int ping_sent_ticks;
-
-static uint16_t
-lo_cksum(const void *data, size_t len)
-{
-	const uint8_t *p = data;
-	uint32_t sum = 0;
-	size_t i;
-
-	for (i = 0; i + 1 < len; i += 2)
-		sum += ((uint16_t)p[i] << 8) | p[i + 1];
-	if (i < len)
-		sum += (uint16_t)p[i] << 8;
-	while (sum >> 16)
-		sum = (sum & 0xffff) + (sum >> 16);
-	return (uint16_t)~sum;
-}
-
-static void
-lo_set_sockaddr(struct sockaddr_in *sin)
-{
-
-	memset(sin, 0, sizeof(*sin));
-	sin->sin_len = sizeof(*sin);
-	sin->sin_family = AF_INET;
-	sin->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-}
-
-static void
-lo_fail(const char *step)
-{
-
-	printf("net: loopback FAILED (%s)\n", step);
-}
-
-static void
-lo_input(struct mbuf *m)
-{
-	struct ip *ip = mtod(m, struct ip *);
-	struct lo_icmp *ic;
-	size_t iplen, icmplen;
-	struct sockaddr_in dst;
-
-	if (m->m_len < (int)sizeof(*ip) || ip->ip_v != 4 ||
-	    ip->ip_p != IPPROTO_ICMP)
-		goto drop;
-	iplen = (size_t)ip->ip_hl << 2;
-	if (iplen < sizeof(*ip) || (size_t)m->m_len < iplen + sizeof(*ic))
-		goto drop;
-	ic = (struct lo_icmp *)((uint8_t *)ip + iplen);
-	icmplen = (size_t)m->m_len - iplen;
-
-	if (ic->type == 8 /* ICMP_ECHO */) {
-		struct in_addr src = ip->ip_src;
-
-		ip->ip_src = ip->ip_dst;
-		ip->ip_dst = src;
-		ic->type = 0;	/* ICMP_ECHOREPLY */
-		ic->code = 0;
-		ic->cksum = 0;
-		ic->cksum = lo_cksum(ic, icmplen);
-		ip->ip_sum = 0;
-		ip->ip_sum = lo_cksum(ip, iplen);
-		lo_set_sockaddr(&dst);
-		(void)rump_loopback_ifp()->if_output(rump_loopback_ifp(), m,
-		    (struct sockaddr *)&dst, NULL);
-		return;
-	}
-	if (ic->type == 0 /* ICMP_ECHOREPLY */) {
-		rump_loopback_rx(m);
-		return;
-	}
-drop:
-	m_freem(m);
-}
+static int ping_rtt;
+static int ping_reply_ok;
+static uint8_t ping_payload[PING_PAYLOAD];
 
 static int
-lo_ping_send(void)
+ping_fill(int seq)
 {
-	uint8_t pkt[64];
-	struct ip *ip = (struct ip *)pkt;
-	struct lo_icmp *ic;
-	size_t iplen = sizeof(*ip);
-	size_t len = iplen + sizeof(*ic) + PING_PAYLOAD;
-	int stamp = getticks();
+	struct mbuf *m;
+	struct ip *ip;
+	struct icmp *ic;
+	int iplen = sizeof(struct ip);
+	int icmplen = sizeof(struct icmp) + PING_PAYLOAD;
+	int total = iplen + icmplen;
+	int i;
 
-	memset(pkt, 0, sizeof(pkt));
-	ip->ip_v = 4;
-	ip->ip_hl = 5;
-	ip->ip_len = htons((uint16_t)len);
-	ip->ip_id = htons((uint16_t)ping_seq);
-	ip->ip_ttl = 64;
+	m = m_gethdr(M_DONTWAIT, MT_DATA);
+	if (m == NULL)
+		return -1;
+	ip = mtod(m, struct ip *);
+	memset(ip, 0, total);
+	ip->ip_v = IPVERSION;
+	ip->ip_hl = sizeof(struct ip) >> 2;
+	ip->ip_len = htons((uint16_t)total);
+	ip->ip_id = htons((uint16_t)seq);
+	ip->ip_ttl = IPDEFTTL;
 	ip->ip_p = IPPROTO_ICMP;
-	ip->ip_src.s_addr = htonl(INADDR_LOOPBACK);
+	ip->ip_src.s_addr = 0;
 	ip->ip_dst.s_addr = htonl(INADDR_LOOPBACK);
-	ic = (struct lo_icmp *)(pkt + iplen);
-	ic->type = 8;
-	ic->code = 0;
-	ic->id = htons(PING_IDENT);
-	ic->seq = htons((uint16_t)ping_seq);
-	memcpy(pkt + iplen + sizeof(*ic), &stamp, sizeof(stamp));
-	ic->cksum = lo_cksum(ic, len - iplen);
-	ip->ip_sum = lo_cksum(ip, iplen);
-	ping_seq++;
-	ping_try++;
+	ic = (struct icmp *)((uint8_t *)ip + iplen);
+	ic->icmp_type = ICMP_ECHO;
+	ic->icmp_code = 0;
+	ic->icmp_id = htons(PING_IDENT);
+	ic->icmp_seq = htons((uint16_t)seq);
+	for (i = 0; i < PING_PAYLOAD; i++)
+		ping_payload[i] = (uint8_t)(seq + i);
+	memcpy((uint8_t *)ic + sizeof(struct icmp), ping_payload,
+	    PING_PAYLOAD);
+	m->m_len = m->m_pkthdr.len = total;
+	ic->icmp_cksum = cpu_in_cksum(m, icmplen, iplen, 0);
+	ping_last_seq = seq;
 	ping_sent_ticks = getticks();
-	return net_send(pkt, len) == 0;
+	return ip_output(m, NULL, NULL, 0, NULL, NULL);
 }
 
 static int
-lo_reply_matches(const uint8_t *buf, int n)
+ping_send(void)
 {
-	const struct ip *ip = (const struct ip *)buf;
-	const struct lo_icmp *ic;
-	size_t iplen;
 
-	if (n < (int)sizeof(*ip) || ip->ip_v != 4 ||
-	    ip->ip_p != IPPROTO_ICMP)
-		return 0;
-	iplen = (size_t)ip->ip_hl << 2;
-	if (n < (int)(iplen + sizeof(*ic)))
-		return 0;
-	ic = (const struct lo_icmp *)(buf + iplen);
-	return ic->type == 0 && ntohs(ic->id) == PING_IDENT &&
-	    ntohs(ic->seq) == (uint16_t)(ping_seq - 1);
+	ping_seq++;
+	ping_tries++;
+	if (ping_fill(ping_seq) != 0)
+		return -1;
+	return 0;
 }
 
 static void
-lo_success(void)
+ping_report(void)
 {
 	struct if_data ifd;
-	int rtt = getticks() - ping_sent_ticks;
 
-	if (rtt < 1)
-		rtt = 1;
 	if_stats_to_if_data(rump_loopback_ifp(), &ifd, false);
-	printf("net: ping 127.0.0.1 ok (seq=%d rtt=%d ticks)\n", ping_seq - 1,
-	    rtt);
+	printf("net: ip4 input ok (pkts_in=%llu)\n",
+	    (unsigned long long)ifd.ifi_ipackets);
+	printf("net: ping 127.0.0.1 ok (seq=%d rtt=%d ticks)\n", ping_last_seq,
+	    ping_rtt);
 	printf("net: icmp echo reply ok\n");
-	printf("net: in/out counters pkts_in=%llu pkts_out=%llu\n",
-	    (unsigned long long)ifd.ifi_ipackets,
-	    (unsigned long long)ifd.ifi_opackets);
+}
+
+void
+rump_ping_begin(void)
+{
+
+	ping_phase = 1;
+	ping_tries = 0;
+	ping_seq = 0;
+	ping_rtt = 0;
+	ping_reply_ok = 0;
 }
 
 int
-rump_net_poll(void)
+rump_ping_poll(void)
 {
-	struct mbuf *m;
-	uint8_t buf[64];
-	int n, i;
 
-	for (i = 0; i < 8; i++) {
-		m = rump_netq_dequeue();
-		if (m == NULL)
-			break;
-		lo_input(m);
-	}
-
-	if (!rump_loopback_ready())
-		return 1;
-
-	switch (ping_phase) {
-	case 0:
-		if (!lo_ping_send()) {
-			lo_fail("send");
-			ping_phase = 3;
+	if (ping_phase == 0)
+		return 0;
+	if (ping_phase == 1) {
+		if (ping_tries == 0) {
+			if (ping_send() != 0)
+				return -1;
 			return 0;
 		}
-		ping_phase = 1;
-		break;
-	case 1:
-		n = net_recv(buf, sizeof(buf));
-		if (n > 0 && lo_reply_matches(buf, n)) {
-			lo_success();
-			ping_phase = 3;
-			return 0;
+		if (ping_reply_ok) {
+			ping_rtt = getticks() - ping_sent_ticks;
+			if (ping_rtt < 1)
+				ping_rtt = 1;
+			ping_report();
+			ping_phase = 2;
+			return 1;
 		}
 		if (getticks() - ping_sent_ticks > PING_TIMEOUT) {
-			if (ping_try >= PING_TRIES) {
-				lo_fail("ping");
-				ping_phase = 3;
-				return 0;
-			}
-			if (!lo_ping_send()) {
-				lo_fail("send");
-				ping_phase = 3;
-				return 0;
-			}
+			if (ping_tries >= PING_TRIES)
+				return -1;
+			if (ping_send() != 0)
+				return -1;
 		}
-		break;
-	case 3:
-		return 1;
-	default:
-		break;
 	}
+	return 0;
+}
+
+int
+rump_ping_rx(struct mbuf *m)
+{
+	struct ip ip;
+	struct icmp ic;
+	uint8_t payload[PING_PAYLOAD];
+	int hlen;
+
+	if (m->m_pkthdr.len < (int)sizeof(ip))
+		return -1;
+	m_copydata(m, 0, sizeof(ip), &ip);
+	if (ip.ip_v != IPVERSION || ip.ip_p != IPPROTO_ICMP)
+		return -1;
+	hlen = ip.ip_hl << 2;
+	if (hlen < (int)sizeof(ip) ||
+	    m->m_pkthdr.len < hlen + (int)sizeof(ic))
+		return -1;
+	m_copydata(m, hlen, sizeof(ic), &ic);
+	if (ic.icmp_type != ICMP_ECHOREPLY ||
+	    ntohs(ic.icmp_id) != PING_IDENT ||
+	    ntohs(ic.icmp_seq) != (uint16_t)ping_last_seq)
+		return -1;
+	m_copydata(m, hlen + sizeof(ic), PING_PAYLOAD, payload);
+	ping_reply_ok = memcmp(payload, ping_payload, PING_PAYLOAD) == 0;
+	m_freem(m);
 	return 0;
 }

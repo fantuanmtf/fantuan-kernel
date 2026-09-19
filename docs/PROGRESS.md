@@ -128,7 +128,15 @@ external phase; **owner pushes between R batches**).
       markers (`net: lo0 up`, `net: ping ... ok`, `net: icmp echo reply
       ok`, `net: in/out counters`) - R4 replaces the adapter ICMP with
       ip_input.c/ip_icmp.c/in.c
-- [ ] M11-3 IPv4/ARP/ICMP/UDP on loopback + counters
+- [x] M11-3 IPv4/ARP/ICMP/UDP on loopback + counters: R4 imported the real
+      IPv4 slice (`ip_input.c`, `ip_output.c`, `ip_icmp.c`, `ip_reass.c`,
+      `in.c`, `in_pcb.c`, `in_proto.c`, `udp_usrreq.c`, `if_arp.c`,
+      checksum/offload files, `if_llatbl.c`, `nd.c`, `subr_hash.c`,
+      `subr_once.c`; 246 files) and replaced the R3 stand-ins: lo0
+      `if_output` -> pktqueue -> real `ip_input` -> real `ip_output` ping,
+      a UDP exchange over real PCBs, and an ARP request/reply self-test on
+      a shim ethernet interface; `tools/smoke-net.sh` asserts the R4
+      markers - R5 imports TCP + the socket layer
 - [ ] M11-4 TCP + socket layer; loss/throughput tests
 - [ ] M11-5 virtio-net (MMIO/PCI) + e1000; DHCP client
 - [ ] M11-6 DNS resolver + `ping`/`nslookup`/`wget`
@@ -218,6 +226,7 @@ Design: `M14_LINUXUSERS.md`.
 | 2026-09 | i686 framebuffer fallback under `-vga none` (serial identical) | PASS |
 | 2026-09 | M11 R2 rump adaptation self-test (mbuf/pool/callout in-kernel) | PASS |
 | 2026-09 | M11 R3 net_ops + lo0 127.0.0.1/8 + ping over loopback (`smoke-net.sh`) | PASS |
+| 2026-09 | M11 R4 real ip_input/ip_output ping, UDP PCB exchange, ARP self-test (`smoke-net.sh`, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3) | PASS |
 | 2026-09 | x86 full suite `tools/smoke.sh` 13/13 | PASS (at v0.0.1) |
 
 ## Known issues
