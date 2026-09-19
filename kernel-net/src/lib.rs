@@ -23,6 +23,13 @@ pub struct Env {
     pub switch_count: extern "C" fn() -> u64,
     pub sleep_ms: extern "C" fn(u64),
     pub exit: extern "C" fn() -> !,
+    /// PCI config space (type-1 CF8/CFC) for the e1000 probe.
+    pub pci_read: extern "C" fn(u8, u8, u8, u8) -> u32,
+    pub pci_write: extern "C" fn(u8, u8, u8, u8, u32),
+    /// Map an MMIO range (cache-disabled) and return its virtual base.
+    pub mmio_map: extern "C" fn(u64, u64) -> *mut u8,
+    /// Physical address behind a frame-allocator virtual pointer.
+    pub virt_to_phys: extern "C" fn(*const u8) -> u64,
 }
 
 extern "C" fn stub_log(_: *const u8, _: usize) {}
@@ -50,6 +57,16 @@ extern "C" fn stub_exit() -> ! {
         core::hint::spin_loop();
     }
 }
+extern "C" fn stub_pci_read(_: u8, _: u8, _: u8, _: u8) -> u32 {
+    0xFFFF_FFFF
+}
+extern "C" fn stub_pci_write(_: u8, _: u8, _: u8, _: u8, _: u32) {}
+extern "C" fn stub_mmio_map(_: u64, _: u64) -> *mut u8 {
+    core::ptr::null_mut()
+}
+extern "C" fn stub_virt_to_phys(_: *const u8) -> u64 {
+    0
+}
 
 static mut ENV: Env = Env {
     log: stub_log,
@@ -61,6 +78,10 @@ static mut ENV: Env = Env {
     switch_count: stub_switch_count,
     sleep_ms: stub_sleep_ms,
     exit: stub_exit,
+    pci_read: stub_pci_read,
+    pci_write: stub_pci_write,
+    mmio_map: stub_mmio_map,
+    virt_to_phys: stub_virt_to_phys,
 };
 
 static READY: AtomicBool = AtomicBool::new(false);
@@ -155,4 +176,24 @@ pub extern "C" fn fantuan_rump_physmem_pages() -> u64 {
 #[no_mangle]
 pub extern "C" fn fantuan_rump_switch_count() -> u64 {
     (env().switch_count)()
+}
+
+#[no_mangle]
+pub extern "C" fn fantuan_rump_pci_read(bus: u8, dev: u8, func: u8, off: u8) -> u32 {
+    (env().pci_read)(bus, dev, func, off)
+}
+
+#[no_mangle]
+pub extern "C" fn fantuan_rump_pci_write(bus: u8, dev: u8, func: u8, off: u8, val: u32) {
+    (env().pci_write)(bus, dev, func, off, val);
+}
+
+#[no_mangle]
+pub extern "C" fn fantuan_rump_mmio_map(phys: u64, len: u64) -> *mut u8 {
+    (env().mmio_map)(phys, len)
+}
+
+#[no_mangle]
+pub extern "C" fn fantuan_rump_virt_to_phys(ptr: *const u8) -> u64 {
+    (env().virt_to_phys)(ptr)
 }

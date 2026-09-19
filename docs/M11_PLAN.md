@@ -140,6 +140,31 @@ select/kqueue no-ops, blocking waits) are listed in `ADAPTATION.md`;
 Scope: virtio-net (MMIO first; PCI on x86_64), e1000, DHCP client.
 - Verify: SLIRP lease acquired; ARP/ICMP to 10.0.2.2.
 
+### R6 outcome - the e1000, DHCP and the SLIRP offline phase
+
+No new NetBSD files were needed: the driver, the DHCP client and the HTTP
+client are all adapter code.  `rump_e1000*.c` probes the QEMU 82540EM over
+the kernel's PCI hooks (new `Env` callbacks `pci_read`/`pci_write`/
+`mmio_map`/`virt_to_phys`), resets it, reads the MAC (RA[0], EEPROM
+fallback), builds 32-entry RX/TX rings in contiguous frame pages and runs
+interrupt-free from `rump_net_poll` (drained before `rump_pktq_drain`).
+Receive wraps frames in cluster mbufs and demuxes the ethertype into
+`ip_pktq`/`arp_pktq` (the `ether_input` counterpart, since
+`if_ethersubr.c` is not imported); `if_csum_flags_{tx,rx}` stay 0 and the
+driver finishes TCP/UDP checksums on the linearized TX buffer.  `rump_dhcp.c`
+runs DISCOVER/OFFER/REQUEST/ACK over a real UDP socket (`0.0.0.0:68` ->
+`10.0.2.2:67`, xid-checked, 5 tries, 1.2 s apart) after giving the NIC a
+provisional link-local 169.254.1.1/16 and a host route to the server, then
+applies the lease through `in_control(SIOCAIFADDR)`/`SIOCDIFADDR` and the
+gateway through `rtrequest1`.  `rump_http.c` fetches the host fixture with
+the real TCP socket layer.  `workqueue_enqueue()` became genuinely deferred
+(softintd drains it): running route free work synchronously deadlocked
+`rt_free_global.lock` during the provisional-address teardown.
+`tools/run.sh --net` attaches the e1000 on SLIRP (default boots are
+NIC-less, `-nic none`); `tools/smoke-net.sh` gained the SLIRP phase with a
+python HTTP fixture on 127.0.0.1:18080 and byte/hash assertions.  virtio-net
+is deferred to R9 with the MMIO transport (documented in `ADAPTATION.md`).
+
 ### R7 - DNS + tools
 
 Scope: resolver, `ping`/`nslookup`/`wget` as shared shell commands.

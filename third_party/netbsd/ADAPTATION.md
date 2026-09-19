@@ -321,3 +321,65 @@ net: tcp close ok (state=CLOSED)
 net: tcp retransmit ok (drops=2 retrans=2)
 net: in/out counters pkts_in=35 pkts_out=35
 ```
+
+## 10. R6 outcome (2026-09): e1000, DHCP and the SLIRP offline phase
+
+No NetBSD files were imported for R6 (the tree stays at 259 files): the
+driver, the DHCP and the HTTP clients are adapter code.  `kernel-net` now
+links `rump_e1000{,_dma,_if,_ops}.c`, `rump_dhcp{,_if,_pkt}.c` and
+`rump_http.c` alongside the R5 split.
+
+- `rump_e1000.c` probes the QEMU 82540EM (and the common 8254x/82574 IDs)
+  over the kernel's PCI config hooks, maps BAR0 with the new
+  `fantuan_rump_mmio_map()` (cache-disabled PhysOffset window; the hook
+  returns the BAR's own virtual address, not the 2 MiB page base), resets
+  it, reads the MAC from RA[0] (EEPROM fallback) and builds 32-entry
+  descriptor rings plus packet buffers in contiguous frame-allocator pages.
+- `rump_e1000_if.c`/`_ops.c` provide the ifnet: a minimal `ether_output`
+  counterpart (`arpresolve`, AF_ARP target address, `M_PREPEND`,
+  `ifq_enqueue` -> `if_start`), the net_ops table and the RX demux that
+  feeds `ip_pktq`/`arp_pktq` (in place of the unimported if_ethersubr
+  `ether_input`).  RX/TX are polled: `rump_net_poll()` drains the ring
+  before `rump_pktq_drain()`.  `if_csum_flags_{tx,rx}` are 0 and
+  `rump_e1000_dma.c` finishes TCP/UDP checksums in software on the
+  linearized TX frame (the stack's offload partial is overwritten).
+- `rump_dhcp.c` is a bounded client over the real UDP socket layer.  The
+  unnumbered-DISCOVER problem is solved with a provisional link-local
+  169.254.1.1/16 (`in_control(SIOCAIFADDR)`) and a host route to the server
+  (`rtrequest1`); DISCOVER/OFFER/REQUEST/ACK run on a connected socket
+  bound to `0.0.0.0:68` (its local address is then cleared so `udp_input`'s
+  broadcast delivery matches), and the lease is applied through
+  `in_control` plus a default route through `rtrequest1`.  The DHCP DNS
+  option is kept for the R7 resolver.
+- `rump_http.c` GETs the host fixture through the real TCP socket layer and
+  hashes the entity body with FNV-1a.
+- The `workqueue(9)` shim is now genuinely deferred: `workqueue_enqueue()`
+  schedules and `softintd` drains via `rump_workqueue_drain()`.  The
+  synchronous version re-entered `rt_free_global.lock` when the provisional
+  address was deleted (route free work), which R6's teardown exposed.
+
+virtio-net is **deferred to R9**: the MMIO transport belongs with the
+riscv64/aarch64 work, and x86_64 QEMU has no virtio-net-mmio device; the
+e1000 covers the offline gate.  This is a documented deferral, not a fake.
+
+`tools/run.sh --net` attaches `-netdev user,id=n0 -device e1000,netdev=n0`;
+all other x86_64 boots pass `-nic none` so the loopback phases stay NIC-less.
+`tools/smoke-net.sh` keeps the LOOPBACK phase and adds the SLIRP phase: a
+python stdlib HTTP server on 127.0.0.1:18080 with a deterministic 1408-byte
+body, whose byte count and FNV-1a hash are asserted against the guest marker.
+
+Boot markers added in R6 (SLIRP phase of `tools/smoke-net.sh`):
+
+```
+net: e1000 up mac=52:54:00:12:34:56
+net: dhcp lease 10.0.2.15/24 gw 10.0.2.2 dns 10.0.2.3
+net: http get ok (url=http://10.0.2.2:18080/ bytes=1408 hash=6bb06745)
+net: eth counters pkts_in=9 pkts_out=11
+```
+
+Failure markers: `net: nic FAILED (<step>)`, `net: dhcp FAILED (<step>)`,
+`net: http FAILED (<step>)`; a missing NIC is not a failure (the loopback
+phases run silently without one).  Residual stubs unchanged from R5
+(raw sockets, IGMP, encapsulation, portalgo, vestigial TIME_WAIT,
+synchronous wqinput, select/kqueue no-ops, blocking waits); the IPv6/NDP
+frames SLIRP emits are counted and dropped by the e1000 demux.

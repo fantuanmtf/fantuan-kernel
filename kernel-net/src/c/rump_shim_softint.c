@@ -67,4 +67,5 @@ rump_softint_dispatch(void)
 			fn(arg);
 		}
 	}
+	rump_workqueue_drain();
 }

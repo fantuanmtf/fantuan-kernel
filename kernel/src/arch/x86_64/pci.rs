@@ -46,6 +46,20 @@ pub fn read32(bus: u8, dev: u8, func: u8, off: u8) -> u32 {
     }
 }
 
+/// Raw config-space dword write (the e1000 driver enables memory space +
+/// bus mastering and assigns no bars itself; firmware did that).
+pub fn write32(bus: u8, dev: u8, func: u8, off: u8, val: u32) {
+    let addr = 0x8000_0000u32
+        | ((bus as u32) << 16)
+        | ((dev as u32) << 11)
+        | ((func as u32) << 8)
+        | (off as u32 & 0xFC);
+    unsafe {
+        outl(CONFIG_ADDR, addr);
+        outl(CONFIG_DATA, val);
+    }
+}
+
 // --- Device scan + static catalog ---
 
 static INIT: AtomicBool = AtomicBool::new(false);

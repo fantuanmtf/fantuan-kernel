@@ -3,7 +3,10 @@
 # Usage: tools/run.sh [--arch x86_64|riscv64] [--disk] [--graphics] [--broken]
 #                     [--broken-shim] [--smm] [--no-smbios] [--two-fs]
 #                     [--keys] [--shell-repair] [--nvme] [--bigcluster]
-#                     [--liar] [--grub-regen]
+#                     [--liar] [--grub-regen] [--net]
+#   --net:    attach the M11 R6 e1000 NIC on QEMU user networking (SLIRP);
+#             without it the default QEMU NIC is disabled (-nic none) so the
+#             loopback phases run on a NIC-less machine.
 #   --broken:      build the test disk with a missing EFI/BOOT/BOOTX64.EFI so
 #                  the boot-repair fallback copy can be exercised (M7.5b).
 #   --broken-shim: fallback AND shim missing — the NVRAM repair then has to
@@ -77,9 +80,11 @@ LIAR=0
 GRUB_REGEN=0
 MONITOR=0
 KBD_TEST=0
+NET=0
 for a in "$@"; do
   case "$a" in
     --graphics)    GRAPHICS=1 ;;
+    --net)         NET=1 ;;
     --broken)      BROKEN=1 ;;
     --broken-shim) BROKEN=1; NOSHIM=1 ;;
     --smm)         SMM=1 ;;
@@ -212,6 +217,13 @@ QEMU_ARGS=(
 )
 # Storage attachment comes from $AHCI_DEV (AHCI by default, NVMe with --nvme).
 QEMU_ARGS+=( $AHCI_DEV )
+# M11 R6 network: --net attaches the e1000 on QEMU user networking (SLIRP);
+# otherwise the default NIC is disabled so the loopback phases are NIC-less.
+if [ "$NET" = "1" ]; then
+  QEMU_ARGS+=( -netdev user,id=n0 -device e1000,netdev=n0 )
+else
+  QEMU_ARGS+=( -nic none )
+fi
 if [ "$SMBIOS" = "1" ]; then
   QEMU_ARGS+=(
     -smbios type=0,vendor=TESTCORP,version=1.2.3

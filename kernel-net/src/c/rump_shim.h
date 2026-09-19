@@ -32,6 +32,9 @@ int net_recv(void *, size_t);
 /* pktqueue(9) replacement (rump_shim_net.c): drained from the net task. */
 void rump_pktq_drain(void);
 
+/* Deferred workqueue drain (rump_shim_if.c): runs in the softintd task. */
+void rump_workqueue_drain(void);
+
 /* Real IPv4 bring-up and the boot test state machine (rump_ip4.c). */
 void rump_ip4_up(void);
 int rump_net_poll(void);
@@ -52,6 +55,17 @@ int rump_udp_run(void);
 /* Real socket/TCP loopback tests (rump_tcp.c): 0 running, 1 done, -1 fail. */
 void rump_tcp_begin(void);
 int rump_tcp_poll(void);
+
+/* DHCP client over the real UDP/socket layer (rump_dhcp.c): 0 running,
+ * 1 done, -1 failed (the marker is printed internally). */
+void rump_dhcp_begin(void);
+int rump_dhcp_poll(void);
+/* Lease DNS server in network byte order (R7 resolver input). */
+uint32_t rump_dhcp_dns(void);
+
+/* Offline HTTP GET over the real TCP socket layer (rump_http.c). */
+void rump_http_begin(void);
+int rump_http_poll(void);
 
 /* Connection helpers for the TCP test (rump_tcp_conn.c). */
 int rump_tcp_pair(uint16_t, uint16_t, struct socket **, struct socket **,
@@ -91,6 +105,10 @@ void fantuan_rump_pages_free(void *, size_t);
 uint64_t fantuan_rump_ticks(void);
 uint64_t fantuan_rump_physmem_pages(void);
 uint64_t fantuan_rump_switch_count(void);
+uint32_t fantuan_rump_pci_read(uint8_t, uint8_t, uint8_t, uint8_t);
+void fantuan_rump_pci_write(uint8_t, uint8_t, uint8_t, uint8_t, uint32_t);
+void *fantuan_rump_mmio_map(uint64_t, uint64_t);
+uint64_t fantuan_rump_virt_to_phys(const void *);
 
 void rump_shim_init(void);
 void rump_shim_tick(void);

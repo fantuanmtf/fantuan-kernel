@@ -63,6 +63,28 @@ extern "C" fn exit() -> ! {
     kernel_core::task::exit(0)
 }
 
+extern "C" fn pci_read(bus: u8, dev: u8, func: u8, off: u8) -> u32 {
+    crate::pci::read32(bus, dev, func, off)
+}
+
+extern "C" fn pci_write(bus: u8, dev: u8, func: u8, off: u8, val: u32) {
+    crate::pci::write32(bus, dev, func, off, val);
+}
+
+extern "C" fn mmio_map(phys: u64, len: u64) -> *mut u8 {
+    // map_mmio() rounds down to a 2 MiB page; the hook contract is the
+    // virtual address of `phys` itself, so cancel that rounding.
+    const HUGE: u64 = 2 * 1024 * 1024;
+    match crate::mm::paging::map_mmio(crate::mm::frame::get(), phys, len) {
+        Some(base) => (base + (phys & (HUGE - 1))) as *mut u8,
+        None => core::ptr::null_mut(),
+    }
+}
+
+extern "C" fn virt_to_phys(ptr: *const u8) -> u64 {
+    (ptr as u64).wrapping_sub(PHYS_OFFSET)
+}
+
 /// Called from IRQ0 by the timer; feeds `callout_hardclock`.
 pub fn tick() {
     kernel_net::tick();
@@ -80,6 +102,10 @@ pub fn init() {
         switch_count,
         sleep_ms,
         exit,
+        pci_read,
+        pci_write,
+        mmio_map,
+        virt_to_phys,
     });
     crate::task::spawn(kernel_net::softintd);
     crate::task::spawn(kernel_net::loopback_task);

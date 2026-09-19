@@ -18,10 +18,22 @@
 #include <net/pfil.h>
 #include "rump_shim.h"
 
+/* Deferred thread-context work: enqueue only schedules; the softintd task
+ * drains through rump_workqueue_drain().  Running the callback inside
+ * workqueue_enqueue() is wrong for e.g. route.c's rt_free(), which holds
+ * rt_free_global.lock around the enqueue and whose callback takes the same
+ * lock ("locking against myself", found by the R6 DHCP address teardown). */
+#define WORKQUEUE_MAX 8
+
 struct workqueue {
 	void (*wq_func)(struct work *, void *);
 	void *wq_arg;
+	struct work *wq_pending;
+	volatile int wq_scheduled;
 };
+
+static struct workqueue *workqueues[WORKQUEUE_MAX];
+static int workqueue_count;
 
 int
 workqueue_create(struct workqueue **wqp, const char *name,
@@ -34,19 +46,28 @@ workqueue_create(struct workqueue **wqp, const char *name,
 	(void)pri;
 	(void)ipl;
 	(void)flags;
-	wq = kmem_alloc(sizeof(*wq), KM_SLEEP);
+	wq = kmem_zalloc(sizeof(*wq), KM_SLEEP);
 	if (wq == NULL)
 		return ENOMEM;
 	wq->wq_func = func;
 	wq->wq_arg = arg;
 	*wqp = wq;
+	if (workqueue_count < WORKQUEUE_MAX)
+		workqueues[workqueue_count++] = wq;
 	return 0;
 }
 
 void
 workqueue_destroy(struct workqueue *wq)
 {
+	int i;
 
+	for (i = 0; i < workqueue_count; i++) {
+		if (workqueues[i] != wq)
+			continue;
+		workqueues[i] = workqueues[--workqueue_count];
+		break;
+	}
 	kmem_free(wq, sizeof(*wq));
 }
 
@@ -55,8 +76,10 @@ workqueue_enqueue(struct workqueue *wq, struct work *wk, struct cpu_info *ci)
 {
 
 	(void)ci;
-	if (wq != NULL && wq->wq_func != NULL)
-		wq->wq_func(wk, wq->wq_arg);
+	if (wq == NULL || wq->wq_func == NULL)
+		return;
+	wq->wq_pending = wk;
+	wq->wq_scheduled = 1;
 }
 
 void
@@ -65,6 +88,21 @@ workqueue_wait(struct workqueue *wq, struct work *wk)
 
 	(void)wq;
 	(void)wk;
+}
+
+void
+rump_workqueue_drain(void)
+{
+	int i;
+
+	for (i = 0; i < workqueue_count; i++) {
+		struct workqueue *wq = workqueues[i];
+
+		if (!wq->wq_scheduled)
+			continue;
+		wq->wq_scheduled = 0;
+		wq->wq_func(wq->wq_pending, wq->wq_arg);
+	}
 }
 
 struct pfil_head {

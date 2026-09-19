@@ -145,7 +145,16 @@ external phase; **owner pushes between R batches**).
       equality, graceful close, and a second connection with deterministic
       drops exercising retransmission; `tools/smoke-net.sh` asserts the R5
       markers - R6 brings up virtio-net/e1000 + DHCP
-- [ ] M11-5 virtio-net (MMIO/PCI) + e1000; DHCP client
+- [x] M11-5 virtio-net (MMIO/PCI) + e1000; DHCP client: R6 added the
+      interrupt-free QEMU e1000 adapter behind `net_ops` (PCI/BAR0 through
+      new `Env` hooks, RX/TX descriptor rings in frame pages, software
+      checksums, ethertype demux into `ip_pktq`/`arp_pktq`), a bounded DHCP
+      client over the real UDP socket layer with a provisional link-local
+      address and real `in_control`/`rtrequest1` lease application, and the
+      SLIRP offline phase in `tools/smoke-net.sh` (python HTTP fixture at
+      `10.0.2.2:18080`, exact byte/hash assertion); the `workqueue(9)` shim
+      became genuinely deferred. virtio-net is deferred to R9 with the MMIO
+      transport (documented) - R7 adds the DNS resolver + tools
 - [ ] M11-6 DNS resolver + `ping`/`nslookup`/`wget`
 - [ ] M11-7 mbedTLS port + HTTPS + TLS KATs
 - [ ] M11-8 aarch64 port bring-up; smoke phases; THIRD_PARTY entry
@@ -235,6 +244,7 @@ Design: `M14_LINUXUSERS.md`.
 | 2026-09 | M11 R3 net_ops + lo0 127.0.0.1/8 + ping over loopback (`smoke-net.sh`) | PASS |
 | 2026-09 | M11 R4 real ip_input/ip_output ping, UDP PCB exchange, ARP self-test (`smoke-net.sh`, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3) | PASS |
 | 2026-09 | M11 R5 real socket/TCP on loopback: handshake, 64 KiB hash-checked transfer, close, drop/retransmit (`smoke-net.sh`; 3-target builds zero warnings) | PASS |
+| 2026-09 | M11 R6 e1000 + DHCP lease + SLIRP HTTP fetch (`smoke-net.sh` LOOPBACK+SLIRP; `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3; 3-target builds zero warnings) | PASS |
 | 2026-09 | x86 full suite `tools/smoke.sh` 13/13 | PASS (at v0.0.1) |
 
 ## Known issues
