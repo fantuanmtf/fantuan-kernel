@@ -229,4 +229,8 @@ gdt_ptr:
 
 %include "stage2_pm.inc"
 
+%ifdef CD_BOOT
+%include "stage2_cd.inc"
+%endif
+
 times 16384-($-$$) db 0

@@ -33,12 +33,17 @@ pm32:
 
     call memmap_synth
     call bootinfo_build
+%ifdef CD_BOOT
+    call cd_kernel_copy
+%endif
 %ifdef I686
     call tables32_build
 %else
     call tables_build
 %endif
+%ifndef CD_BOOT
     call ata_load
+%endif
 
     mov esi, msg_boot
     call puts32

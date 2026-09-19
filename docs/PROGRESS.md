@@ -78,7 +78,14 @@ done, M10 is half implemented).
       `build-bios.sh --slave` so the test disk can be primary master,
       while `run-bios.sh --arch i686` stays master (no disk)
 - [ ] M10-5 VBE framebuffer console on BIOS (optional; serial is the base)
-- [ ] M10-6 hybrid ISO image builder with the 1 GB size check
+- [x] M10-6 self-written hybrid ISO: `tools/mkiso.py` builds a level-1
+      ISO9660 image (PVD, L/M path tables) with El Torito BIOS
+      no-emulation (full preload to 0x7C00/0x8000; SeaBIOS rejects AH=42h
+      on emulated drives, so HDD emulation cannot serve stage1) and a UEFI
+      0xEF entry over a hand-built FAT16 ESP (`tools/mkesp.py`); the CD
+      chain copies the kernel from the preload instead of ATA. 1 GiB budget
+      enforced in the writer and re-checked on the file - verify
+      `tools/smoke-iso.sh` (BIOS + OVMF)
 - [ ] M10-7 docs (Windows-unsupported/PE, boot + support matrices), i686
       smoke phases, x86_64/riscv64 regressions
 
@@ -167,6 +174,8 @@ Design: `M14_LINUXUSERS.md`.
 | 2026-09 | W1/M10-4a2 hardening: three-target builds + BIOS/riscv smokes after the `to_usize` pass | PASS |
 | 2026-09 | i686 ELF32 userland (shared `user/` crate) + per-task PD + user-fault kill | PASS |
 | 2026-09 | i686 PIO ATA + shared VFS on the mkdisk fixture (phase 2 asserts VFS/ESP lines) | PASS |
+| 2026-09 | hybrid ISO BIOS boot (El Torito no-emulation) | PASS |
+| 2026-09 | hybrid ISO UEFI boot (OVMF mounts the 0xEF FAT image) | PASS |
 | 2026-09 | x86 full suite `tools/smoke.sh` 13/13 | PASS (at v0.0.1) |
 
 ## Known issues
@@ -202,7 +211,7 @@ verification and commit checkpoints for each workstream.
 
 ## Next action
 
-**W4 / M10-6**: self-written ISO9660 + El Torito hybrid image builder
-(`tools/iso/` + `tools/build-iso.sh`, <=1 GB check) booting the BIOS image
-from CD and exposing the ESP for UEFI. W5 (VBE, in scope) and W6 (docs +
-0.0.2) follow; the owner pushes and tags after the set is green.
+**W5 / M10-5**: VBE framebuffer console - stage2 queries the VBE 2.0
+info block and sets one linear mode, kernel-i686 brings up a text console
+on it with the serial path as the fallback. W6 (docs + 0.0.2) follows; the
+owner pushes and tags after the set is green.

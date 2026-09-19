@@ -29,11 +29,13 @@ start:
     mov al, '1'
     call serial_putc
 
+%ifndef CD_BOOT
     mov si, dap
     mov ah, 0x42
     mov dl, [boot_drive]
     int 0x13
     jc disk_error
+%endif
 
     mov al, '2'
     call serial_putc
