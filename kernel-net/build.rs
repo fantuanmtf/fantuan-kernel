@@ -1,0 +1,114 @@
+//! Build the NetBSD rump slice + the fantuan adaptation layer as one static
+//! archive, compiled with clang for x86_64-unknown-none against the R1 shim
+//! headers. The crate is only wired into the x86_64 kernel for now; other
+//! build targets skip the C compile entirely.
+//!
+//! The imported sources keep upstream warnings (exempt from the repo's
+//! zero-warning rule); the adapter files are compiled with -Wall -Wextra.
+
+use std::env;
+use std::path::Path;
+use std::process::Command;
+
+const NETBSD_CSRCS: &[&str] = &[
+    "sys/kern/subr_evcnt.c",
+    "sys/kern/kern_mutex.c",
+    "sys/kern/kern_condvar.c",
+    "sys/kern/kern_rwlock.c",
+    "sys/kern/kern_lock.c",
+    "sys/kern/kern_timeout.c",
+    "sys/kern/subr_psref.c",
+    "sys/kern/subr_pool.c",
+    "sys/kern/uipc_mbuf.c",
+];
+
+const SHIM_CSRCS: &[&str] = &[
+    "rump_shim_lib.c",
+    "rump_shim_mem.c",
+    "rump_shim_time.c",
+    "rump_shim_lock.c",
+    "rump_shim_sleepq.c",
+    "rump_shim_printf.c",
+    "rump_shim_sysctl.c",
+    "rump_shim_net.c",
+    "rump_shim_softint.c",
+    "rump_shim_init.c",
+    "rump_selftest.c",
+];
+
+fn main() {
+    let dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let target = env::var("TARGET").unwrap();
+    let netbsd = format!("{dir}/../third_party/netbsd");
+    let shim = format!("{netbsd}/shim/include");
+
+    for f in NETBSD_CSRCS {
+        println!("cargo:rerun-if-changed={netbsd}/{f}");
+    }
+    for f in SHIM_CSRCS {
+        println!("cargo:rerun-if-changed={dir}/src/c/{f}");
+    }
+    println!("cargo:rerun-if-changed={dir}/src/c/rump_shim.h");
+    println!("cargo:rerun-if-changed={shim}/machine/mutex.h");
+
+    if target != "x86_64-unknown-none" {
+        return;
+    }
+
+    let resource = Command::new("clang")
+        .arg("-print-resource-dir")
+        .output()
+        .expect("clang is required to build the NetBSD rump slice");
+    let resource = String::from_utf8(resource.stdout).unwrap();
+    let resource = resource.trim();
+    assert!(Path::new(resource).exists(), "clang resource dir missing");
+
+    let base = |warnings: bool| {
+        let mut build = cc::Build::new();
+        build
+            .compiler("clang")
+            .archiver("llvm-ar")
+            .warnings(warnings)
+            .flag(format!("--target={target}"))
+            .flag("-ffreestanding")
+            .flag("-nostdinc")
+            .flag("-isystem")
+            .flag(format!("{resource}/include"))
+            .flag("-mno-red-zone")
+            /* Match the Rust kernel's soft-float ABI: the BIOS boot path
+             * does not enable CR4.OSFXSR, so SSE would fault with #UD. */
+            .flag("-mno-sse")
+            .flag("-mno-sse2")
+            .flag("-mno-mmx")
+            .flag("-msoft-float")
+            .flag("-fno-stack-protector")
+            .flag("-fno-builtin")
+            .flag("-fno-pic")
+            .flag("-fno-pie")
+            .flag("-mcmodel=large")
+            .flag("-ffunction-sections")
+            .flag("-fdata-sections")
+            .flag("-D_KERNEL")
+            .include(&shim)
+            .include(format!("{netbsd}/sys"))
+            .include(format!("{netbsd}/common/include"))
+            .include(format!("{dir}/src/c"));
+        build
+    };
+
+    let mut imported = base(false);
+    for f in NETBSD_CSRCS {
+        imported.file(format!("{netbsd}/{f}"));
+    }
+    imported.compile("rumpobj");
+
+    let mut adapter = base(true);
+    /* -Wextra flags unused parameters inside the imported NetBSD headers
+     * (inline helpers the adapter only includes); keep the rest of -Wall
+     * -Wextra for our own files. */
+    adapter.flag("-Wno-unused-parameter");
+    for f in SHIM_CSRCS {
+        adapter.file(format!("{dir}/src/c/{f}"));
+    }
+    adapter.compile("rumpobj_shim");
+}

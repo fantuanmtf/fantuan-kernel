@@ -60,7 +60,20 @@ running an allocation/refcount/callout self-test task in QEMU.
   `third_party/netbsd/MANIFEST.tsv` cover every imported file.
 - Risk: source-list/build integration; missing NetBSD subr pulls; licenses.
 
-### R2 - net_ops registry + loopback
+### R2 outcome - the adapter took the slot
+
+R2 was spent on the adaptation layer instead of net_ops (the R1 link
+gaps came first): `kernel-net` compiles the nine imported objects plus
+eleven adapter C files for x86_64 and links with 0 unresolved symbols
+(104 before). The in-kernel self-test passes at boot: mbuf 12/12,
+pool 8/8, callout 20 fires driven by IRQ0. Known stubs to replace as the
+stack grows: sleepq/turnstile panic on a real block, kmem/vmem do not
+recycle, xc_* is synchronous, percpu_* is single-CPU and sysctl is
+read-only. The remaining batches shift one slot: R3 net_ops + loopback,
+R4 IPv4/ARP/ICMP/UDP, R5 TCP/socket, R6 drivers/DHCP, R7 DNS/tools,
+R8 mbedTLS/HTTPS, R9 aarch64 + release (tracker items M11-2..8 unchanged).
+
+### R3 - net_ops registry + loopback
 
 Scope: `net_ops` driver registry, loopback interface, `ping` over it.
 - Verify: loopback echo lines + counters in the smoke log.

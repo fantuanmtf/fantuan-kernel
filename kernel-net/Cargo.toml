@@ -1,0 +1,11 @@
+[package]
+name = "kernel-net"
+version = "0.0.2"
+edition = "2021"
+description = "fantuan kernel - NetBSD rump adaptation layer (M11)"
+
+[lib]
+path = "src/lib.rs"
+
+[build-dependencies]
+cc = "1"

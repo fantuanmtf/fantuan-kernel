@@ -112,9 +112,13 @@ Design: `M11_NET.md`. Batch plan: `M11_PLAN.md` (rump full-subset import,
 aarch64 direct + UEFI, net-smoke offline gate with optional Tor 9050
 external phase; **owner pushes between R batches**).
 
-- [ ] M11-1 rump full-subset vendor + adaptation layer (mbuf/pool/callout/
-      locks/threads over frames, cooperative tasks and the PIT tick),
-      per-file license registration
+- [x] M11-1 rump full-subset vendor + adaptation layer: R1 imported the
+      pinned slice (139 files, 9/9 compile) and R2 built `kernel-net`
+      (adapter: libkern/atomics, bump+vmem memory over frames, locks/
+      sleepq stubs, curlwp/percpu/xcall, PIT callouts, printf/sysctl,
+      net glue) linking with 0 unresolved symbols; the in-kernel self-test
+      passes (mbuf 12/12, pool 8/8, callout 20) - verify the UEFI `rump:`
+      lines plus smoke-bios/riscv
 - [ ] M11-2 `net_ops` registry + loopback; ping over loopback
 - [ ] M11-3 IPv4/ARP/ICMP/UDP on loopback + counters
 - [ ] M11-4 TCP + socket layer; loss/throughput tests
@@ -204,6 +208,7 @@ Design: `M14_LINUXUSERS.md`.
 | 2026-09 | hybrid ISO UEFI boot (OVMF mounts the 0xEF FAT image) | PASS |
 | 2026-09 | i686 VBE 1024x768x32 console (headless screendump, 45,777 lit pixels, text decoded) | PASS |
 | 2026-09 | i686 framebuffer fallback under `-vga none` (serial identical) | PASS |
+| 2026-09 | M11 R2 rump adaptation self-test (mbuf/pool/callout in-kernel) | PASS |
 | 2026-09 | x86 full suite `tools/smoke.sh` 13/13 | PASS (at v0.0.1) |
 
 ## Known issues

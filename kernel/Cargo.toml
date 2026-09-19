@@ -4,9 +4,14 @@ version = "0.0.2"
 edition = "2021"
 description = "fantuan-kernel core (M0)"
 
+[features]
+default = ["rump-selftest"]
+rump-selftest = []
+
 [dependencies]
 fantuan-abi = { path = "../abi" }
 kernel-core = { path = "../kernel-core" }
+kernel-net = { path = "../kernel-net" }
 
 [build-dependencies]
 cc = "1"

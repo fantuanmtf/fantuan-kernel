@@ -18,6 +18,7 @@ const HEARTBEAT_TICKS: u64 = 3_000;
 
 /// Called from the IRQ0 handler (interrupts.rs).
 pub fn tick() {
+    crate::net::tick();
     let n = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
     if n % 1000 == 0 && n <= HEARTBEAT_TICKS {
         let mut s = Serial::new(serial::COM1);

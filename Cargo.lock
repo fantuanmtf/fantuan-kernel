@@ -30,6 +30,7 @@ dependencies = [
  "cc",
  "fantuan-abi",
  "kernel-core",
+ "kernel-net",
 ]
 
 [[package]]
@@ -50,6 +51,13 @@ name = "kernel-core"
 version = "0.0.2"
 dependencies = [
  "fantuan-abi",
+]
+
+[[package]]
+name = "kernel-net"
+version = "0.0.2"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

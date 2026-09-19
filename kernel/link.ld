@@ -25,6 +25,13 @@ SECTIONS
         *(.rodata.*)
         *(.lrodata)
         *(.lrodata.*)
+        /* NetBSD libkern-style link sets (kernel-net event counters). The
+         * symbols must be defined here because the input section is not
+         * named like a C identifier section, so ld does not synthesize
+         * them. */
+        __start_link_set_evcnts = .;
+        KEEP(*(link_set_evcnts))
+        __stop_link_set_evcnts = .;
     }
     .data : ALIGN(4K) {
         *(.data.*)

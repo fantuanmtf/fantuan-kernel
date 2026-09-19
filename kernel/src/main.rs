@@ -40,6 +40,7 @@ mod font;
 mod input;
 mod kbd;
 mod mm;
+mod net;
 mod panic;
 mod shell;
 mod smbios;
@@ -211,6 +212,9 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     task::spawn(demo::demo_2);
     task::spawn(demo::demo_3);
     let _ = writeln!(s, "sched: 3 kernel demo tasks spawned (quantum 100 ms)");
+
+    // M11 R2: NetBSD rump adaptation layer (pools, callouts, mbufs).
+    net::init();
 
     // --- M8.3c: memory hardening (NX + SMEP/SMAP) --------------------------
     // NX must be live before the ELF loader sets P_NX entries. Missing

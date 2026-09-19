@@ -101,3 +101,52 @@ committed generated header); it is imported as-is and recorded as `UNKNOWN`
 in `MANIFEST.tsv`. This is the only license item needing owner review for the
 distribution; it is NetBSD project source and is covered by NetBSD's
 BSD-licensed tree, but the header itself makes no statement.
+
+## 6. R2 outcome (2026-09): the adapter runs in-kernel
+
+The adapter lives in the `kernel-net` no_std crate (`kernel-net/src/c/*.c`),
+whose `build.rs` compiles the nine imported `.c` files and eleven adapter files
+with clang for `x86_64-unknown-none` against the same shim include path as
+`build_spike.sh`. The crate has no kernel-core dependency: the x86_64 kernel
+installs an `Env` of callbacks (kernel log, frame pages, PIT ticks, task
+sleep/exit) and spawns `kernel_net::softintd` and `kernel_net::selftest_task`.
+riscv64 and i686 do not link the crate. C flags add `-mcmodel=large` and the
+soft-float/`-mno-sse` set so the BIOS path (no CR4.OSFXSR) cannot take #UD.
+`shim/include/machine/mutex.h` no longer claims stub mutexes: the MI
+`kern_mutex.c` uniprocessor paths (CAS adaptive mutex, SPL-only spin mutex)
+are now the implementation; contended paths assert.
+
+Implemented services (R1 dependency order): libkern strings/atomics; a bump
+kmem/kern_malloc plus frame-backed `uvm_km_kmem_alloc/free` (real page free)
+and vmem stubs; MI mutex/rwlock/condvar over SPL masks; the LWP/CPU sentinel
+(`curlwp`, `cpu_info_primary`, `lwp0`); sleepq/turnstile asserted; callouts
+driven by `callout_hardclock()` from the PIT; softints as the `softintd` task;
+percpu single-CPU; xcall synchronous/no-op; printf/snprintf/panic/log/
+ratecheck to the kernel log; read-only sysctl stubs and bounded `copyout`;
+empty network registry and mbuf tunables. `link.ld` defines the NetBSD
+`link_set_evcnts` bounds inside `.rodata` so `evcnt_init()` iterates.
+
+Measured link of the whole slice (all 9 imported objects + 10 adapter objects,
+forcing every archive member, with a tiny hook stub): **0 unresolved
+symbols**, down from the R1 count of 104. No unused-archive exclusion is
+needed.
+
+Boot self-test (x86_64 UEFI and BIOS, `rump-selftest` feature, on by
+default):
+
+```
+rump: mbuf self-test ok (allocs=12 frees=12)
+rump: pool self-test ok
+rump: callout self-test ok (fires=20)
+```
+
+The test task is bounded (200 ticks ≈ 2 s for the callout phase), exits, and
+stays quiet. Built with `--no-default-features` the adapter still comes up
+and the softint drainer runs, but no self-test task exists and no `rump:`
+lines are printed.
+
+Stubs that assert/panic if a real scheduler wait is required in R2:
+`sleepq_block/enqueue/wake`, `turnstile_block`; `pserialize` is a no-op,
+`xc_*` runs callbacks synchronously, `percpu_*` is one CPU. `kmem_free`,
+`vmem_free` and `kern_free` do not recycle; R3 replaces the bump arena with a
+real vmem/kmem before the socket layer allocates in loops.
