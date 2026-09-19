@@ -15,6 +15,10 @@ These are branches of this repository for now. If the catalog outgrows the
 kernel repo it splits into standalone repositories with `git subtree
 split` (history follows); the integration contract below stays identical.
 
+Mirrors: GitHub carries every branch (`main`, `fantuan-apps`, `package`);
+Codeberg mirrors the **pure kernel only** (`main`), with no catalog or
+tooling branches.
+
 ## Integration point on main
 
 ```
