@@ -53,6 +53,37 @@ Profiles: `minimal` (SHELL + RESCUE_REPAIR), `net` (adds NET + TOOLS),
    code arrives). `tools/smoke-config.sh` builds each profile and checks
    the presence/absence invariants.
 
+## Budgets, incrementality and the Live direction
+
+Owner direction 2026-09, additional constraints:
+
+- **Size budget**: boot + kernel + shell together stay within **300 MiB**
+  (hard check in the build, like the ISO budget). The OS layer the user
+  configures on top is unbounded.
+- **Incremental builds**: changing the configuration must not rebuild the
+  world. The generated config header is content-hashed; each crate gets
+  `rustc-cfg`s/features per symbol, optional crates are dependency-gated,
+  and the configurator offers `--olddefconfig` so only touched crates
+  rebuild. Documented and smoke-checked (touch one symbol, assert the
+  rebuild set is minimal).
+- **Live kernel goal**: the project is not a rescue-only system. It is
+  becoming the kernel for a Live environment (RAM-first operation, clean
+  boot/shutdown, no persistent writes by default, optional persistence).
+  Rescue stays a profile, not the identity.
+- **Shutdown RAM wipe**: a `CONFIG_SECURE_WIPE` (default y in the Live
+  profile) overwrites kernel memory, page caches, framebuffer and free
+  RAM on clean shutdown/reboot as a mitigation against cold-boot (RAM
+  freezing) attacks. Honest limits documented: a crash or power loss
+  cannot be wiped, so suspend/hibernation stay disabled and the wipe is
+  best-effort defence-in-depth, not a guarantee.
+- **Tools as add-ons (licence firewall)**: userland tools and any GPL
+  programs ship as separate, configuration-selected programs; nothing
+  GPL is ever linked into the kernel or base. The default kernel stays
+  BSD/MIT/Apache only, which the tools separation is designed to keep.
+- **Desktop scope**: only **XFCE** and **CDE** are migration targets for
+  now - small, cross-platform codebases that are tractable to port; other
+  desktops are explicitly out of scope until further notice.
+
 ## Placement in the roadmap
 
 Propose **R6.5**: land the configurator, the `.config` plumbing, the

@@ -290,6 +290,11 @@ the shell only and everything optional (tools, network, TLS, graphics,
 virtualization, desktop, bash) is selected through a `menuconfig`-style
 config. Plan, schema and profiles: `CONFIG_PLAN.md`. Proposed as **R6.5**
 between R6 and R7 so the R7 tools are config-gated from the start.
+Additional constraints recorded there: boot+kernel+shell <= 300 MiB with
+the OS layer unbounded but incrementally rebuilt; the project is the
+kernel of a **Live OS** (not rescue-only); `CONFIG_SECURE_WIPE` clears
+RAM on clean shutdown against cold-boot attacks; tools are add-ons that
+keep GPL out of the kernel/base; the desktop scope is XFCE + CDE only.
 
 ## Next action
 

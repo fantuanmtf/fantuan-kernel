@@ -1,9 +1,20 @@
 # fantuan-kernel
 
-A self-written operating system kernel targeting **live rescue systems**:
-diagnose hardware and boot-chain problems, then repair them — Linux and
-BSD only; Windows repair is permanently out of scope
-([docs/WINDOWS.md](docs/WINDOWS.md), use WinPE).
+A self-written kernel for **Live environments** (RAM-first, clean
+shutdown, optional persistence): diagnose hardware and boot-chain
+problems, then repair them — Linux and BSD only; Windows repair is
+permanently out of scope ([docs/WINDOWS.md](docs/WINDOWS.md), use WinPE).
+
+**Direction (2026-09, declared).** The project transitions from a
+rescue-only system to the kernel of a Live OS. The default build is the
+minimal kernel plus the shell (boot + kernel + shell <= 300 MiB); tools,
+networking, TLS, graphics, virtualization and the desktop are opt-in
+through a menuconfig-style configuration ([docs/CONFIG_PLAN.md](docs/CONFIG_PLAN.md)),
+and a content-hashed config keeps rebuilds incremental. Userland tools
+are add-ons, never linked into the kernel or base, so no GPL code can
+infect them; the desktop scope is XFCE and CDE only. The Live profile
+wipes RAM on clean shutdown (`CONFIG_SECURE_WIPE`) as a best-effort
+cold-boot (RAM-freezing) mitigation, with the limitations documented.
 
 All repository artifacts are in English. The authoritative design lives in
 [docs/DESIGN.md](docs/DESIGN.md) — change it before changing code.
