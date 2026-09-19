@@ -1,0 +1,16 @@
+GNU Bash 5.3 - complete corresponding source.
+
+Upstream release:  https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz
+Detached signature: https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz.sig
+Retrieved:         2026-09-20
+sha256:            0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba
+GPG:               verified against the GNU keyring
+                   (https://ftp.gnu.org/gnu/gnu-keyring.gpg), DSA key
+                   7C0135FB088AAF6C66C650B9BB5869F064EA74AB
+                   (Chet Ramey <chet@cwru.edu>), signature dated 2025-07-30.
+License:           GPL-3.0-or-later; COPYING next to the tarball (and at
+                   ../COPYING) is the GPLv3 text extracted from this tarball.
+
+The tarball is shipped pristine and is extracted at build time (M14-8), so the
+repository stores exactly the upstream source; SHA256SUMS pins the archive and
+apps.lock pins the whole vendored tree.

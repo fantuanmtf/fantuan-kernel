@@ -218,6 +218,7 @@ Design: `M14_LINUXUSERS.md`.
 | Date | Check | Result |
 |---|---|---|
 | 2026-09 | C2 catalog/appctl: `tools/smoke-apps.sh` PASS (fixture add/sync + lock sha256, kernel-layer GPL refusal plus apps-layer allow list, menu fragment merged by `tools/kconfig.py --check`, SBOM JSON, remove cleanup, corrupt-tree failure); `bash -n tools/{smoke-apps,mkbranches}.sh` clean; three-target builds zero warnings | PASS |
+| 2026-09 | C3 bash vendor/GPL compliance: `tools/smoke-gpl.sh` PASS (tarball sha256 `0d5cd86965f8...` = `SHA256SUMS` = manifest and GPG-verified upstream; `COPYING` = the tarball's GPLv3 text; kernel/base `verify` refused with the GPL message while `--apps-layer` passed via `gpl_allow`; `menu` kept `CONFIG_APP_BASH=n` with the posix-libc/M14 note; SBOM bash `gpl=true`; the x86_64 kernel rebuild left `apps/bash` untouched, with no Cargo edge into `apps/` and no bash symbols/app paths in the ELF); `smoke-apps.sh` PASS, `smoke-config.sh` PASS; three-target builds zero warnings | PASS |
 | 2026-09 | C1 config foundation: `tools/smoke-config.sh` PASS (net/minimal invariants, 2 MiB budget check with 1-byte over-budget simulation, `DEBUG_SELFTEST` flip rebuilds only the three config consumers); `smoke-net.sh` PASS, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3 (phase A rerun once after the documented serial-input flake); three-target builds zero warnings | PASS |
 | 2026-09 (v0.0.2) | release builds zero warnings: `cargo build -p fantuan-kernel` (x86_64), `cargo build -p kernel-riscv` (riscv64), `tools/build-i686.sh` | PASS |
 | 2026-09 (v0.0.2) | `tools/smoke.sh` full 13-phase x86 suite (second run; the first hit a host-load boot timeout in phase 9, the isolated rerun passed) | PASS 13/13 |
@@ -335,13 +336,28 @@ isolation; then R7.
       `tools/smoke-apps.sh`, `bash -n tools/{smoke-apps,mkbranches}.sh`,
       three-target zero-warning builds. No real app vendored yet (the owner
       picks the list); bash lands in C3.
+- [x] C3 bash vendor + GPL compliance: `apps/bash/` (GNU Bash 5.3, pristine
+      `src/bash-5.3.tar.gz` + `.sig`/`SHA256SUMS`/`SOURCE`, `COPYING`, an
+      empty `patches/` with the M14 musl/fantuan-ABI plan, `manifest.toml`
+      with `gpl = true`, `tarball_sha256` and the new
+      `requires = ["posix-libc"]`), `apps.lock` pin (`source = "upstream"`),
+      catalog `gpl_allow = ["bash"]`, `THIRD_PARTY.md` register row plus the
+      source-provision note, the `requires` gate in appctl (`menu` writes
+      `default n` with the M14 unavailable note; `sync`/`upgrade` skip
+      upstream pins) and `tools/smoke-gpl.sh` (tarball sha256 + COPYING
+      provenance, kernel/base refusal vs apps-layer allow, requires gate,
+      SBOM `gpl=true`, kernel isolation: no Cargo edge, tree untouched, no
+      bash symbols/paths in the x86_64 ELF) - verify `tools/smoke-gpl.sh`,
+      `tools/smoke-apps.sh`, `tools/smoke-config.sh`, three-target
+      zero-warning builds. bash is shipped but not built: the musl/POSIX
+      layer and the port land at M14-4/M14-8.
 
 ## Next action
 
-**C3**: vendor bash (the GPLv3 default shell) with its sources and `COPYING`,
-register it in `apps-catalog.toml` `[licensing] gpl_allow` and
-`THIRD_PARTY.md`, and wire the GPL compliance checks. Then C4 kernel subsystem
-isolation (flips the default profile to `minimal` and makes `kernel-net`
-conditional); R7 follows. Stop after each batch so the owner can push.
+**C4**: kernel subsystem isolation (flips the default profile to `minimal`
+and makes `kernel-net` conditional); R7 follows. bash stays pinned behind
+`requires = ["posix-libc"]`: the M14-4 musl port and M14-8 shell flip
+`app_manifest.AVAILABLE_REQUIRES` and add the in-image `/usr/src/bash`
+sources bundle. Stop after each batch so the owner can push.
 Housekeeping: hunt the intermittent riscv `uart::log_bytes` fault and the
 i686 PIO ATA polling-to-IRQ conversion when the i686 shell work needs it.

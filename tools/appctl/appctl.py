@@ -100,6 +100,9 @@ def sync_command(args, root, catalog, preserve):
         return 0
     for entry in targets:
         name = entry["name"] if entry else args.name
+        if entry is not None and not args.from_ and entry.get("source") == "upstream":
+            print(f"{name}: pinned upstream tarball (not a catalog source; sync n/a)")
+            continue
         source = resolve_source(args, root, catalog, entry)
         if (
             preserve
@@ -145,7 +148,7 @@ def cmd_verify(args, root, catalog):
 
 
 def cmd_menu(args, root, catalog):
-    written, skipped = app_menu.generate(root, catalog)
+    written, skipped, notes = app_menu.generate(root, catalog)
     if written:
         fragments = ", ".join(f"config/apps/{name}.kconfig" for name in written)
         print(f"menu: wrote {fragments}")
@@ -153,6 +156,8 @@ def cmd_menu(args, root, catalog):
         print("menu: no fragments written")
     for name, reason in skipped:
         print(f"menu: skipped {name} ({reason})", file=sys.stderr)
+    for name, note in notes:
+        print(f"menu: {name}: unavailable ({note})", file=sys.stderr)
     return 0
 
 

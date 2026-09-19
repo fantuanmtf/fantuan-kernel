@@ -50,6 +50,7 @@ abi_min = 1                     # <= fantuan_abi::ABI_VERSION at build time
 build = "bmake"                 # bmake | ninja | custom
 deps = []
 patches = ["patches/0001-port.patch"]
+requires = []                   # optional layers; while unmet the menu keeps it off
 description = "one line; shown as the menu prompt/help"
 gpl = false                     # true only in the apps layer, never linked
 ```
@@ -115,7 +116,45 @@ tools/appctl/appctl.py sbom [-o sbom.json]
 Branch skeletons live (gitignored) in `build/branch-skeletons/`; the
 owner-run `tools/mkbranches.sh` creates/updates the local `fantuan-apps` and
 `package` branches from `main` and prints the `git push -u origin ...`
-commands. It never runs automatically. No real app is vendored yet.
+commands. It never runs automatically. No real app was vendored in C2; bash
+lands in C3.
+
+## Implemented in C3 (2026-09)
+
+`apps/bash/` vendors GNU Bash 5.3 as the first real app (the GPLv3 default
+shell): `manifest.toml` (`license = "GPL-3.0-or-later"`, `gpl = true`,
+`upstream` = the release tarball URL, `rev = "unversioned"`,
+`tarball_sha256`, `build = "custom"`, `abi_min = 1`), the pristine
+`src/bash-5.3.tar.gz` with its `.sig`, `SHA256SUMS` and `SOURCE`, the GPLv3
+text in `COPYING`, and a `patches/` directory that stays empty until M14-8.
+`apps.lock` pins the whole tree (`source = "upstream"` - a pinned release
+tarball, which `sync`/`upgrade` report and leave alone);
+`apps-catalog.toml` lists bash in `[licensing] gpl_allow`; `THIRD_PARTY.md`
+carries the register row and the source-provision note.
+
+The manifest gains the optional `requires` field (backward compatible: old
+tooling ignores it). `posix-libc` is not in `app_manifest.AVAILABLE_REQUIRES`
+until M14, so `menu` offers bash as unavailable: the generated fragment keeps
+`default n` and carries the "(unavailable: requires posix-libc (M14
+POSIX/libc layer))" prompt plus the stderr note
+`menu: bash: unavailable (requires ...)`; `kconfig.py` cannot pick
+`CONFIG_APP_BASH=y` up from defaults. `verify` is unaffected by `requires`
+(integrity/licence only): bash still fails in the kernel/base layer and
+passes with `--apps-layer` because it is in `gpl_allow`.
+
+Source-provision policy: the repo ships the complete corresponding source
+(the pristine tarball, pinned by `apps.lock` + `SHA256SUMS`); image assembly
+adds it to `/usr/src/bash/` with `COPYING` and `SOURCE`, so the built binary
+travels with its exact sources and build recipe. bash is a separate M14-8
+executable over the native ABI, never linked into the kernel, bootloader or
+base libraries.
+
+`tools/smoke-gpl.sh` (offline) proves the five invariants: tarball sha256 and
+`COPYING` provenance; kernel/base refusal and apps-layer allow; the `requires`
+gate in `menu`; the SBOM entry (`gpl = true`, `GPL-3.0-or-later`); and
+kernel/base isolation (the x86_64 kernel rebuild has no Cargo edge into
+`apps/`, leaves the bash tree hash and mtimes untouched, and the kernel ELF
+contains no bash symbols or app paths).
 
 ## Budgets
 

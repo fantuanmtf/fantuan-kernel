@@ -5,4 +5,11 @@
 
 version = 1
 
-# Empty: no app is vendored yet; the owner picks the catalog list.
+[[app]]
+name = "bash"
+version = "5.3"
+license = "GPL-3.0-or-later"
+gpl = true
+source = "upstream"
+rev = "unversioned"
+sha256 = "509486344381428f48ca47422acc9351bfe27c8915b153ebb647524cee5a15d2"

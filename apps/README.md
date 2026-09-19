@@ -4,7 +4,8 @@
 `apps.lock`. The tree is populated by `tools/appctl` from the catalog
 (`apps-catalog.toml`, whose default source is the `fantuan-apps` branch of this
 repository) and is committed to `main`, so the kernel builds offline and
-reproducibly. Nothing is vendored by default: the owner decides the app list.
+reproducibly. The owner decides the app list; `bash/` (C3) is the first real
+app and pins an upstream release tarball instead of a catalog revision.
 
 ```
 apps/<name>/manifest.toml     metadata and the build recipe (see docs/APPS.md)
@@ -46,10 +47,17 @@ name = "example"
 version = "1.0"
 license = "BSD-2-Clause"
 gpl = false
-source = "fantuan-apps"      # catalog source, or "path:<dir>"
+source = "fantuan-apps"      # catalog source, "path:<dir>", or "upstream"
 rev = "<git commit>"
 sha256 = "<tree hash>"
 ```
+
+`source = "upstream"` marks an app pinned from an upstream release tarball
+(bash): `sync`/`upgrade` report it and leave it alone, since it has no
+catalog revision to re-sync. `requires` in the manifest (optional) names
+layers the app needs; while a layer is unavailable, `menu` writes the
+`CONFIG_APP_<NAME>` fragment with `default n` and an unavailable note
+(`app_manifest.AVAILABLE_REQUIRES`; `posix-libc` opens at M14).
 
 Tree hash: sha256 over the sorted lines `"<relpath> <file-sha256>\n"` for every
 regular file below `apps/<name>/` (bytewise-sorted relpaths, forward slashes).
@@ -62,8 +70,9 @@ regular file below `apps/<name>/` (bytewise-sorted relpaths, forward slashes).
   accepted with `--apps-layer` **and** an entry in the catalog's
   `[licensing] gpl_allow` list; `menu` skips such apps otherwise. The kernel
   and base libraries stay BSD/MIT/Apache-only.
-- bash is the registered GPLv3 exception (`docs/APPS.md`); its manifest enters
-  the allow list in C3 together with its sources and `COPYING`.
+- bash is the registered GPLv3 exception (`docs/APPS.md`): it is vendored in
+  `apps/bash/` (C3) with its complete sources, `COPYING` and a manifest in
+  the allow list, and it is never linked into the kernel or base libraries.
 
 ## Adding an app
 

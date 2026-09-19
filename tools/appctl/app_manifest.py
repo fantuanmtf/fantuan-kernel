@@ -7,6 +7,21 @@ from app_util import REQUIRED_MANIFEST, SPDX_RE, load_toml
 
 ABI_RE = re.compile(r"pub const ABI_VERSION: u64 = (\d+);")
 
+# `requires` gate for the menu (C3, docs/APPS.md): a manifest names the layers
+# an app needs; an entry not in AVAILABLE_REQUIRES keeps CONFIG_APP_<NAME> at
+# default n with an "unavailable" note. The layer lands at M14, so the set is
+# empty until then; adding it flips bash to buildable.
+KNOWN_REQUIRES = {"posix-libc": "M14 POSIX/libc layer"}
+AVAILABLE_REQUIRES = frozenset()
+
+
+def unmet_requires(manifest):
+    unmet = []
+    for item in manifest.get("requires", []):
+        if item not in AVAILABLE_REQUIRES:
+            unmet.append(f"{item} ({KNOWN_REQUIRES.get(item, 'unknown layer')})")
+    return unmet
+
 
 def parse(path):
     manifest = load_toml(path)
@@ -32,6 +47,11 @@ def validate(name, manifest):
     abi_min = manifest.get("abi_min")
     if not isinstance(abi_min, int) or isinstance(abi_min, bool):
         errors.append("abi_min must be an integer")
+    requires = manifest.get("requires", [])
+    if not isinstance(requires, list) or any(
+        not isinstance(item, str) or not item.strip() for item in requires
+    ):
+        errors.append("requires must be a list of non-empty strings")
     return errors
 
 
