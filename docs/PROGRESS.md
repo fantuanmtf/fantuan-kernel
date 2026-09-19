@@ -108,9 +108,13 @@ done).
 
 ## v0.0.3 - M11 (ARM64 + network)
 
-Design: `M11_NET.md`.
+Design: `M11_NET.md`. Batch plan: `M11_PLAN.md` (rump full-subset import,
+aarch64 direct + UEFI, net-smoke offline gate with optional Tor 9050
+external phase; **owner pushes between R batches**).
 
-- [ ] M11-1 shims: mbuf/pool/callout/locks over frames + tick (unit-tested)
+- [ ] M11-1 rump full-subset vendor + adaptation layer (mbuf/pool/callout/
+      locks/threads over frames, cooperative tasks and the PIT tick),
+      per-file license registration
 - [ ] M11-2 `net_ops` registry + loopback; ping over loopback
 - [ ] M11-3 IPv4/ARP/ICMP/UDP on loopback + counters
 - [ ] M11-4 TCP + socket layer; loss/throughput tests
@@ -240,8 +244,8 @@ snapshot table above. **Released as 0.0.2** (workspace and banners); the
 
 ## Next action
 
-**M11 / v0.0.3**: ARM64 (QEMU `virt`) plus the NetBSD-derived network
-stack, `net_ops` and full TCP/HTTPS per `M11_NET.md`. Housekeeping carried
-into M11: hunt the intermittent riscv `uart::log_bytes` fault (Known
-issues) and convert the i686 PIO ATA path from polling to IRQ if the i686
-shell work needs it.
+**M11 R1 / v0.0.3**: vendor the first rump slice and bring up the
+adaptation layer per `M11_PLAN.md`; stop after each R batch so the owner
+can push. Housekeeping carried into M11: hunt the intermittent riscv
+`uart::log_bytes` fault (Known issues) and convert the i686 PIO ATA path
+from polling to IRQ if the i686 shell work needs it.
