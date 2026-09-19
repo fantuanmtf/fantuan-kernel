@@ -73,42 +73,50 @@ read-only. The remaining batches shift one slot: R3 net_ops + loopback,
 R4 IPv4/ARP/ICMP/UDP, R5 TCP/socket, R6 drivers/DHCP, R7 DNS/tools,
 R8 mbedTLS/HTTPS, R9 aarch64 + release (tracker items M11-2..8 unchanged).
 
-### R3 - net_ops registry + loopback
+### R3 outcome - net_ops, loopback and ping in the kernel
 
-Scope: `net_ops` driver registry, loopback interface, `ping` over it.
-- Verify: loopback echo lines + counters in the smoke log.
+R3 extended the import with the real ifnet/route slice (`if.c`, `if_loop.c`,
+`route.c`, `radix.c`, `rtbl.c`, `if_stats.c`, `bpf_stub.c`,
+`subr_pserialize.c`; 197 files total) and attached lo0 with 127.0.0.1/8 from
+the `net_ops` registry (`net_register`/`net_ifattach`/`net_ifdetach`/
+`net_send`/`net_recv`). The boot ping goes out through `if_output` ->
+`looutput` -> the adapter packet queue and comes back as an ICMP echo reply
+turned around in place; R4 replaces the adapter responder with
+`ip_input.c`/`ip_icmp.c`/`in.c`. `tools/smoke-net.sh` gates the loopback
+markers; its phase structure is ready for the R6 SLIRP and R8 optional Tor
+phases.
 
-### R3 - IPv4/ARP/ICMP/UDP
+### R4 - IPv4/ARP/ICMP/UDP
 
 Scope: address config, ARP cache, ICMP echo, UDP sockets; diagnostics.
 - Verify: loopback suite with counters; malformed-packet guards.
 
-### R4 - TCP + socket layer
+### R5 - TCP + socket layer
 
 Scope: TCP state machine on the rump stack, socket API for the kernel
 client, loss/throughput tests over loopback.
 - Verify: transfer of a known blob with hash equality under an injected
   drop/reorder shim.
 
-### R5 - virtio-net + e1000 + DHCP
+### R6 - virtio-net + e1000 + DHCP
 
 Scope: virtio-net (MMIO first; PCI on x86_64), e1000, DHCP client.
 - Verify: SLIRP lease acquired; ARP/ICMP to 10.0.2.2.
 
-### R6 - DNS + tools
+### R7 - DNS + tools
 
 Scope: resolver, `ping`/`nslookup`/`wget` as shared shell commands.
 - Verify: offline DNS server (host-side) + fetch from the local HTTP
   server; external phase is optional per the Tor policy.
 
-### R7 - mbedTLS port + HTTPS + KAT
+### R8 - mbedTLS port + HTTPS + KAT
 
 Scope: vendored mbedTLS config for the kernel, TLS client in `wget`, TLS
 KATs (SHA-256/RSA/AES-GCM) in the boot diagnostics.
 - Verify: offline TLS server with a pinned CA; KAT output line; external
   HTTPS through Tor when available.
 
-### R8 - aarch64 bring-up + final docs
+### R9 - aarch64 bring-up + final docs
 
 Scope: direct FDT boot on QEMU `virt`; UEFI loader path under AAVMF; the
 full stack on aarch64; smoke phases; docs/matrices/THIRD_PARTY; 0.0.3.

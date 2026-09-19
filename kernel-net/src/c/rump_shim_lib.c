@@ -14,9 +14,11 @@
 #undef memset
 #undef memcpy
 #undef memmove
+#undef memcmp
 #undef strlen
 #undef strcmp
 #undef strcpy
+#undef strncpy
 #undef strlcpy
 
 unsigned long
@@ -63,6 +65,13 @@ atomic_dec_uint_nv(volatile unsigned int *p)
 {
 
 	return __atomic_sub_fetch(p, 1, __ATOMIC_SEQ_CST);
+}
+
+void
+atomic_dec_uint(volatile unsigned int *p)
+{
+
+	(void)__atomic_sub_fetch(p, 1, __ATOMIC_SEQ_CST);
 }
 
 void
@@ -147,6 +156,36 @@ strcpy(char *dst, const char *src)
 
 	while ((*d++ = *src++) != '\0')
 		continue;
+	return dst;
+}
+
+int
+memcmp(const void *a, const void *b, size_t len)
+{
+	const unsigned char *x = a;
+	const unsigned char *y = b;
+	size_t i;
+
+	for (i = 0; i < len; i++) {
+		if (x[i] != y[i])
+			return (int)x[i] - (int)y[i];
+	}
+	return 0;
+}
+
+char *
+strncpy(char *dst, const char *src, size_t len)
+{
+	char *d = dst;
+
+	while (len > 0 && *src != '\0') {
+		*d++ = *src++;
+		len--;
+	}
+	while (len > 0) {
+		*d++ = '\0';
+		len--;
+	}
 	return dst;
 }
 

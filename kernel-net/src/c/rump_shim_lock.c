@@ -8,6 +8,7 @@
 #include <sys/param.h>
 #include <sys/kmem.h>
 #include <sys/mutex.h>
+#include <sys/rwlock.h>
 #include <sys/lwp.h>
 #include <sys/proc.h>
 #include <sys/sched.h>
@@ -56,10 +57,20 @@ lwp_unlock_to(lwp_t *l, kmutex_t *mp)
 }
 
 bool
-pserialize_not_in_read_section(void)
+kpreempt_disabled(void)
 {
 
 	return true;
+}
+
+void
+kpreempt_disable(void)
+{
+}
+
+void
+kpreempt_enable(void)
+{
 }
 
 void
@@ -82,6 +93,38 @@ mutex_obj_alloc(kmutex_type_t type, int ipl)
 	return m;
 }
 
+bool
+mutex_obj_free(kmutex_t *m)
+{
+
+	if (m == NULL)
+		return false;
+	mutex_destroy(m);
+	kmem_free(m, sizeof(*m));
+	return true;
+}
+
+krwlock_t *
+rw_obj_alloc(void)
+{
+	krwlock_t *rw = kmem_alloc(sizeof(*rw), KM_SLEEP);
+
+	if (rw == NULL)
+		panic("rw_obj_alloc: out of memory");
+	rw_init(rw);
+	return rw;
+}
+
+bool
+rw_obj_free(krwlock_t *rw)
+{
+
+	if (rw == NULL)
+		return false;
+	rw_destroy(rw);
+	kmem_free(rw, sizeof(*rw));
+	return true;
+}
 
 uint64_t
 xc_unicast(u_int flags, xcfunc_t fn, void *arg1, void *arg2,
@@ -172,6 +215,28 @@ percpu_foreach(percpu_t *p, percpu_callback_t fn, void *arg)
 {
 
 	fn(p->p_data, arg, &cpu_info_primary);
+}
+
+void
+percpu_foreach_xcall(percpu_t *p, u_int flags, percpu_callback_t fn, void *arg)
+{
+
+	(void)flags;
+	fn(p->p_data, arg, &cpu_info_primary);
+}
+
+percpu_t *
+percpu_create(size_t size, percpu_callback_t ctor, percpu_callback_t dtor,
+    void *arg)
+{
+	percpu_t *p = percpu_alloc(size);
+
+	if (p == NULL)
+		return NULL;
+	if (ctor != NULL)
+		ctor(p->p_data, arg, &cpu_info_primary);
+	(void)dtor;
+	return p;
 }
 
 void

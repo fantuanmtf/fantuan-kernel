@@ -72,6 +72,7 @@ extern "C" {
     fn rump_shim_init();
     fn rump_shim_tick();
     fn rump_softint_dispatch();
+    fn rump_net_poll() -> i32;
     fn rump_selftest_poll() -> i32;
 }
 
@@ -96,6 +97,17 @@ pub fn softintd() -> ! {
     loop {
         unsafe { rump_softint_dispatch() };
         (env().sleep_ms)(1);
+    }
+}
+
+/// Loopback ping task: drains the packet queue and runs the ping state
+/// machine until it reports completion.
+pub fn loopback_task() -> ! {
+    loop {
+        if unsafe { rump_net_poll() } != 0 {
+            (env().exit)();
+        }
+        (env().sleep_ms)(10);
     }
 }
 

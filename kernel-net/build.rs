@@ -19,7 +19,15 @@ const NETBSD_CSRCS: &[&str] = &[
     "sys/kern/kern_timeout.c",
     "sys/kern/subr_psref.c",
     "sys/kern/subr_pool.c",
+    "sys/kern/subr_pserialize.c",
     "sys/kern/uipc_mbuf.c",
+    "sys/net/bpf_stub.c",
+    "sys/net/if.c",
+    "sys/net/if_loop.c",
+    "sys/net/if_stats.c",
+    "sys/net/radix.c",
+    "sys/net/route.c",
+    "sys/net/rtbl.c",
 ];
 
 const SHIM_CSRCS: &[&str] = &[
@@ -31,8 +39,13 @@ const SHIM_CSRCS: &[&str] = &[
     "rump_shim_printf.c",
     "rump_shim_sysctl.c",
     "rump_shim_net.c",
+    "rump_shim_if.c",
+    "rump_shim_route.c",
+    "rump_shim_sock.c",
     "rump_shim_softint.c",
     "rump_shim_init.c",
+    "rump_loopback.c",
+    "rump_ping.c",
     "rump_selftest.c",
 ];
 
@@ -50,6 +63,10 @@ fn main() {
     }
     println!("cargo:rerun-if-changed={dir}/src/c/rump_shim.h");
     println!("cargo:rerun-if-changed={shim}/machine/mutex.h");
+    println!("cargo:rerun-if-changed={shim}/machine/cpu.h");
+    println!("cargo:rerun-if-changed={shim}/ether.h");
+    println!("cargo:rerun-if-changed={shim}/bridge.h");
+    println!("cargo:rerun-if-changed={shim}/carp.h");
 
     if target != "x86_64-unknown-none" {
         return;
@@ -89,6 +106,11 @@ fn main() {
             .flag("-ffunction-sections")
             .flag("-fdata-sections")
             .flag("-D_KERNEL")
+            /* The sources are NetBSD's; the target triple is not.  __NetBSD__
+             * selects the NetBSD-specific paths in shared headers (e.g. the
+             * 802.11 ioctl numbers), INET the IPv4 stack paths. */
+            .flag("-D__NetBSD__")
+            .flag("-DINET=1")
             .include(&shim)
             .include(format!("{netbsd}/sys"))
             .include(format!("{netbsd}/common/include"))

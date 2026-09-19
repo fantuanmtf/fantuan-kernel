@@ -12,6 +12,7 @@
 #include <sys/callout.h>
 #include <sys/cpu.h>
 #include <sys/mbuf.h>
+#include <sys/pserialize.h>
 #include "rump_shim.h"
 
 void rump_shim_init_cpu(void);
@@ -35,4 +36,7 @@ rump_shim_init(void)
 	mbinit();
 
 	cold = 0;
+
+	pserialize_init();
+	rump_loopback_up();
 }

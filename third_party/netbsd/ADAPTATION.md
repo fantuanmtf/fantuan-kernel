@@ -150,3 +150,44 @@ Stubs that assert/panic if a real scheduler wait is required in R2:
 `xc_*` runs callbacks synchronously, `percpu_*` is one CPU. `kmem_free`,
 `vmem_free` and `kern_free` do not recycle; R3 replaces the bump arena with a
 real vmem/kmem before the socket layer allocates in loops.
+
+## 7. R3 outcome (2026-09): net_ops, loopback and ping
+
+The import grew to 197 files (106 BSD-2, 85 BSD-3, 2 Public-Domain, 1
+MIT/CMU, 3 without a per-file notice: `device_if.h`, `in_selsrc.h`,
+`cprng_fast.h`; all NetBSD project source under the tree's BSD terms). The
+R3 `.c` additions are the real `sys/net/if.c`, `sys/net/if_loop.c`,
+`sys/net/route.c`, `sys/net/radix.c`, `sys/net/rtbl.c`,
+`sys/net/if_stats.c`, `sys/net/bpf_stub.c` and
+`sys/kern/subr_pserialize.c` plus their header closure (if_dl/if_ether/
+if_media/if_types/kauth/module/net80211/compat/...). Two shim-generated
+config headers join `shim/include/`: `ether.h`, `bridge.h`, `carp.h` (all
+counts 0). `kernel-net/build.rs` defines `__NetBSD__` (NetBSD-specific
+header paths) and `INET` (the IPv4 paths) for the imported objects.
+
+`kernel-net/src/c/rump_shim_net.c` now owns the `net_ops` registry from
+`docs/M11_NET.md` section 6 (`net_register`/`net_ifattach`/`net_ifdetach`/
+`net_send`/`net_recv`), a single-CPU mbuf packet queue standing in for
+`pktqueue(9)`, and the domain-list helpers. `rump_loopback.c` brings up the
+real `if.c` core + `if_loop.c` lo0 (`rt_init`, `bpf_setops`, `ifinit1`,
+`ifinit`, `loopattach`), assigns 127.0.0.1/8 via `ifa_insert`, and
+registers the loopback as the first `net_ops` device; `rump_ping.c` runs
+the boot ping. The output path is `if_output` -> `looutput` -> the shim
+queue; the loopback task drains it, turns an ICMP echo request around in
+place (addresses swapped, type 8 -> 0, IP/ICMP checksums redone) and feeds
+the reply back through `if_output`; the ping client reads it via the
+driver's `recv` op and times it with the PIT tick. R4 replaces this echo
+responder with `ip_input.c`/`ip_icmp.c`/`in.c`; routing-socket
+notifications (`rt_*msg`), pfil, hooks, kauth/module calls, the
+single-CPU workqueue (synchronous), `pktqueue` and `sockaddr_*` helpers
+are the remaining adapter stubs. The self-test, softint and sysctl stubs
+from R2 are unchanged.
+
+Boot markers (UEFI and the `tools/smoke-net.sh` loopback gate):
+
+```
+net: lo0 up 127.0.0.1/8
+net: ping 127.0.0.1 ok (seq=1 rtt=10 ticks)
+net: icmp echo reply ok
+net: in/out counters pkts_in=2 pkts_out=2
+```

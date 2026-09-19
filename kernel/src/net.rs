@@ -82,6 +82,7 @@ pub fn init() {
         exit,
     });
     crate::task::spawn(kernel_net::softintd);
+    crate::task::spawn(kernel_net::loopback_task);
     #[cfg(feature = "rump-selftest")]
     crate::task::spawn(kernel_net::selftest_task);
 }

@@ -221,6 +221,18 @@ panic(const char *fmt, ...)
 	fantuan_rump_panic(buf, strlen(buf));
 }
 
+void
+kern_assert(const char *fmt, ...)
+{
+	char buf[512];
+	va_list ap;
+
+	va_start(ap, fmt);
+	(void)format(buf, sizeof(buf), fmt, ap);
+	va_end(ap);
+	panic("%s", buf);
+}
+
 int
 ratecheck(struct timeval *last, const struct timeval *interval)
 {

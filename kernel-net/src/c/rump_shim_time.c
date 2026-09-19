@@ -28,6 +28,21 @@ getticks(void)
 }
 
 void
+getnanotime(struct timespec *ts)
+{
+
+	ts->tv_sec = (time_t)(fantuan_rump_ticks() / (uint64_t)hz);
+	ts->tv_nsec = 0;
+}
+
+void
+nanotime(struct timespec *ts)
+{
+
+	getnanotime(ts);
+}
+
+void
 rump_shim_tick(void)
 {
 

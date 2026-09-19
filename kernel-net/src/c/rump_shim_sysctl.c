@@ -97,3 +97,21 @@ copyout(const void *src, void *dst, size_t len)
 	memcpy(dst, src, len);
 	return 0;
 }
+
+int
+copyin(const void *src, void *dst, size_t len)
+{
+
+	if (src == NULL || dst == NULL)
+		return EFAULT;
+	memcpy(dst, src, len);
+	return 0;
+}
+
+void
+sysctl_teardown(struct sysctllog **logp)
+{
+
+	if (logp != NULL)
+		*logp = NULL;
+}

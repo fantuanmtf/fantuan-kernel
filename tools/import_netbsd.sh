@@ -82,12 +82,39 @@ FILES="
     sys/sys/workqueue.h sys/sys/xcall.h sys/uvm/uvm_anon.h \
     sys/uvm/uvm_extern.h sys/uvm/uvm_map.h sys/uvm/uvm_pager.h \
     sys/uvm/uvm_param.h sys/uvm/uvm_physseg.h sys/uvm/uvm_pmap.h \
-    sys/uvm/uvm_prot.h"
+    sys/uvm/uvm_prot.h \
+    sys/kern/subr_pserialize.c sys/net/bpf_stub.c sys/net/if.c \
+    sys/net/if_loop.c sys/net/if_stats.c sys/net/radix.c \
+    sys/net/route.c sys/net/rtbl.c \
+    common/include/prop/prop_array.h common/include/prop/prop_bool.h \
+    common/include/prop/prop_data.h common/include/prop/prop_dictionary.h \
+    common/include/prop/prop_ingest.h common/include/prop/prop_number.h \
+    common/include/prop/prop_object.h common/include/prop/prop_string.h \
+    common/include/prop/proplib.h \
+    sys/compat/net/if.h sys/compat/net/route.h sys/compat/sys/sockio.h \
+    sys/compat/sys/time.h sys/compat/sys/time_types.h \
+    sys/crypto/cprng_fast/cprng_fast.h \
+    sys/crypto/nist_hash_drbg/nist_hash_drbg.h sys/net/bpf.h \
+    sys/net/bpfjit.h sys/sys/compat_stub.h sys/sys/cprng.h \
+    sys/sys/device.h sys/sys/kauth.h sys/sys/module.h \
+    sys/net/ethertypes.h sys/net/if_dl.h sys/net/if_ether.h \
+    sys/net/if_llatbl.h sys/net/if_media.h sys/net/if_module.h \
+    sys/net/if_types.h sys/net/raw_cb.h sys/net80211/_ieee80211.h \
+    sys/net80211/ieee80211.h sys/net80211/ieee80211_crypto.h \
+    sys/net80211/ieee80211_ioctl.h sys/netinet/if_inarp.h \
+    sys/netinet/in.h sys/netinet/in_offload.h sys/netinet/in_selsrc.h \
+    sys/netinet/in_systm.h sys/netinet/in_var.h sys/netinet/ip.h \
+    sys/netinet/ip_encap.h sys/netinet/ip_var.h \
+    sys/netinet6/in6.h sys/netinet6/in6_var.h sys/netmpls/mpls.h \
+    sys/secmodel/secmodel.h sys/sys/pmf.h sys/sys/stat.h"
 
 # Files with no per-file license notice, accepted explicitly.  device_if.h
 # is a committed NetBSD-generated header (no copyright block); it is part of
 # NetBSD src and stays under NetBSD's BSD terms, see THIRD_PARTY.md.
-NOHEADER_OK="sys/sys/device_if.h"
+# in_selsrc.h and cprng_fast.h are likewise NetBSD project headers whose
+# notice lives in the source file, not the header.
+NOHEADER_OK="sys/sys/device_if.h sys/netinet/in_selsrc.h \
+    sys/crypto/cprng_fast/cprng_fast.h"
 
 license_of() {
     local f="$1"
