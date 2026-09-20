@@ -10,6 +10,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 mkdir -p build
 
+# The CD firmware-preload stage2 has a low-RAM budget: this boot-path smoke
+# selects the minimal profile regardless of the caller's .config (net/TLS
+# kernels belong to the UEFI/disk paths and exceed the preload window).
+python3 tools/kconfig.py --profile minimal >/dev/null || exit 1
+
 ./tools/build-iso.sh || exit 1
 
 echo "[phase 1] BIOS El Torito boot (SeaBIOS -cdrom)..."

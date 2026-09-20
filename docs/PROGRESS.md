@@ -169,7 +169,31 @@ external phase; **owner pushes between R batches**).
       second task exposed: the x86_64 context switch now saves/restores
       RFLAGS (IF=0 resume froze the PIT) and the R5 TCP test timeout is
       wall-clock based - R8 adds mbedTLS + HTTPS
-- [ ] M11-7 mbedTLS port + HTTPS + TLS KATs
+- [x] M11-7 mbedTLS port + HTTPS + TLS KATs: R8 vendored Mbed TLS 3.6.7
+      into `apps/mbedtls/` (pristine tarball + SHA256SUMS/SOURCE/LICENSE,
+      manifest with `requires = ["kernel-net", "posix-libc"]`, lock entry,
+      README with the kernel-config/glue plan; Apache-2.0 chosen from the
+      dual license, `gpl = false`).  `kernel-net/build.rs` extracts and
+      compiles a 35-file subset only under `CONFIG_TLS` (TLS 1.2 client,
+      ECDHE-RSA, AES-GCM, SHA-256, X.509/RSA; no libc/FS/threads/net) with a
+      custom config, freestanding libc shims, PIT-fed time, a boot-seeded
+      SHA-256 counter CSPRNG behind `mbedtls_hardware_poll` and allocators
+      over the adapter kmem arena.  The boot runs the KATs
+      (`tls: KATs ok (sha256 + aes-gcm + rsa)`) and the self-test fetches
+      `https://test.fantuan:18443/` against a per-run pinned CA
+      (`net: https get ok (...)`); `wget` gained `https://` + `--insecure`.
+      The offline smoke (`tools/smoke-net-tls.sh`, called by
+      `tools/smoke-net.sh`) runs the TLS/UDP phases: per-run CA, python-ssl
+      server, shell `wget https://10.0.2.2:18443/`, and the host UDP echo
+      test `net: udp host ok (tx=4 rx=4 bytes=1024)` (the UDP coverage Tor
+      SOCKS cannot carry).  `tools/tor_relay.py` sniffs SNI/Host and
+      forwards through Tor 9050 or I2P 4447 (SOCKS5) / 4444 (HTTP CONNECT);
+      the optional external phase tested github.com (200), x.com (200),
+      duckduckgo.com (200 + HTML marker) through live Tor, and recorded the
+      Duck.AI round best-effort (status 200 without an x-vqd-4 token, chat
+      POST answered 418 with a 75-byte body).  `tools/kconfig.py` gained the
+      `tls` profile; net builds link no TLS code; `tools/smoke-gpl.sh`
+      stays green
 - [ ] M11-8 aarch64 port bring-up; smoke phases; THIRD_PARTY entry
 
 ## v0.0.4 - M12 (tools + hardware)
@@ -264,10 +288,23 @@ Design: `M14_LINUXUSERS.md`.
 | 2026-09 | M11 R5 real socket/TCP on loopback: handshake, 64 KiB hash-checked transfer, close, drop/retransmit (`smoke-net.sh`; 3-target builds zero warnings) | PASS |
 | 2026-09 | M11 R6 e1000 + DHCP lease + SLIRP HTTP fetch (`smoke-net.sh` LOOPBACK+SLIRP; `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3; 3-target builds zero warnings) | PASS |
 | 2026-09 | M11 R7 DNS resolver + `ping`/`nslookup`/`wget` + offline DNS gate (`smoke-net.sh` LOOPBACK+SLIRP+DNS/TOOLS, shell commands over serial; `smoke-config.sh`; `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3; 3-target builds zero warnings) | PASS |
+| 2026-09 | M11 R8 mbedTLS 3.6.7 vendored + TLS 1.2 client + `wget https://` + boot KATs + offline TLS/UDP gate + optional external phase through live Tor (`smoke-net.sh` all phases, `smoke-gpl.sh`, `appctl verify mbedtls`; minimal/net/tls/riscv64/i686 builds zero warnings) | PASS |
 | 2026-09 | x86 full suite `tools/smoke.sh` 13/13 | PASS (at v0.0.1) |
 
 ## Known issues
 
+- **mbedTLS kernel limits (documented, M11 R8)**: certificate notBefore/
+  notAfter dates are not checked because the kernel has no RTC or trusted
+  wall clock (`MBEDTLS_HAVE_TIME_DATE` stays off; `mbedtls_time` returns PIT
+  seconds and the pinned CA is the trust anchor); the adapter kmem arena is
+  still a bump allocator, so freed mbedTLS blocks are not recycled (R2
+  limit; per-run growth is small); TLS 1.3 is off (TLS 1.2 +
+  ECDHE-RSA-AES128-GCM-SHA256 only); without RDRAND the boot CSPRNG seed is
+  timing-derived on a deterministic VM (no long-term keys on this path).
+  The external Duck.AI round is best-effort: through live Tor the status
+  endpoint answered 200 without issuing an `x-vqd-4` token and the chat POST
+  answered 418 with a 75-byte body, so what is proven is the POST, the
+  cookie-jar path and a non-empty response, not a model answer.
 - **Fixed (2026-09): i686 scheduler "24 bytes per iteration" stack leak**.
   Root cause was the shared ISR stub (`kernel-i686/src/isr_stubs.S`):
   `add esp, 8` ran *before* `popad`, so every exception/IRQ return popped
@@ -390,9 +427,12 @@ isolation; then R7.
 
 ## Next action
 
-**R7** (M11-6 DNS resolver + `ping`/`nslookup`/`wget`) on the C4 base: the
-default build is the minimal shell, net is an explicit profile/feature.
-bash stays pinned behind
+**R9** (M11-8 aarch64 bring-up + release) on the R8 base: the direct FDT
+boot on QEMU `virt` and the UEFI loader path under AAVMF (verify
+`aarch64-unknown-uefi` availability), the full network stack/TLS on
+aarch64, smoke phases for both boot paths, docs/matrices/THIRD_PARTY final
+update and the workspace/banner version bump to 0.0.3. bash stays pinned
+behind
 `requires = ["posix-libc"]`: the M14-4 musl port and M14-8 shell flip
 `app_manifest.AVAILABLE_REQUIRES` and add the in-image `/usr/src/bash`
 sources bundle. Stop after each batch so the owner can push.

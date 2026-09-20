@@ -1,0 +1,16 @@
+Mbed TLS 3.6.7 - vendored upstream library source.
+
+Upstream release:  https://github.com/Mbed-TLS/mbedtls/releases/tag/mbedtls-3.6.7
+Tarball:           https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2
+Checksum file:     https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7-sha256sum.txt
+Retrieved:         2026-09-20
+sha256:            a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6
+License:           Apache-2.0 OR GPL-2.0-or-later (dual; this project takes
+                   Apache-2.0, so gpl = false). The upstream LICENSE text
+                   (both licenses) is at ../LICENSE, extracted from the tarball.
+
+The tarball is shipped pristine. The kernel build extracts include/ and
+library/ from it at build time (M11 R8, CONFIG_TLS) and compiles a minimal
+subset for x86_64-unknown-none; the repository therefore stores exactly the
+upstream source. SHA256SUMS pins the archive and apps.lock pins the whole
+vendored tree.

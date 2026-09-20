@@ -156,6 +156,33 @@ kernel/base isolation (the x86_64 kernel rebuild has no Cargo edge into
 `apps/`, leaves the bash tree hash and mtimes untouched, and the kernel ELF
 contains no bash symbols or app paths).
 
+## Implemented in R8 (2026-09)
+
+`apps/mbedtls/` vendors Mbed TLS 3.6.7 as the second real app and the first
+**library** app: `manifest.toml` (`license = "Apache-2.0"`, `gpl = false` —
+the upstream dual license is Apache-2.0 OR GPL-2.0-or-later and this project
+takes Apache-2.0, `upstream` = the release tarball URL, `rev = "unversioned"`,
+`tarball_sha256`, `requires = ["kernel-net", "posix-libc"]`,
+`build = "custom"`), the pristine `src/mbedtls-3.6.7.tar.bz2` with the
+upstream `SHA256SUMS` and a `SOURCE` provenance note, `LICENSE` extracted
+from the tarball, an empty `patches/` (the port lives in `kernel-net`) and a
+README covering the kernel configuration and the platform-glue plan.
+`apps.lock` pins the tree (`source = "upstream"`, like bash);
+`tools/appctl verify mbedtls` passes with the tree hash. The generated
+`config/apps/mbedtls.kconfig` stays `default n` and notes the unmet
+`kernel-net`/`posix-libc` requirements; the **kernel integration does not go
+through that symbol** — it is gated by `CONFIG_TLS` (see `CONFIG_PLAN.md`).
+
+`kernel-net/build.rs` reads the tarball only when `CONFIG_TLS=y`: it extracts
+`include/` and `library/` into cargo's `OUT_DIR`, compiles a 35-file subset
+(TLS 1.2 client, ECDHE-RSA, AES-GCM, SHA-256, X.509/RSA, no FS/threads/net)
+with the same freestanding clang flags as the rump import, and links the
+platform glue (allocators over the adapter kmem arena, PIT time, boot-seeded
+CSPRNG, socket BIO, KATs). The offline smoke pins a per-run CA generated
+under `build/` into the kernel and serves HTTPS from it. The bash precedent
+holds: `verify mbedtls` needs no `--apps-layer` (Apache-2.0, `gpl = false`);
+the GPL firewall is unchanged and `tools/smoke-gpl.sh` stays green.
+
 ## Budgets
 
 - Boot + kernel + shell stay within **300 MiB** (hard build check); the

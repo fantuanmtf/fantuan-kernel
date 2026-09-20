@@ -5,7 +5,11 @@
 (`apps-catalog.toml`, whose default source is the `fantuan-apps` branch of this
 repository) and is committed to `main`, so the kernel builds offline and
 reproducibly. The owner decides the app list; `bash/` (C3) is the first real
-app and pins an upstream release tarball instead of a catalog revision.
+app and pins an upstream release tarball instead of a catalog revision, and
+`mbedtls/` (M11 R8) is the second: an Apache-2.0 library vendored the same
+way and compiled into `kernel-net` under `CONFIG_TLS` (registered in
+`THIRD_PARTY.md`; the `CONFIG_APP_MBEDTLS` menu entry stays off until the M14
+`posix-libc` layer).
 
 ```
 apps/<name>/manifest.toml     metadata and the build recipe (see docs/APPS.md)

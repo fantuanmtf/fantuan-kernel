@@ -117,14 +117,28 @@ Still ungated and why: `vfs`/`cat`/`lsos`/`mount`/`bootinfo`/`diskhealth`
 (the rescue shell is built on them), the storage/driver layer (`drivers`,
 AHCI/NVMe/ATA), `mm`/`paging`/`task` (the kernel cannot boot without them),
 the shared shell itself (`SHELL`, enabled in every profile; gating it would
-compile a console-less kernel) and `BASH`/`TLS`/`DESKTOP`/`SECURE_WIPE`,
-which still have no code to gate.
+compile a console-less kernel) and `BASH`/`DESKTOP`/`SECURE_WIPE`, which
+still have no code to gate. `TLS` was in that last group until R8; it now
+gates real code (below).
 
 Gated in R7: `CONFIG_TOOLS` selects the x86_64 `ping`/`nslookup`/`wget`
 shell commands (`kernel/src/shell/cmds_net.rs`); the clients themselves
 live in `kernel-net` behind `CONFIG_NET`, and a TOOLS-without-NET build
 gets one-line `not built (CONFIG_NET=n)` stubs in the `help` table.  The
 minimal profile (`TOOLS=n`) links neither the commands nor the clients.
+
+Gated in R8: `CONFIG_TLS` (depends on `NET`) selects the mbedTLS subset and
+the whole HTTPS path. `kernel-net/build.rs` extracts the vendored tarball
+(`apps/mbedtls/src/mbedtls-3.6.7.tar.bz2`) and compiles 35 upstream files
+plus the platform glue only when the symbol is set; the adapter C files see
+`-DFANTUAN_TLS=1`, so `rump_tls*`/`rump_ext.c` and the `wget https://` shell
+branch do not exist in net builds. `rump_r8.c` (the boot sequence for the
+HTTPS/UDP/external checks) is compiled in every net build but contains no
+TLS code without the flag. `tools/kconfig.py --profile tls` is the net
+profile plus `TLS`. The offline smoke's fixture switch
+(`FANTUAN_NET_FIXTURES=1`) and the pinned CA (`build/smoke-net-tls/ca.der`)
+are consumed by `kernel-net/build.rs` and change only what the boot
+self-test runs — never what is compiled or linked.
 
 Heartbeat: the timers stop the 10 s `tick:` line as soon as the shell is
 ready (`kernel-core::heartbeat`, raised before the `shell: ready` line);

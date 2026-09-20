@@ -198,6 +198,52 @@ KATs (SHA-256/RSA/AES-GCM) in the boot diagnostics.
 - Verify: offline TLS server with a pinned CA; KAT output line; external
   HTTPS through Tor when available.
 
+### R8 outcome - mbedTLS, HTTPS, the UDP host test and the external phase
+
+R8 vendored Mbed TLS 3.6.7 into `apps/mbedtls/` (pristine
+`mbedtls-3.6.7.tar.bz2` + upstream `SHA256SUMS` + `SOURCE` + `LICENSE`,
+manifest with `tarball_sha256`, `requires = ["kernel-net", "posix-libc"]`
+and `gpl = false`; Apache-2.0 chosen from the upstream dual license; lock
+entry and `THIRD_PARTY.md` row).  `kernel-net/build.rs`, only under
+`CONFIG_TLS`, extracts `include/` + `library/` into cargo's `OUT_DIR` and
+compiles a 35-file subset (TLS 1.2 client, ECDHE-RSA, AES-GCM, SHA-256,
+X.509/RSA; no filesystem, threads, `MBEDTLS_NET_C` or PEM) against
+`fantuan_mbedtls_config.h` and freestanding libc shims.  The platform glue
+uses the adapter kmem arena as allocators, PIT seconds for `mbedtls_time`
+(no `MBEDTLS_HAVE_TIME_DATE`: no RTC, so cert dates are not checked - the
+pinned CA is the trust anchor), and a boot-seeded SHA-256 counter CSPRNG
+(RDRAND when available, RDTSC/PIT fallback) behind `mbedtls_hardware_poll`.
+The boot prints `tls: KATs ok (sha256 + aes-gcm + rsa)` and the self-test
+fetches `https://test.fantuan:18443/` against the build-embedded per-run CA
+(`net: https get ok (...)`); `wget` gained `https://` and `--insecure`
+(with an explicit warning).
+
+The offline smoke moves the host fixtures to `tools/net_fixtures.py`
+(HTTP 18080, DNS 5353, TLS 18443, UDP echo 18082 - all 127.0.0.1, reached
+as 10.0.2.2) and adds `tools/smoke-net-tls.sh`, called by
+`tools/smoke-net.sh`: it generates a self-signed CA + SAN
+(`test.fantuan`/`10.0.2.2`) server certificate per run under
+`build/smoke-net-tls/`, builds with `FANTUAN_NET_FIXTURES=1` (test switch,
+not a code switch) so `build.rs` embeds `ca.der`, and asserts the KAT,
+HTTPS, shell `wget https://10.0.2.2:18443/` and UDP markers, plus
+`net: udp host ok (tx=4 rx=4 bytes=1024)` (the UDP coverage Tor/I2P SOCKS
+cannot carry).
+
+The external phase uses `tools/tor_relay.py`: it sniffs the TLS SNI (or the
+HTTP Host header), then speaks SOCKS5 with the domain name to 9050 (Tor) or
+4447 (I2P SOCKS) - or HTTP CONNECT to 4444 (I2P HTTP) - so the proxy
+resolves the name (socks5h semantics).  Guest rungs run through
+`10.0.2.2:19050`: github.com, x.com, duckduckgo.com and the Duck.AI
+best-effort round.  Through the live Tor on the development host: github
+200/11009 bytes, x.com 200 (~12 KB), duckduckgo.com 200/13298 with the HTML
+marker (no Set-Cookie captured from the HTTP/1.0 request); Duck.AI status
+answered 200 without an `x-vqd-4` token and the chat POST answered 418 with
+a non-empty 75-byte body.  That subset (POST sent, cookie jar path,
+non-empty response) is what is proven and recorded; the round needs a JS
+flow for a real model answer.  Without a proxy the boot prints
+`net: ext skip (no relay)` and the phase prints SKIP; external results are
+recorded, never gated.
+
 ### R9 - aarch64 bring-up + final docs
 
 Scope: direct FDT boot on QEMU `virt`; UEFI loader path under AAVMF; the
@@ -219,16 +265,27 @@ full stack on aarch64; smoke phases; docs/matrices/THIRD_PARTY; 0.0.3.
   servers bound to `127.0.0.1` and reachable from the guest as `10.0.2.2`;
   a pinned CA is generated per run under `build/`.
 - External (optional), via `tools/tor_relay.py` listening on a host port
-  and forwarding to `127.0.0.1:9050` with SOCKS5 (the guest targets
-  `10.0.2.2:<port>`; enabled only when 9050 is reachable):
+  and forwarding through whichever local proxy answers first - 9050 (Tor,
+  SOCKS5), 4447 (I2P, SOCKS5) or 4444 (I2P, HTTP CONNECT).  The guest
+  targets `10.0.2.2:<port>`; the relay sniffs the target from the TLS SNI /
+  HTTP Host header and passes the domain to the proxy (socks5h semantics),
+  so GFW DNS pollution cannot turn a reachable target into a failure.  The
+  phase runs only when a proxy is present:
   1. `github.com` - loose proxy detection, first reachability rung;
   2. `x.com` (Twitter) - Tor is not blocked there;
   3. `duckduckgo.com` - Tor-friendly, serves the search page;
-  4. **Duck.AI interactive round**: one dialogue turn against
-     DuckDuckGo's AI chat (no login) proving the guest can POST user input,
-     accept and store the session cookie, and read back a model response.
-     Cookies persist in the guest for the run; no credentials are used.
+  4. **Duck.AI interactive round**: one best-effort turn against
+     DuckDuckGo's AI chat (no login): GET the status endpoint, keep the
+     cookie jar and any `x-vqd-4` token, then POST one user message and
+     assert a non-empty response body bound to the request.  If the
+     endpoint's JS/anti-bot flow (418) makes a model answer unrealistic,
+     the subset proven (POST sent, cookie path, non-empty response) is
+     recorded exactly; no credentials are used.
+- **UDP**: Tor/I2P SOCKS carry TCP only (no UDP ASSOCIATE), so the external
+  phase cannot exercise UDP.  The host UDP echo fixture
+  (`127.0.0.1:18082`, reached as `10.0.2.2`) and the guest connected-UDP
+  test in `rump_udp_host.c` provide the UDP coverage in the offline gate.
 - Conformance: plain HTTP(S) fetches assert status/body markers; the AI
   turn asserts a non-empty response body bound to the submitted prompt.
 - Never gate on external results; each is recorded as PASS/SKIP/FAIL in the
-  run report and a skipped Tor phase still leaves the offline gate green.
+  run report and a skipped proxy phase still leaves the offline gate green.

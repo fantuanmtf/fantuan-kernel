@@ -38,7 +38,7 @@ pub static COMMANDS: [Command; N_COMMANDS] = [
     #[cfg(kconfig_tools)]
     Command { name: "nslookup", help: "nslookup <name> [server[:port]] — resolve A record", run: cmds_net::cmd_nslookup },
     #[cfg(kconfig_tools)]
-    Command { name: "wget", help: "wget http://host[:port]/ — HTTP GET status/bytes", run: cmds_net::cmd_wget },
+    Command { name: "wget", help: "wget [--insecure] http[s]://host[:port]/ — GET status/bytes", run: cmds_net::cmd_wget },
 ];
 
 /// Enter the interactive shell with the x86 table.

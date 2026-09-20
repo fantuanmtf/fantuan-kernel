@@ -190,12 +190,25 @@ pub fn cmd_ping(_sh: &mut Shell, s: &mut Log, args: &[&[u8]]) {
 
 #[cfg(kconfig_net)]
 pub fn cmd_wget(_sh: &mut Shell, s: &mut Log, args: &[&[u8]]) {
-    let Some(url) = args.first() else {
-        out!(s, "usage: wget http://host[:port]/ (root path only)");
+    let mut insecure = false;
+    let mut url: Option<&[u8]> = None;
+    for arg in args {
+        if *arg == b"--insecure" {
+            insecure = true;
+        } else if url.is_none() {
+            url = Some(arg);
+        }
+    }
+    let Some(url) = url else {
+        out!(s, "usage: wget [--insecure] http[s]://host[:port]/ (root path only)");
         return;
     };
-    let Some(rest) = url.strip_prefix(b"http://") else {
-        out!(s, "wget: only http:// URLs are supported");
+    let (https, rest) = if let Some(rest) = url.strip_prefix(b"https://") {
+        (true, rest)
+    } else if let Some(rest) = url.strip_prefix(b"http://") {
+        (false, rest)
+    } else {
+        out!(s, "wget: only http:// and https:// URLs are supported");
         return;
     };
     let (hostport, path) = match rest.iter().position(|&b| b == b'/') {
@@ -203,22 +216,49 @@ pub fn cmd_wget(_sh: &mut Shell, s: &mut Log, args: &[&[u8]]) {
         None => (rest, &b"/"[..]),
     };
     if hostport.is_empty() || path != b"/" {
-        out!(s, "wget: usage: wget http://host[:port]/ (root path only)");
+        out!(s, "wget: usage: wget [--insecure] http[s]://host[:port]/ (root path only)");
         return;
     }
     // The URL host without its optional :port, for the request Host header
     // and the printed URL.
     let host_end = hostport.iter().rposition(|&b| b == b':').unwrap_or(hostport.len());
-    let (host, addr, port) = match parse_host_port(hostport, 80) {
+    let default_port = if https { 443 } else { 80 };
+    let (host, addr, port) = match parse_host_port(hostport, default_port) {
         Some((addr, port)) => (&hostport[..host_end], addr, port),
         None => match resolve(hostport) {
-            Ok(addr) => (hostport, addr, 80),
+            Ok(addr) => (hostport, addr, default_port),
             Err(step) => {
                 out!(s, "wget: {} FAILED ({})", display(hostport), step);
                 return;
             }
         },
     };
+    if https {
+        #[cfg(not(kconfig_tls))]
+        {
+            let _ = insecure;
+            out!(s, "wget: https not built (CONFIG_TLS=n)");
+        }
+        #[cfg(kconfig_tls)]
+        {
+            if insecure {
+                out!(s, "wget: WARNING: certificate verification disabled (--insecure)");
+            }
+            match kernel_net::wget_https(host, addr, port, !insecure) {
+                Ok((status, bytes, hash)) => out!(
+                    s,
+                    "wget: https://{}:{}/ {} bytes={} hash={:08x}",
+                    display(host),
+                    port,
+                    status,
+                    bytes,
+                    hash
+                ),
+                Err(step) => out!(s, "wget: https://{} FAILED ({})", display(host), step),
+            }
+        }
+        return;
+    }
     match kernel_net::wget(host, addr, port) {
         Ok((status, bytes, hash)) => out!(
             s,

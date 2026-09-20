@@ -10,9 +10,12 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include "rump_shim.h"
+#ifdef FANTUAN_TLS
+#include "rump_tls.h"
+#endif
 
 enum {
-	TQ_IDLE, TQ_DNS, TQ_PING, TQ_WGET, TQ_DONE, TQ_FAILED
+	TQ_IDLE, TQ_DNS, TQ_PING, TQ_WGET, TQ_WGET_TLS, TQ_DONE, TQ_FAILED
 };
 
 static int tq_kind, tq_state;
@@ -59,6 +62,18 @@ rump_tool_begin_wget(const char *host, size_t hostlen, uint32_t addr,
 	rump_http_begin_wget(host, hostlen, addr, port, lport, 0);
 }
 
+#ifdef FANTUAN_TLS
+void
+rump_tool_begin_wget_tls(const char *host, size_t hostlen, uint32_t addr,
+    uint16_t port, uint16_t lport, int verify)
+{
+
+	tq_begin(TQ_WGET_TLS);
+	rump_tls_request("GET", "/", NULL, NULL, 0, 0);
+	rump_tls_begin(host, hostlen, addr, port, lport, verify, 2000);
+}
+#endif
+
 /* Called from rump_net_poll() in the net task; a no-op without a request. */
 int
 rump_tool_poll(void)
@@ -100,6 +115,20 @@ rump_tool_poll(void)
 			tq_state = TQ_DONE;
 		}
 		break;
+#ifdef FANTUAN_TLS
+	case TQ_WGET_TLS:
+		r = rump_tls_poll();
+		if (r < 0) {
+			tq_error = rump_tls_error();
+			tq_state = TQ_FAILED;
+		} else if (r > 0) {
+			tq_status = rump_tls_status_code();
+			tq_bytes = rump_tls_body_len();
+			tq_hash = rump_tls_body_hash();
+			tq_state = TQ_DONE;
+		}
+		break;
+#endif
 	default:
 		tq_state = TQ_FAILED;
 		break;

@@ -5,6 +5,7 @@
 #define FANTUAN_RUMP_SHIM_H
 
 #include <sys/types.h>
+#include <stdint.h>
 
 struct ifnet;
 struct mbuf;
@@ -87,6 +88,13 @@ const char *rump_dns_error(void);
 /* R7 boot self-test sequence (rump_tools.c): 0 running, 1 done, -1 failed. */
 void rump_tools_begin(void);
 int rump_tools_poll(void);
+
+/* R8 boot sequence (rump_r8.c): HTTPS over the pinned CA, the host UDP echo
+ * test and the optional external phase; 1 when finished (never fails). */
+void rump_r8_begin(void);
+int rump_r8_poll(void);
+/* Build-time offline-fixture switch (FANTUAN_NET_FIXTURES=1 in the smoke). */
+int rump_net_fixtures(void);
 
 /* R7 shell tool request slot (rump_toolreq.c): the net task runs the
  * client, the shell polls the status.  One request at a time. */

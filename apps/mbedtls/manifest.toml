@@ -1,0 +1,13 @@
+name = "mbedtls"
+version = "3.6.7"
+license = "Apache-2.0"
+upstream = "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2"
+rev = "unversioned"
+tarball_sha256 = "a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6"
+abi_min = 1
+build = "custom"
+deps = []
+patches = []
+requires = ["kernel-net", "posix-libc"]
+description = "Mbed TLS 3.6.7, the TLS/HTTPS stack (kernel-net under CONFIG_TLS)"
+gpl = false

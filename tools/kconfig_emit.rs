@@ -14,8 +14,8 @@
 // no compile error). tools/build.sh / build-bios.sh pass the feature from
 // .config; tools/smoke-config.sh proves the cargo tree edge.
 
-fn kconfig_emit() {
-    use std::collections::BTreeMap;
+#[allow(dead_code)]
+fn kconfig_values() -> std::collections::BTreeMap<String, bool> {
     use std::env;
     use std::fs;
     use std::path::PathBuf;
@@ -36,9 +36,6 @@ fn kconfig_emit() {
         ("smbios", false),
     ];
 
-    // Symbols backed by an optional dependency behind `kconfig-<lower>`.
-    const FEATURE_GATED: &[&str] = &["net"];
-
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let root = manifest_dir
         .parent()
@@ -47,7 +44,7 @@ fn kconfig_emit() {
     println!("cargo:rerun-if-changed={}", config.display());
 
     let text = fs::read_to_string(&config).unwrap_or_default();
-    let mut values: BTreeMap<String, bool> = BTreeMap::new();
+    let mut values: std::collections::BTreeMap<String, bool> = std::collections::BTreeMap::new();
     for line in text.lines() {
         let Some(rest) = line.trim().strip_prefix("CONFIG_") else {
             continue;
@@ -62,6 +59,27 @@ fn kconfig_emit() {
             values.insert((*name).to_string(), *on);
         }
     }
+    values
+}
+
+/// Read one Kconfig bool from the repo `.config` (missing symbols default to
+/// `false`, matching the schema defaults for every optional subsystem).
+#[allow(dead_code)]
+fn kconfig_value(name: &str) -> bool {
+    let values = kconfig_values();
+    let key = name.to_ascii_lowercase();
+    if values.is_empty() {
+        return false;
+    }
+    values.get(&key).copied().unwrap_or(false)
+}
+
+fn kconfig_emit() {
+    use std::env;
+
+    // Symbols backed by an optional dependency behind `kconfig-<lower>`.
+    const FEATURE_GATED: &[&str] = &["net"];
+    let values = kconfig_values();
 
     for (name, on) in &values {
         println!("cargo:rustc-check-cfg=cfg(kconfig_{name})");
@@ -71,8 +89,9 @@ fn kconfig_emit() {
             println!("cargo:rustc-cfg=kconfig_{name}");
         }
     }
-    for (name, _) in DEFAULTS {
-        if !values.contains_key(*name) {
+    for name in ["shell", "bash", "tools", "net", "net_drivers", "tls", "virt", "graphics",
+        "desktop", "rescue_repair", "debug_selftest", "secure_wipe", "smbios"] {
+        if !values.contains_key(name) {
             println!("cargo:rustc-check-cfg=cfg(kconfig_{name})");
         }
     }

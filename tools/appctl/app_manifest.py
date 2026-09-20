@@ -11,7 +11,10 @@ ABI_RE = re.compile(r"pub const ABI_VERSION: u64 = (\d+);")
 # an app needs; an entry not in AVAILABLE_REQUIRES keeps CONFIG_APP_<NAME> at
 # default n with an "unavailable" note. The layer lands at M14, so the set is
 # empty until then; adding it flips bash to buildable.
-KNOWN_REQUIRES = {"posix-libc": "M14 POSIX/libc layer"}
+KNOWN_REQUIRES = {
+    "posix-libc": "M14 POSIX/libc layer",
+    "kernel-net": "M11 kernel network stack (CONFIG_NET)",
+}
 AVAILABLE_REQUIRES = frozenset()
 
 

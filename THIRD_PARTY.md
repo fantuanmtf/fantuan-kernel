@@ -35,7 +35,7 @@ each layer use the best available source.
 | musl | upstream (M14) | MIT | C library | base/developer image | ported to the fantuan ABI |
 | toybox | upstream (M14) | 0BSD | base userland utilities | base image | cross-compiled |
 | bmake | upstream (M14) | BSD-2-Clause | build driver | developer image | none planned |
-| mbedTLS | upstream 3.x (M11) | Apache-2.0 | TLS for HTTPS tools | kernel/tools | platform configuration only |
+| mbedTLS | upstream 3.6.7 release (2026-07-07), `https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2`, sha256 `a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6`; dual-licensed upstream (Apache-2.0 OR GPL-2.0-or-later), this project takes **Apache-2.0** (`gpl = false`) | Apache-2.0 | TLS 1.2 client for the kernel HTTPS path (`CONFIG_TLS`): `wget https://` and the boot KATs (M11 R8) | `apps/mbedtls/` - pristine tarball, `SHA256SUMS`, `SOURCE`, `LICENSE`; kernel config `kernel-net/src/c/fantuan_mbedtls_config.h`, platform glue `rump_tls*`/`rump_ext.c`, compiled by `kernel-net/build.rs` under `kconfig_tls` | upstream sources unmodified; only the kernel configuration, the freestanding libc shims and the platform glue are ours |
 | XFCE | upstream packages (M15) | GPL-2.0+ / LGPL mix | desktop environment | developer image only | packaged as separate programs |
 | Qt | upstream 6.x (M15) | LGPL-3.0 / GPL | repair GUI | developer image only | separate programs |
 

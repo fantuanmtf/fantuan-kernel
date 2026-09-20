@@ -4,6 +4,10 @@
 //! dependency: the kernel installs an `Env` of callbacks before `init()`.
 #![no_std]
 
+mod tls;
+#[cfg(kconfig_tls)]
+pub use tls::wget_https;
+
 use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 
 #[repr(C)]
@@ -110,6 +114,8 @@ extern "C" {
 pub fn init(env: Env) {
     unsafe { core::ptr::addr_of_mut!(ENV).write(env) };
     unsafe { rump_shim_init() };
+    #[cfg(kconfig_tls)]
+    tls::init();
     READY.store(true, Ordering::Release);
 }
 
@@ -152,7 +158,7 @@ pub fn selftest_task() -> ! {
 
 // --- M11 R7: shell tool clients: the request slot (rump_toolreq.c) ------
 // is stepped by the net task; the shell only waits (cooperative sleeps).
-fn wait_selftest() {
+pub(crate) fn wait_selftest() {
     let start = (env().ticks)();
     while unsafe { rump_net_selftest_busy() } != 0 {
         if (env().ticks)().wrapping_sub(start) > 6000 {
@@ -174,7 +180,7 @@ fn cstr(ptr: *const u8) -> &'static str {
 }
 
 /// Wait for the net task to finish the request (safety net only).
-fn run_request(timeout_ticks: u64) -> Result<(), &'static str> {
+pub(crate) fn run_request(timeout_ticks: u64) -> Result<(), &'static str> {
     let start = (env().ticks)();
     loop {
         match unsafe { rump_tool_status() } {

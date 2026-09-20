@@ -24,9 +24,11 @@ FEATURES_RS = os.path.join(ROOT, "build", "config", "features.rs")
 FEATURES_ENV = os.path.join(ROOT, "build", "config", "features.env")
 
 NET = ["SHELL", "RESCUE_REPAIR", "TOOLS", "NET", "NET_DRIVERS", "DEBUG_SELFTEST"]
+TLS = NET + ["TLS"]
 PROFILES = {
     "minimal": ["SHELL", "RESCUE_REPAIR"],
     "net": NET,
+    "tls": TLS,
     "desktop": NET + ["GRAPHICS", "DESKTOP"],
     "hypervisor": ["SHELL", "RESCUE_REPAIR", "VIRT"],
     "all": None,

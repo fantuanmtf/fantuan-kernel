@@ -40,6 +40,7 @@ enum {
 	IP4_NIC,
 	IP4_HTTP,
 	IP4_TOOLS,
+	IP4_R8,
 	IP4_DONE,
 	IP4_STOP,
 	IP4_FAILED
@@ -239,7 +240,13 @@ rump_net_poll(void)
 		break;
 	case IP4_TOOLS:
 		r = rump_tools_poll();
-		if (r != 0)
+		if (r != 0) {
+			rump_r8_begin();
+			ip4_state = IP4_R8;
+		}
+		break;
+	case IP4_R8:
+		if (rump_r8_poll() != 0)
 			ip4_state = IP4_DONE;
 		break;
 	case IP4_DONE:

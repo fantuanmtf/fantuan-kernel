@@ -8,18 +8,20 @@
 # transfer with hash equality, graceful close) and the deterministic-drop
 # retransmit run, plus the in/out counters.
 #
-# Phase SLIRP (R6): boot with `-device e1000 -netdev user,id=n0` and a
-# host-side HTTP server on 127.0.0.1:18080, then assert the e1000 MAC/lease
+# Phase SLIRP (R6): boot with `-device e1000 -netdev user,id=n0` and the
+# host fixtures from tools/net_fixtures.py, then assert the e1000 MAC/lease
 # markers, the exact-body HTTP GET through `10.0.2.2:18080` and the eth
 # counters.
 #
-# Phase DNS/TOOLS (R7): boot with the same NIC plus a host-side authoritative
-# UDP DNS server on 127.0.0.1:5353 (reachable as 10.0.2.2, the SLIRP host
-# alias) and assert the resolver marker (`test.fantuan` -> 10.0.2.2), the
-# ICMP echo to the resolved name and the wget marker through the same HTTP
-# fixture.  The shell commands (`nslookup` with the override server, `ping`
-# and `wget` against the literal address, `help`) are fed over the serial
-# console after the boot self-test.  R8 appends more gated phases below.
+# Phase DNS/TOOLS (R7): the same NIC plus the authoritative UDP DNS fixture
+# (test.fantuan -> 10.0.2.2) and assert the resolver marker, the ICMP echo
+# to the resolved name and the wget marker.  The shell commands (`nslookup`
+# with the override server, `ping` and `wget` against the literal address,
+# `help`) are fed over the serial console after the boot self-test.
+#
+# Phase TLS/UDP (R8) and the optional external phase live in
+# tools/smoke-net-tls.sh, which this gate calls last; it returns non-zero
+# on any offline TLS/UDP failure but never gates external results.
 #
 # Output: "SMOKE PASS (net loopback)"/"(net slirp)"/"(net dns tools)" and
 # the aggregate "SMOKE PASS (net offline gate)"; any failure exits non-zero.
@@ -36,21 +38,31 @@ NET_TIMEOUT="${NET_TIMEOUT:-60}"
 DNS_TOOLS_TIMEOUT="${DNS_TOOLS_TIMEOUT:-180}"
 HTTP_PORT="${HTTP_PORT:-18080}"
 DNS_PORT="${DNS_PORT:-5353}"
-HTTP_LOG="build/smoke-net-http-server.log"
-DNS_LOG="build/smoke-net-dns-server.log"
-SRV_PID=""
-DNS_PID=""
+FIX_LOG="build/smoke-net-fixtures.log"
+FIX_PID=""
 cleanup() {
-  for p in "$SRV_PID" "$DNS_PID"; do
+  local p
+  for p in "$FIX_PID"; do
     if [ -n "$p" ]; then
       kill "$p" 2>/dev/null || true
+      for _ in $(seq 1 30); do
+        kill -0 "$p" 2>/dev/null || break
+        sleep 0.1
+      done
+      kill -9 "$p" 2>/dev/null || true
       wait "$p" 2>/dev/null || true
     fi
   done
-  SRV_PID=""
-  DNS_PID=""
+  FIX_PID=""
+  # Gentoo's python-exec launcher can fork the interpreter; pattern-kill the
+  # fixtures so no orphan keeps the ports bound.
+  pkill -9 -f "tools/net_fixtures.py" 2>/dev/null || true
 }
 trap cleanup EXIT
+# A killed run can leave the stdlib fixture process reparented; clear it so
+# the ports are free for this run.
+pkill -9 -f "tools/net_fixtures.py" 2>/dev/null || true
+
 phase_loopback() {
   local log="build/smoke-net-loopback.log"
 
@@ -85,104 +97,33 @@ phase_loopback() {
   return 1
 }
 
-# Host-side minimal HTTP fixture: deterministic body, FNV-1a hash printed
-# on the READY line so the gate can compare the guest's marker exactly.
-start_http_server() {
-  local body_bytes body_hash
-
-  rm -f "$HTTP_LOG"
-  python3 - "$HTTP_PORT" > "$HTTP_LOG" 2>&1 <<'PY' &
-import http.server, socketserver, sys
-PORT = int(sys.argv[1])
-BODY = b"fantuan-r6-slirp-body\n" * 64
-class H(http.server.BaseHTTPRequestHandler):
-    protocol_version = "HTTP/1.0"
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "application/octet-stream")
-        self.send_header("Content-Length", str(len(BODY)))
-        self.end_headers()
-        self.wfile.write(BODY)
-    def log_message(self, fmt, *args):
-        pass
-class S(socketserver.TCPServer):
-    allow_reuse_address = True
-h = 2166136261
-for b in BODY:
-    h = ((h ^ b) * 16777619) & 0xffffffff
-with S(("127.0.0.1", PORT), H) as srv:
-    print("READY %d %08x" % (len(BODY), h), flush=True)
-    srv.serve_forever()
-PY
-  SRV_PID=$!
+# Host fixtures (tools/net_fixtures.py): deterministic HTTP body, the
+# authoritative DNS answer and the UDP echo server.  The READY lines carry
+# the ports and FNV-1a hashes so the gate compares the guest's markers
+# exactly.  TLS is added by tools/smoke-net-tls.sh (it needs the per-run CA
+# embedded into the kernel build).
+start_fixtures() {
+  rm -f "$FIX_LOG"
+  python3 tools/net_fixtures.py \
+    --http-port "$HTTP_PORT" --dns-port "$DNS_PORT" > "$FIX_LOG" 2>&1 &
+  FIX_PID=$!
   for _ in $(seq 1 50); do
-    grep -q "^READY " "$HTTP_LOG" 2>/dev/null && break
+    grep -q "^READY dns " "$FIX_LOG" 2>/dev/null && break
     sleep 0.1
   done
-  if ! grep -q "^READY " "$HTTP_LOG" 2>/dev/null; then
-    echo "SMOKE FAIL (net slirp) - HTTP server did not start:"
-    cat "$HTTP_LOG"
+  if ! grep -q "^READY dns " "$FIX_LOG" 2>/dev/null; then
+    echo "SMOKE FAIL (net fixtures) - did not start:"
+    cat "$FIX_LOG"
     return 1
   fi
-  body_bytes=$(awk '/^READY /{print $2}' "$HTTP_LOG")
-  body_hash=$(awk '/^READY /{print $3}' "$HTTP_LOG")
-  printf -v HTTP_BYTES '%s' "$body_bytes"
-  printf -v HTTP_HASH '%s' "$body_hash"
-}
-
-# Host-side authoritative UDP DNS fixture (python stdlib).  A 10.0.2.2
-# answer for test.fantuan; everything else gets NXDOMAIN.  Prints READY
-# for the gate and one QUERY line per request as evidence.
-start_dns_server() {
-  rm -f "$DNS_LOG"
-  python3 - "$DNS_PORT" > "$DNS_LOG" 2>&1 <<'PY' &
-import socket, struct, sys
-PORT = int(sys.argv[1])
-s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-s.bind(("127.0.0.1", PORT))
-
-def qname(q, off):
-    labels = []
-    while q[off] != 0:
-        n = q[off]
-        labels.append(q[off + 1:off + 1 + n])
-        off += 1 + n
-    return b".".join(labels).lower(), off + 1
-
-print("READY test.fantuan 10.0.2.2", flush=True)
-while True:
-    data, peer = s.recvfrom(512)
-    if len(data) < 12:
-        continue
-    name, off = qname(data, 12)
-    if off + 4 > len(data):
-        continue
-    print("QUERY %s" % name.decode("ascii", "replace"), flush=True)
-    question = data[12:off + 4]
-    tid = data[0:2]
-    if name == b"test.fantuan":
-        answer = b"\xc0\x0c" + struct.pack("!HHIH", 1, 1, 60, 4) + socket.inet_aton("10.0.2.2")
-        resp = tid + b"\x81\x80" + struct.pack("!HHHH", 1, 1, 0, 0) + question + answer
-    else:
-        resp = tid + b"\x81\x83" + struct.pack("!HHHH", 1, 0, 0, 0) + question
-    s.sendto(resp, peer)
-PY
-  DNS_PID=$!
-  for _ in $(seq 1 50); do
-    grep -q "^READY " "$DNS_LOG" 2>/dev/null && break
-    sleep 0.1
-  done
-  if ! grep -q "^READY " "$DNS_LOG" 2>/dev/null; then
-    echo "SMOKE FAIL (net dns tools) - DNS server did not start:"
-    cat "$DNS_LOG"
-    return 1
-  fi
+  HTTP_BYTES=$(awk '/^READY http /{print $4}' "$FIX_LOG")
+  HTTP_HASH=$(awk '/^READY http /{print $5}' "$FIX_LOG")
 }
 
 phase_slirp() {
   local log="build/smoke-net-slirp.log"
 
-  start_http_server || return 1
+  start_fixtures || return 1
   rm -f "$log"
   ./tools/build.sh >/dev/null 2>&1 || { echo "SMOKE FAIL (net slirp) - build"; exit 1; }
   timeout --signal=KILL "$NET_TIMEOUT" ./tools/run.sh --net \
@@ -207,16 +148,15 @@ phase_slirp() {
   return 1
 }
 
-# R7 offline DNS + tools: both fixtures up, the R7 boot markers, and the
-# shell commands fed over the serial console after the boot self-test
-# released the network clients (running them while the self-test owns the
-# stack perturbs the R5 loss test).  The feeder paces the bytes (the guest
-# UART FIFO is 16 bytes and the kernel polls it) and retries until each
-# command's output marker appears.
+# R7 offline DNS + tools: the R7 boot markers, and the shell commands fed
+# over the serial console after the boot self-test released the network
+# clients (running them while the self-test owns the stack perturbs the R5
+# loss test).  The feeder paces the bytes (the guest UART FIFO is 16 bytes
+# and the kernel polls it) and retries until each command's output marker
+# appears.
 phase_dns_tools() {
   local log="build/smoke-net-dns-tools.log"
-  start_http_server || return 1
-  start_dns_server || return 1
+  start_fixtures || return 1
   rm -f "$log"
   ./tools/build.sh >/dev/null 2>&1 || { echo "SMOKE FAIL (net dns tools) - build"; exit 1; }
   local feeder
@@ -274,7 +214,7 @@ PY
      && grep -qE "ping: 10.0.2.2 \(10.0.2.2\) seq=1 rtt=[0-9]+ ticks" "$log" \
      && grep -qF "$shell_wget" "$log" \
      && grep -qE "^  (ping|nslookup|wget) " "$log" \
-     && grep -q "QUERY test.fantuan" "$DNS_LOG" \
+     && grep -q "QUERY test.fantuan" "$FIX_LOG" \
      && ! grep -qE "net: (dns|tool) FAILED" "$log"; then
     echo "SMOKE PASS (net dns tools)"
     grep -aE "net: (dns ok|ping test.fantuan|wget ok)" "$log"
@@ -286,7 +226,6 @@ PY
   return 1
 }
 
-# R8: phase_tor() { ... optional, never gates: skip (no tor) ... }
 if ! phase_loopback; then
   exit 1
 fi
@@ -294,6 +233,9 @@ if ! phase_slirp; then
   exit 1
 fi
 if ! phase_dns_tools; then
+  exit 1
+fi
+if ! ./tools/smoke-net-tls.sh; then
   exit 1
 fi
 echo "SMOKE PASS (net offline gate)"
