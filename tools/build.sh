@@ -6,9 +6,12 @@ export PATH="$HOME/.cargo/bin:$PATH"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# Kernel config (C1): materialize the default `net` profile on first build so
-# the build stays incremental; C4 flips the default to minimal.
-[ -f .config ] || ./tools/kconfig.py --profile net >/dev/null
+# Kernel config (C4): a missing .config materializes the `minimal` profile
+# (SHELL + RESCUE_REPAIR). kernel-net is an optional dependency behind the
+# kconfig-net feature: pass it only when CONFIG_NET=y.
+[ -f .config ] || ./tools/kconfig.py --profile minimal >/dev/null
+KERNEL_FEATURES=()
+if grep -q '^CONFIG_NET=y' .config; then KERNEL_FEATURES=(--features kconfig-net); fi
 
 ARCH="x86_64"
 while [ $# -gt 0 ]; do
@@ -40,7 +43,7 @@ cargo build -p fantuan-user --target x86_64-unknown-none --release
 sync_embed target/x86_64-unknown-none/release/fantuan-user kernel/user_program.bin
 
 echo "[kernel] building kernel..."
-cargo build -p fantuan-kernel --target x86_64-unknown-none --release
+cargo build -p fantuan-kernel --target x86_64-unknown-none --release "${KERNEL_FEATURES[@]}"
 
 echo "[boot] building bootloader..."
 cargo build -p fantuan-boot --target x86_64-unknown-uefi --release

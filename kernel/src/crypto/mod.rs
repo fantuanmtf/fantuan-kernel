@@ -9,10 +9,13 @@
 //! variable is written.
 
 pub mod bigint;
+#[cfg(kconfig_rescue_repair)]
 pub mod der;
+#[cfg(kconfig_rescue_repair)]
 pub mod pkcs7;
 pub mod rsa;
 pub mod sha256;
+#[cfg(kconfig_rescue_repair)]
 pub mod x509;
 mod vectors;
 

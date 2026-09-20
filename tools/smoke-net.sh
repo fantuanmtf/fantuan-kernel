@@ -22,6 +22,10 @@ cd "$ROOT"
 mkdir -p build
 export PATH="$HOME/.cargo/bin:$PATH"
 
+# C4: the net gate is explicit — the default .config is the minimal shell.
+python3 tools/kconfig.py --profile net >/dev/null \
+  || { echo "SMOKE FAIL (net) - profile"; exit 1; }
+
 NET_TIMEOUT="${NET_TIMEOUT:-60}"
 HTTP_PORT="${HTTP_PORT:-18080}"
 HTTP_LOG="build/smoke-net-http-server.log"

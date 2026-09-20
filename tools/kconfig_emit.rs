@@ -3,8 +3,16 @@
 //
 // Reads the repo-root .config and emits cargo:rustc-cfg=kconfig_<lower> for
 // every enabled symbol plus the matching check-cfg lines. A missing .config
-// means the `net` profile - the historical default until C4 flips it to
-// minimal. The symbol set mirrors tools/kconfig.py --profile net.
+// resolves to the `minimal` profile (C4): SHELL + RESCUE_REPAIR, with the
+// other defaults from config/Kconfig. The symbol set mirrors
+// tools/kconfig.py --profile minimal + the schema defaults.
+//
+// FEATURE_GATED lists the symbols whose code depends on an optional crate
+// (`kernel-net`): their cfg is only emitted when the matching cargo feature
+// `kconfig-<lower>` is active, so the cfg and the dependency edge can never
+// disagree (a direct `cargo build` without the feature is a minimal kernel,
+// no compile error). tools/build.sh / build-bios.sh pass the feature from
+// .config; tools/smoke-config.sh proves the cargo tree edge.
 
 fn kconfig_emit() {
     use std::collections::BTreeMap;
@@ -15,17 +23,21 @@ fn kconfig_emit() {
     const DEFAULTS: &[(&str, bool)] = &[
         ("shell", true),
         ("bash", true),
-        ("tools", true),
-        ("net", true),
-        ("net_drivers", true),
+        ("tools", false),
+        ("net", false),
+        ("net_drivers", false),
         ("tls", false),
         ("virt", false),
         ("graphics", false),
         ("desktop", false),
         ("rescue_repair", true),
-        ("debug_selftest", true),
+        ("debug_selftest", false),
         ("secure_wipe", false),
+        ("smbios", false),
     ];
+
+    // Symbols backed by an optional dependency behind `kconfig-<lower>`.
+    const FEATURE_GATED: &[&str] = &["net"];
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let root = manifest_dir
@@ -53,7 +65,9 @@ fn kconfig_emit() {
 
     for (name, on) in &values {
         println!("cargo:rustc-check-cfg=cfg(kconfig_{name})");
-        if *on {
+        let feature = format!("CARGO_FEATURE_KCONFIG_{}", name.to_ascii_uppercase());
+        let feature_on = env::var(&feature).is_ok();
+        if *on && (!FEATURE_GATED.contains(&name.as_str()) || feature_on) {
             println!("cargo:rustc-cfg=kconfig_{name}");
         }
     }

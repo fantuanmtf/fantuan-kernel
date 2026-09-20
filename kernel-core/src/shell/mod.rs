@@ -22,6 +22,10 @@ const LINE_MAX: usize = 128;
 const SCRIPT_LINES: usize = 12;
 const SCRIPT_LINE_MAX: usize = 96;
 
+/// Default host identity (C4): the prompt and the help header show
+/// `root@Fantuan-MTF`.
+pub const HOSTNAME: &str = "Fantuan-MTF";
+
 /// One shell command; the table itself is owned by each kernel.
 pub struct Command {
     pub name: &'static str,
@@ -247,10 +251,13 @@ impl<'a> Shell<'a> {
 
     /// The interactive loop: autorun first, then serial input.
     pub fn run(&mut self, s: &mut Log) {
-        let _ = writeln!(s, "shell: ready (type 'help'; idle note after 30 s)");
+        // C4: quiet the boot heartbeat BEFORE the ready line so no `tick:`
+        // line can appear after it or split a typed line.
+        crate::heartbeat::shell_ready();
+        let _ = writeln!(s, "shell: ready (root@{HOSTNAME}; type 'help'; idle note after 30 s)");
         self.load_script(s);
         loop {
-            let _ = write!(s, "shell> ");
+            let _ = write!(s, "root@{HOSTNAME}> ");
             if !self.read_line(s) {
                 continue;
             }

@@ -3,10 +3,11 @@
 //! own; it fills the catalog the parent module exposes.
 
 use super::{
-    get_nth_string, phys_to_virt, strref_to_str, MemoryDevice, SlotInfo, BIOS, CORRUPT,
-    DIMMS, DIMM_COUNT, MAX_DIMMS, MAX_SLOTS, SLOTS, SLOT_COUNT, SYSTEM, TABLE_BUF,
-    TABLE_BUF_LEN,
+    get_nth_string, phys_to_virt, strref_to_str, MemoryDevice, BIOS, CORRUPT,
+    DIMMS, DIMM_COUNT, MAX_DIMMS, SYSTEM, TABLE_BUF, TABLE_BUF_LEN,
 };
+#[cfg(kconfig_graphics)]
+use super::{SlotInfo, MAX_SLOTS, SLOTS, SLOT_COUNT};
 
 // --- Structure parsers: Type 0/1/4/9/17 ---
 
@@ -68,6 +69,7 @@ pub(super) unsafe fn parse_structs(table_phys: u64, table_len: usize) {
                     let _ = get_nth_string(str_area, str_end, *pos.add(0x10));
                 }
             }
+            #[cfg(kconfig_graphics)]
             9 => {
                 if slen >= 0x0B && SLOT_COUNT < MAX_SLOTS {
                     let desg = get_nth_string(str_area, str_end, *pos.add(0x4));

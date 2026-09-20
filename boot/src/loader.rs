@@ -4,10 +4,10 @@ use core::ffi::c_void;
 
 use crate::console;
 use crate::memory::MemMapBuf;
-use crate::uefi::guid::{FILE_INFO_GUID, SFS_GUID};
-use crate::uefi::protocol::{File, MemoryDescriptor, SimpleFileSystem, SimpleTextOutput};
+use crate::uefi::guid::{FILE_INFO_GUID, LOADED_IMAGE_GUID, SFS_GUID};
+use crate::uefi::protocol::{File, LoadedImage, MemoryDescriptor, SimpleFileSystem, SimpleTextOutput};
 use crate::uefi::table::BootServices;
-use crate::uefi::{EFI_FILE_MODE_READ, EFI_LOAD_ERROR, EFI_SUCCESS, Status};
+use crate::uefi::{Handle, EFI_FILE_MODE_READ, EFI_LOAD_ERROR, EFI_SUCCESS, Status};
 
 /// The kernel is a flat binary linked at 16 MiB (see kernel/link.ld).
 /// Low memory is a firmware minefield — the EFI app image itself can sit right
@@ -28,9 +28,31 @@ fn usable(t: u32) -> bool {
 
 /// Locate \fantuan\kernel.bin on the ESP, verify the load region and read the
 /// image to KERNEL_ADDR. Returns the file size in bytes.
-pub fn load_kernel(bs: &BootServices, con: *mut SimpleTextOutput, map: &MemMapBuf) -> Result<u64, Status> {
+pub fn load_kernel(
+    bs: &BootServices,
+    con: *mut SimpleTextOutput,
+    map: &MemMapBuf,
+    image_handle: Handle,
+) -> Result<u64, Status> {
+    // Prefer the volume this image was loaded from: locate_protocol(SFS)
+    // returns the FIRST SimpleFileSystem handle, which can belong to another
+    // FAT volume (e.g. the test disk) whose root has no \fantuan\kernel.bin.
+    // The loaded-image protocol names the exact device handle; fall back to
+    // the first SFS only when it is unavailable.
     let mut sfs: *mut c_void = core::ptr::null_mut();
-    let sts = (bs.locate_protocol)(&SFS_GUID, core::ptr::null_mut(), &mut sfs);
+    let mut sts = EFI_LOAD_ERROR;
+    if !image_handle.is_null() {
+        let mut li: *mut c_void = core::ptr::null_mut();
+        if (bs.handle_protocol)(image_handle, &LOADED_IMAGE_GUID, &mut li) == EFI_SUCCESS
+            && !li.is_null()
+        {
+            let dev = unsafe { (*(li as *const LoadedImage)).device_handle };
+            sts = (bs.handle_protocol)(dev, &SFS_GUID, &mut sfs);
+        }
+    }
+    if sts != EFI_SUCCESS || sfs.is_null() {
+        sts = (bs.locate_protocol)(&SFS_GUID, core::ptr::null_mut(), &mut sfs);
+    }
     if sts != EFI_SUCCESS {
         console::println(con, "ERROR: Simple File System not found");
         return Err(sts);

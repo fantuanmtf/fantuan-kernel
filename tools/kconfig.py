@@ -10,8 +10,9 @@ at the repo root and, with --emit, the content-hashed build/config/features.rs
   --olddefconfig  fill missing defaults       hypervisor|all
   --check         validate depends only   --emit  regenerate features.{rs,env}
 
-A missing .config resolves to the `net` profile, matching the build scripts'
-default until C4 flips it to minimal (docs/CONFIG_PLAN.md).
+A missing .config resolves to the `minimal` profile (SHELL +
+RESCUE_REPAIR), matching the build scripts' default; the net profile is
+explicit (`--profile net`, CONFIG_NET=y drives the kconfig-net feature).
 """
 import argparse, glob, hashlib, os, sys
 
@@ -123,7 +124,7 @@ def effective(args, symbols):
     else:
         loaded = read_config(CONFIG_PATH)
         if loaded is None:
-            values, profile = apply_profile(symbols, "net"), "net"
+            values, profile = apply_profile(symbols, "minimal"), "minimal"
         else:
             values = {n: loaded.get(n, symbols[n]["default"]) for n in symbols}
             profile = next(
@@ -269,7 +270,7 @@ def main(argv):
     if args.command == "menu" and interactive:
         loaded = read_config(CONFIG_PATH)
         if loaded is None:
-            values = apply_profile(symbols, "net")
+            values = apply_profile(symbols, "minimal")
         else:
             values = {n: loaded.get(n, symbols[n]["default"]) for n in symbols}
         return menu(symbols, values)

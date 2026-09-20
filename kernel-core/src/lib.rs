@@ -9,11 +9,13 @@
 #![no_std]
 
 pub mod arch;
+#[cfg(kconfig_rescue_repair)]
 pub mod bootrepair;
 pub mod diag;
 pub mod drv;
 pub mod elf;
 pub mod frame;
+pub mod heartbeat;
 pub mod input;
 pub mod log;
 pub mod mem;

@@ -29,7 +29,9 @@ CONFIG_VIRT             bool  default n    # hypervisor V2 (M14-7)
 CONFIG_GRAPHICS         bool  default n    # fb_info/KMS API (M13)
 CONFIG_DESKTOP          bool  depends GRAPHICS  # M15
 CONFIG_RESCUE_REPAIR    bool  default y    # bootrepair paths
+CONFIG_SMBIOS           bool  default n    # SMBIOS identity/DIMM/slots
 CONFIG_DEBUG_SELFTEST   bool  default n    # rump/scheduler self-tests
+CONFIG_SECURE_WIPE      bool  default n    # Live shutdown RAM wipe
 ```
 
 Profiles: `minimal` (SHELL + RESCUE_REPAIR), `net` (adds NET + TOOLS),
@@ -79,11 +81,50 @@ all targets. Gated end-to-end: `kernel/src/main.rs`, `kernel/src/timer.rs`
 and `kernel/src/net.rs` behind `kconfig_net`, and the rump self-test task
 behind `kconfig_debug_selftest`.
 
-Default-profile caveat: a missing `.config` (and the build scripts) resolve
-to the `net` profile so current behavior is preserved; **C4 flips the
-default to `minimal`** and makes the `kernel-net` dependency conditional.
-Until then `kernel-net` stays an unconditional dependency (its build.rs
-consumes the config too).
+Default profile (C4): a missing `.config` resolves to the `minimal` profile
+(SHELL + RESCUE_REPAIR) in `tools/kconfig.py`, every `build.rs` default
+table and the build scripts. Net is explicit: `tools/smoke-net.sh` writes
+`--profile net` and the build scripts pass `--features kconfig-net` only
+when `CONFIG_NET=y`.
+
+## Implemented in C4 (2026-09)
+
+`kernel-net` is now an optional Cargo dependency of the x86_64 kernel
+behind the `kconfig-net` feature: no `.config`/feature means no dependency
+edge (`cargo tree -p fantuan-kernel` has no `kernel-net`), and
+`--features kconfig-net` adds it. `tools/kconfig_emit.rs` only emits
+`cfg(kconfig_net)` when that feature is active, so the cfg and the
+dependency edge can never disagree (a direct `cargo build` stays minimal).
+`tools/build.sh` and `tools/build-bios.sh` derive the feature from
+`.config`.
+
+Gated subsystems (C4), all zero-warning on the three targets:
+
+- `kernel-net` + `kernel/src/{net.rs,main.rs,timer.rs}` behind
+  `kconfig_net` (C1, kept).
+- `kernel-core::bootrepair` and the x86 glue, boot diagnosis, the
+  `grub-fix` shell paths and the authenticated-variable bridge behind
+  `kconfig_rescue_repair`; with it off the shell prints
+  `grub-fix: not built (CONFIG_RESCUE_REPAIR=n)`.
+- `kernel/src/diag/virt.rs` + `kernel/src/acpi.rs` behind `kconfig_virt`
+  (the IOMMU walk is ACPI's only current consumer).
+- `kernel/src/diag/gpu.rs` behind `kconfig_graphics`; its SMBIOS slot
+  input degrades to "no slots" when `CONFIG_SMBIOS=n`.
+- `kernel/src/smbios/` behind `kconfig_smbios` (new symbol, default n).
+- The rump self-test task stays behind `kconfig_debug_selftest` (C1).
+
+Still ungated and why: `vfs`/`cat`/`lsos`/`mount`/`bootinfo`/`diskhealth`
+(the rescue shell is built on them), the storage/driver layer (`drivers`,
+AHCI/NVMe/ATA), `mm`/`paging`/`task` (the kernel cannot boot without them),
+the shared shell itself (`SHELL`, enabled in every profile; gating it would
+compile a console-less kernel) and `TOOLS`/`BASH`/`TLS`/`DESKTOP`/
+`SECURE_WIPE`, which still have no code to gate.
+
+Heartbeat: the timers stop the 10 s `tick:` line as soon as the shell is
+ready (`kernel-core::heartbeat`, raised before the `shell: ready` line);
+the 30 s cap stays as the no-shell fallback (i686 has no periodic heartbeat
+— its PIT only drives the scheduler — so it is unchanged). The default
+prompt is `root@Fantuan-MTF> ` (`kernel_core::shell::HOSTNAME`).
 
 ## Budgets, incrementality and the Live direction
 

@@ -4,7 +4,8 @@
 //!   4 short  — no display device at all (critical)
 //!   1 short  — no Intel-classified iGPU (informational)
 //! The "2 short" code (dGPU plugged in but missing) needs SMBIOS slot
-//! status; deferred to M5.5 with the SMBIOS parser.
+//! status. The module is CONFIG_GRAPHICS-gated (C4); its SMBIOS input is
+//! additionally CONFIG_SMBIOS-gated and degrades to "no slots".
 
 use core::fmt::Write;
 
@@ -14,8 +15,6 @@ use kernel_core::log::Log;
 pub struct GpuInfo {
     pub count: u32,
     pub any_intel: bool,
-    /// A Type-9 slot is In Use and graphics-capable (§6.2 "2 short" input).
-    pub slot_in_use: bool,
 }
 
 pub fn scan(s: &mut Log) -> GpuInfo {
@@ -34,14 +33,41 @@ pub fn scan(s: &mut Log) -> GpuInfo {
         );
     }
     let _ = writeln!(s, "  gpu: pci display devices found: {}", count);
-    let slot_in_use = crate::smbios::system_slots()
-        .iter()
-        .any(|sl| sl.in_use && sl.display_class_hint);
-    GpuInfo { count, any_intel, slot_in_use }
+    GpuInfo { count, any_intel }
 }
+
+/// SMBIOS slot facts: (total slots, PCI in-use, graphics-capable in-use).
+#[cfg(kconfig_smbios)]
+fn slot_facts() -> (usize, usize, bool) {
+    let slots = crate::smbios::system_slots();
+    (
+        slots.len(),
+        slots.iter().filter(|s| s.in_use && s.uses_pci).count(),
+        slots.iter().any(|s| s.in_use && s.display_class_hint),
+    )
+}
+
+#[cfg(not(kconfig_smbios))]
+fn slot_facts() -> (usize, usize, bool) {
+    (0, 0, false)
+}
+
+#[cfg(kconfig_smbios)]
+fn print_in_use_slots(s: &mut Log) {
+    for sl in crate::smbios::system_slots()
+        .iter()
+        .filter(|s| s.in_use && s.display_class_hint)
+    {
+        let _ = writeln!(s, "  gpu: slot {} '{}' In Use", sl.slot_id, sl.designation);
+    }
+}
+
+#[cfg(not(kconfig_smbios))]
+fn print_in_use_slots(_s: &mut Log) {}
 
 pub fn check(s: &mut Log) -> Severity {
     let info = scan(s);
+    let (slots_total, pci_in_use, slot_in_use) = slot_facts();
     let displays = crate::pci::list_display_devices();
     let has_dgpu = displays.iter().any(|d| d.vendor != 0x8086);
     let has_igpu = info.any_intel;
@@ -55,13 +81,11 @@ pub fn check(s: &mut Log) -> Severity {
     }
 
     // Informational: how the SMBIOS slot table lines up with the PCI catalog.
-    let slots = crate::smbios::system_slots();
-    if !slots.is_empty() {
-        let pci_in_use = slots.iter().filter(|s| s.in_use && s.uses_pci).count();
+    if slots_total > 0 {
         let _ = writeln!(
             s,
             "  gpu: smbios slots {} (pci in-use {}), display devices {}",
-            slots.len(),
+            slots_total,
             pci_in_use,
             info.count
         );
@@ -77,14 +101,11 @@ pub fn check(s: &mut Log) -> Severity {
 
     // 2 short: a Type-9 slot is In Use (a card is seated in a graphics-capable
     // slot) but no discrete GPU answered on PCI.
-    if info.slot_in_use && !has_dgpu {
-        for sl in slots.iter().filter(|s| s.in_use && s.display_class_hint) {
-            let _ = writeln!(s, "  gpu: slot {} '{}' In Use", sl.slot_id, sl.designation);
-        }
+    if slot_in_use && !has_dgpu {
+        print_in_use_slots(s);
         let _ = writeln!(s, "  gpu: slot marked In Use but no discrete GPU enumerated (2-short beep)");
         crate::pit::beep_n(2, crate::pit::BeepLen::Short);
         worst = Severity::Warning;
     }
     worst
 }
-

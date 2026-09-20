@@ -4,7 +4,18 @@
 use core::ffi::c_void;
 
 use super::guid::{GOP_GUID, Guid};
-use super::{Status, EFI_SUCCESS};
+use super::{Handle, Status, EFI_SUCCESS};
+
+/// EFI_LOADED_IMAGE_PROTOCOL prefix: only DeviceHandle is read (to find the
+/// volume this bootloader image was loaded from). The remaining fields exist
+/// in the firmware's structure but are never touched.
+#[repr(C)]
+pub struct LoadedImage {
+    pub revision: u32,
+    pub parent_handle: Handle,
+    pub system_table: *mut c_void,
+    pub device_handle: Handle,
+}
 
 #[repr(C)]
 pub struct SimpleTextOutput {

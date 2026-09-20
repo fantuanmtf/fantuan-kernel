@@ -85,7 +85,7 @@ pub fn cmd_diskhealth(_sh: &mut Shell, s: &mut Log, args: &[&[u8]]) {
 }
 
 pub fn cmd_help(sh: &mut Shell, s: &mut Log, _args: &[&[u8]]) {
-    out!(s, "shell commands (DESIGN.md §10):");
+    out!(s, "shell commands (root@{}, DESIGN.md §10):", super::HOSTNAME);
     for cmd in sh.commands() {
         let _ = write!(s, "  {:<11} {}\n", cmd.name, cmd.help);
     }
@@ -179,6 +179,12 @@ pub fn cmd_bootinfo(sh: &mut Shell, s: &mut Log, _args: &[&[u8]]) {
     out!(s, "  page tables: pml4 {:#x}, {} pages", bi.boot_pml4, bi.boot_tables_pages);
 }
 
+#[cfg(not(kconfig_rescue_repair))]
+pub fn cmd_grubfix(_sh: &mut Shell, s: &mut Log, _args: &[&[u8]]) {
+    out!(s, "grub-fix: not built (CONFIG_RESCUE_REPAIR=n)");
+}
+
+#[cfg(kconfig_rescue_repair)]
 pub fn cmd_grubfix(sh: &mut Shell, s: &mut Log, args: &[&[u8]]) {
     let Some(vfs) = sh.vfs else {
         out!(s, "grub-fix: no filesystem mounted");

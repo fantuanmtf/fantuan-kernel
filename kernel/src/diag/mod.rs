@@ -4,7 +4,9 @@
 //! paths for the stage builders.
 
 pub mod cpu;
+#[cfg(kconfig_virt)]
 pub mod virt;
+#[cfg(kconfig_graphics)]
 pub mod gpu;
 
 pub use kernel_core::diag::{diskhealth, ram, run_stage, storage, Check, Severity};

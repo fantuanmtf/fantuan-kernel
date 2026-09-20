@@ -39,14 +39,14 @@ Quit QEMU with `Ctrl-A X` (headless) or close the window.
 
 x86: bootloader banner -> `handshake ok` -> memory map summary ->
 hardware/storage diagnostic stages -> VFS mount -> userland demo tasks ->
-the shell prompt `shell> `.
+the shell prompt `root@Fantuan-MTF> `.
 
 riscv: OpenSBI banner -> `fantuan v0.0.2 (riscv64)` -> FDT memory/CPU
 report -> Sv39 tables -> `blk: virtio registered` -> VFS + read-only
-boot-repair diagnosis -> scheduler and user tasks -> `shell> `.
+boot-repair diagnosis -> scheduler and user tasks -> `root@Fantuan-MTF> `.
 
 BIOS (x86_64): `fantuan-bios stage2 (M10-3)` -> E820 -> `handshake ok` ->
-long-mode kernel -> tasks, userland, `shell> ` on serial only (the BIOS
+long-mode kernel -> tasks, userland, `root@Fantuan-MTF> ` on serial only (the BIOS
 path has no GOP console).
 
 BIOS (i686): `fantuan v0.0.2 (i686) - BIOS handoff` -> VBE text console
@@ -78,11 +78,11 @@ The shell is also fed by an autorun script when the ESP contains
 Examples:
 
 ```
-shell> lsos
-shell> mount esp0 /mnt/esp0
-shell> cat /mnt/esp0/EFI/fantuan/shell.cmd
-shell> diskhealth
-shell> grub-fix                 # same as diagnose: read-only report
+root@Fantuan-MTF> lsos
+root@Fantuan-MTF> mount esp0 /mnt/esp0
+root@Fantuan-MTF> cat /mnt/esp0/EFI/fantuan/shell.cmd
+root@Fantuan-MTF> diskhealth
+root@Fantuan-MTF> grub-fix                 # same as diagnose: read-only report
 ```
 
 On virtio storage `diskhealth` prints

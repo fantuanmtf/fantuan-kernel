@@ -249,10 +249,12 @@ extern "C" fn high_main() -> ! {
         vfs = kernel_core::vfs::init();
         if let Some(v) = vfs {
             puts("vfs: ready (shared FAT32/ext4/probe stack)\n");
-            // M9.4-4: read-only boot-repair diagnosis; no UEFI runtime here,
-            // so the NVRAM half degrades honestly (rt = 0).
-            let mut log = kernel_core::log::Log::new();
-            kernel_core::bootrepair::diagnose(&mut log, &v, 0);
+            // M9.4-4: read-only diagnosis (rt = 0: the NVRAM half degrades
+            // honestly); CONFIG_RESCUE_REPAIR gates the stack (C4).
+            #[cfg(not(kconfig_rescue_repair))]
+            let _ = v;
+            #[cfg(kconfig_rescue_repair)]
+            kernel_core::bootrepair::diagnose(&mut kernel_core::log::Log::new(), &v, 0);
         }
     } else {
         puts("blk: no virtio-mmio block device\n");

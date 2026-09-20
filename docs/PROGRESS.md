@@ -217,6 +217,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | C4 kernel subsystem isolation: default `.config` absent -> `minimal` (shell + `root@Fantuan-MTF> ` prompt, zero `net:`/`rump:` and zero `tick:` lines, typed commands clean); `smoke-config.sh` PASS (minimal/net cargo-tree edge invariants, 2.7 MB budget, incrementality); `smoke-net.sh` PASS; `smoke.sh` 13/13; `smoke-bios.sh` 2/2; `smoke-riscv.sh` 3/3 (third run after the documented uart flake); three-target builds zero warnings. Includes the bootloader SFS fix (kernel loaded from the loaded-image volume instead of the first SFS) that made the SMM Secure Boot phase deterministic | PASS |
 | 2026-09 | C2 catalog/appctl: `tools/smoke-apps.sh` PASS (fixture add/sync + lock sha256, kernel-layer GPL refusal plus apps-layer allow list, menu fragment merged by `tools/kconfig.py --check`, SBOM JSON, remove cleanup, corrupt-tree failure); `bash -n tools/{smoke-apps,mkbranches}.sh` clean; three-target builds zero warnings | PASS |
 | 2026-09 | C3 bash vendor/GPL compliance: `tools/smoke-gpl.sh` PASS (tarball sha256 `0d5cd86965f8...` = `SHA256SUMS` = manifest and GPG-verified upstream; `COPYING` = the tarball's GPLv3 text; kernel/base `verify` refused with the GPL message while `--apps-layer` passed via `gpl_allow`; `menu` kept `CONFIG_APP_BASH=n` with the posix-libc/M14 note; SBOM bash `gpl=true`; the x86_64 kernel rebuild left `apps/bash` untouched, with no Cargo edge into `apps/` and no bash symbols/app paths in the ELF); `smoke-apps.sh` PASS, `smoke-config.sh` PASS; three-target builds zero warnings | PASS |
 | 2026-09 | C1 config foundation: `tools/smoke-config.sh` PASS (net/minimal invariants, 2 MiB budget check with 1-byte over-budget simulation, `DEBUG_SELFTEST` flip rebuilds only the three config consumers); `smoke-net.sh` PASS, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3 (phase A rerun once after the documented serial-input flake); three-target builds zero warnings | PASS |
@@ -317,10 +318,11 @@ isolation; then R7.
       `cargo:rustc-cfg=kconfig_<lower>` + check-cfg, `kconfig_net` gating
       of `kernel/src/{main,timer,net}.rs` and `kconfig_debug_selftest` for
       the rump self-test, and `tools/smoke-config.sh` (net/minimal
-      invariants, 300 MiB budget, incrementality) - verify
-      `tools/smoke-config.sh`, three-target zero-warning builds.
-      Default-profile caveat: the build scripts default to `net` until C4
-      flips the default to `minimal` and makes `kernel-net` conditional.
+       invariants, 300 MiB budget, incrementality) - verify
+       `tools/smoke-config.sh`, three-target zero-warning builds.
+       Default-profile caveat (closed by C4): the build scripts defaulted to
+       `net` until C4 flipped the default to `minimal` and made `kernel-net`
+       conditional.
 - [x] C2 catalog + appctl: `apps/README.md`, `apps-catalog.toml`
       (`fantuan-apps` git source + disabled `overlay` path, `[licensing]
       gpl_allow` = the apps-layer list), empty `apps.lock`, and
@@ -349,13 +351,34 @@ isolation; then R7.
       SBOM `gpl=true`, kernel isolation: no Cargo edge, tree untouched, no
       bash symbols/paths in the x86_64 ELF) - verify `tools/smoke-gpl.sh`,
       `tools/smoke-apps.sh`, `tools/smoke-config.sh`, three-target
-      zero-warning builds. bash is shipped but not built: the musl/POSIX
-      layer and the port land at M14-4/M14-8.
+       zero-warning builds. bash is shipped but not built: the musl/POSIX
+       layer and the port land at M14-4/M14-8.
+- [x] C4 kernel subsystem isolation (working tree; owner to commit):
+      default profile flipped to `minimal` (`tools/kconfig.py`,
+      `tools/kconfig_emit.rs`, `build*.sh` materialize it when `.config` is
+      absent), `kernel-net` optional behind the `kconfig-net` cargo feature
+      with the feature read from `.config` and lockstep cfg emission
+      (`cargo tree` minimal has no edge, net does), gating extended to
+      `bootrepair` (`kconfig_rescue_repair`), `diag::virt`+ACPI
+      (`kconfig_virt`), `diag::gpu` (`kconfig_graphics`) and SMBIOS
+      (`kconfig_smbios`, new symbol), the heartbeat now stops at
+      `shell: ready` (`kernel_core::heartbeat`) with the 30 s cap kept, the
+      prompt is `root@Fantuan-MTF> `, and `tools/smoke.sh` /
+      `tools/smoke-riscv.sh` lost their stale tid/tick assertions. The SMM
+      Secure Boot phase also needed a bootloader fix: `load_kernel` opened
+      the first SimpleFileSystem handle, which with the test disk attached
+      was not the boot volume; it now uses the loaded-image device handle
+      (falling back to the first SFS). Phase 9's budget became 240 s for the
+      TCG scan time. Verify
+      `tools/smoke-config.sh`, `tools/smoke-net.sh`, `tools/smoke.sh`,
+      `tools/smoke-bios.sh`, `tools/smoke-riscv.sh`, three-target
+      zero-warning builds.
 
 ## Next action
 
-**C4**: kernel subsystem isolation (flips the default profile to `minimal`
-and makes `kernel-net` conditional); R7 follows. bash stays pinned behind
+**R7** (M11-6 DNS resolver + `ping`/`nslookup`/`wget`) on the C4 base: the
+default build is the minimal shell, net is an explicit profile/feature.
+bash stays pinned behind
 `requires = ["posix-libc"]`: the M14-4 musl port and M14-8 shell flip
 `app_manifest.AVAILABLE_REQUIRES` and add the in-image `/usr/src/bash`
 sources bundle. Stop after each batch so the owner can push.

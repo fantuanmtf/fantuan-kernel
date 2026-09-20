@@ -28,43 +28,46 @@ pub(crate) fn rdmsr(msr: u32) -> u64 {
 }
 
 pub fn check(s: &mut Log) -> Severity {
-    // --- M5.5: SMBIOS identity lines (graceful when the anchor is absent) ---
-    match crate::smbios::bios_info() {
-        Some(b) => {
-            if b.release_date.is_empty() {
-                let _ = writeln!(s, "  smbios: BIOS {} {}", b.vendor, b.version);
-            } else {
-                let _ = writeln!(s, "  smbios: BIOS {} {} ({})", b.vendor, b.version, b.release_date);
+    // --- M5.5: SMBIOS identity lines (CONFIG_SMBIOS; C4) -------------------
+    #[cfg(kconfig_smbios)]
+    {
+        match crate::smbios::bios_info() {
+            Some(b) => {
+                if b.release_date.is_empty() {
+                    let _ = writeln!(s, "  smbios: BIOS {} {}", b.vendor, b.version);
+                } else {
+                    let _ = writeln!(s, "  smbios: BIOS {} {} ({})", b.vendor, b.version, b.release_date);
+                }
+            }
+            None => {
+                let _ = writeln!(s, "  smbios: unavailable (no entry point found)");
             }
         }
-        None => {
-            let _ = writeln!(s, "  smbios: unavailable (no entry point found)");
+        if crate::smbios::corrupt() {
+            let _ = writeln!(s, "  smbios: abort (corrupt structure table)");
         }
-    }
-    if crate::smbios::corrupt() {
-        let _ = writeln!(s, "  smbios: abort (corrupt structure table)");
-    }
-    if let Some(sys) = crate::smbios::system_info() {
-        let _ = writeln!(
-            s,
-            "  smbios: System {} {} (sn {})",
-            sys.manufacturer, sys.product_name, sys.serial_number
-        );
-    }
-    let dimms = crate::smbios::memory_devices();
-    if !dimms.is_empty() {
-        let mut total_mb: u64 = 0;
-        for d in dimms {
-            total_mb += d.size_mb as u64;
+        if let Some(sys) = crate::smbios::system_info() {
+            let _ = writeln!(
+                s,
+                "  smbios: System {} {} (sn {})",
+                sys.manufacturer, sys.product_name, sys.serial_number
+            );
         }
-        let _ = write!(s, "  smbios: DIMMs {} x {} MiB", dimms.len(), total_mb);
-        if dimms[0].speed_mtps > 0 {
-            let _ = write!(s, " @ {} MT/s", dimms[0].speed_mtps);
+        let dimms = crate::smbios::memory_devices();
+        if !dimms.is_empty() {
+            let mut total_mb: u64 = 0;
+            for d in dimms {
+                total_mb += d.size_mb as u64;
+            }
+            let _ = write!(s, "  smbios: DIMMs {} x {} MiB", dimms.len(), total_mb);
+            if dimms[0].speed_mtps > 0 {
+                let _ = write!(s, " @ {} MT/s", dimms[0].speed_mtps);
+            }
+            if !dimms[0].manufacturer.is_empty() || !dimms[0].part_number.is_empty() {
+                let _ = write!(s, " [{} {}]", dimms[0].manufacturer, dimms[0].part_number);
+            }
+            let _ = writeln!(s);
         }
-        if !dimms[0].manufacturer.is_empty() || !dimms[0].part_number.is_empty() {
-            let _ = write!(s, " [{} {}]", dimms[0].manufacturer, dimms[0].part_number);
-        }
-        let _ = writeln!(s);
     }
 
     // Brand string from leaves 0x80000002..4 (when the leaf range exists).

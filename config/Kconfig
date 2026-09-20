@@ -85,6 +85,13 @@ config RESCUE_REPAIR
         The read-only boot-repair diagnosis; disabling removes the repair
         commands from the rescue shell.
 
+config SMBIOS
+    bool "SMBIOS parsing (identity/DIMM/slots)"
+    default n
+    help
+        The SMBIOS entry-point scan and structure parsers feeding the CPU/GPU
+        identity, DIMM and slot diagnostics; off in the minimal shell.
+
 config DEBUG_SELFTEST
     bool "rump/scheduler self-tests"
     default n

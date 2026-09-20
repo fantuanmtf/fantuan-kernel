@@ -7,8 +7,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 mkdir -p build
 
-# Kernel config (C1): materialize the default `net` profile on first build.
-[ -f .config ] || ./tools/kconfig.py --profile net >/dev/null
+# Kernel config (C4): a missing .config materializes the `minimal` profile;
+# the x86_64 kernel gets --features kconfig-net only when CONFIG_NET=y.
+[ -f .config ] || ./tools/kconfig.py --profile minimal >/dev/null
+KERNEL_FEATURES=()
+if grep -q '^CONFIG_NET=y' .config; then KERNEL_FEATURES=(--features kconfig-net); fi
 
 ARCH="x86_64"
 if [ "${1:-}" = "--arch" ] && [ "${2:-}" = "i686" ]; then
@@ -44,7 +47,7 @@ if [ "$ARCH" = "i686" ]; then
   IMG=build/bios-i686.img
 else
   echo "[1/3] building the x86_64 kernel..."
-  cargo build -p fantuan-kernel --target x86_64-unknown-none --release >/dev/null
+  cargo build -p fantuan-kernel --target x86_64-unknown-none --release "${KERNEL_FEATURES[@]}" >/dev/null
   objcopy -O binary target/x86_64-unknown-none/release/fantuan-kernel build/kernel-bios.bin
   IMG=build/bios.img
   [ "$ISO" = "1" ] && IMG=build/bios-iso.img

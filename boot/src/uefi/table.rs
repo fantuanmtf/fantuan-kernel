@@ -67,7 +67,11 @@ pub struct BootServices {
     pub install_protocol_interface: usize, // 14
     pub reinstall_protocol_interface: usize, // 15
     pub uninstall_protocol_interface: usize, // 16
-    pub handle_protocol: usize,         // 17
+    pub handle_protocol: extern "efiapi" fn(
+        handle: Handle,
+        protocol: *const Guid,
+        interface: *mut *mut c_void,
+    ) -> Status, // 17
     pub _reserved: usize,               // 18
     pub register_protocol_notify: usize, // 19
     pub locate_handle: usize,           // 20

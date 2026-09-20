@@ -26,6 +26,11 @@ rm -f "$LOG"
 (sleep 5; printf 'diskhealth\ncat HELLO.TXT\n'; sleep 70) \
   | timeout --signal=KILL 60 ./tools/run.sh --arch riscv64 --disk --two-fs > "$LOG" 2>&1 || true
 
+# C4: the heartbeat stops as soon as the shell owns the console, so no
+# `tick:` line may appear after `shell: ready` (the 30 s cap is the
+# no-shell fallback and is asserted by the absence of late ticks).
+TICKS_AFTER_SHELL=$(awk '/shell: ready/{seen=1} seen && /^tick: /{n++} END{print n+0}' "$LOG")
+
 if grep -q "fantuan v0.0.2 (riscv64)" "$LOG" \
    && grep -q "boot: hartid=" "$LOG" \
    && grep -q "dtb=0x" "$LOG" \
@@ -35,7 +40,7 @@ if grep -q "fantuan v0.0.2 (riscv64)" "$LOG" \
    && grep -q "mm: frame self-test ok" "$LOG" \
    && grep -q "trap: ebreak handled" "$LOG" \
    && grep -q "timer: SBI timer armed" "$LOG" \
-   && grep -q "tick: 10 s (SBI timer" "$LOG" \
+   && [ "$TICKS_AFTER_SHELL" -eq 0 ] \
    && grep -q "sched: 2 riscv kernel tasks spawned" "$LOG" \
    && grep -q "task 1 (tid 1): hello" "$LOG" \
    && grep -q "user: 2 riscv user tasks spawned" "$LOG" \

@@ -58,7 +58,9 @@ pub fn ticks() -> u64 {
 pub fn tick() {
     let t = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
     arm(unsafe { NEXT } + interval());
-    if t % 1000 == 0 && t <= HEARTBEAT_TICKS {
+    // C4: the shell raises kernel_core::heartbeat once it owns the console;
+    // the 30 s cap remains the fallback when no shell is reached.
+    if t % 1000 == 0 && t <= HEARTBEAT_TICKS && !kernel_core::heartbeat::quiet() {
         puts("tick: ");
         put_dec(t / 100);
         puts(" s (SBI timer, interrupts on)\n");

@@ -21,7 +21,9 @@ pub fn tick() {
     #[cfg(kconfig_net)]
     crate::net::tick();
     let n = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
-    if n % 1000 == 0 && n <= HEARTBEAT_TICKS {
+    // C4: the shell raises kernel_core::heartbeat once it owns the console;
+    // the 30 s cap remains the fallback when no shell is reached.
+    if n % 1000 == 0 && n <= HEARTBEAT_TICKS && !kernel_core::heartbeat::quiet() {
         let mut s = Serial::new(serial::COM1);
         let _ = writeln!(s, "tick: {} s (switches {})", n / 100, task::SWITCHES.load(Ordering::Relaxed));
     }

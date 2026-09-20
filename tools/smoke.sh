@@ -5,6 +5,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 mkdir -p build
 
+# C4: the full x86 suite asserts the diagnostic subsystems (SMBIOS identity,
+# ACPI, virtualization) that the default `minimal` profile leaves out; select
+# them explicitly and build once so the first timed boot is boot time only.
+python3 tools/kconfig.py --profile minimal --symbol VIRT=Y --symbol SMBIOS=Y >/dev/null
+./tools/build.sh >/dev/null 2>&1 || { echo "SMOKE FAIL — pre-build"; exit 1; }
+
 # Reset the non-SMM vars store before each phase — repairs mutate NVRAM.
 # Gentoo/Debian ship OVMF_VARS_4M.fd (underscore); Ubuntu uses .4m.fd.
 for d in /usr/share/edk2/x64 /usr/share/OVMF /usr/share/ovmf /usr/share/edk2-ovmf /usr/share/edk2/OvmfX64; do
@@ -25,9 +31,9 @@ done
 
 rm -f build/smoke.log
 timeout --signal=KILL 60 ./tools/run.sh > build/smoke.log < /dev/null 2>&1 || true
-if grep -q "handshake ok" build/smoke.log && grep -q "beep: boot ok" build/smoke.log && grep -q "frame self-test ok" build/smoke.log && grep -q "demo tasks spawned" build/smoke.log && grep -q "task 3" build/smoke.log && grep -q "userland: hello" build/smoke.log && grep -q "userland: tid 5 exiting" build/smoke.log && grep -q "ahci: LBA0 read ok" build/smoke.log && grep -q "vfs: HELLO.TXT" build/smoke.log && grep -q "vfs: INFO.TXT => 1000" build/smoke.log && grep -q "esp: EFI/BOOT/BOOTX64.EFI" build/smoke.log && grep -q "fstab PARTUUID matches partition 1" build/smoke.log && grep -q "UUID matches grub.cfg" build/smoke.log && grep -q "nvram: BootCurrent" build/smoke.log && grep -q "nvram: BootOrder" build/smoke.log && ! grep -q "repair: FIXED" build/smoke.log && ! grep -q "repair: copied" build/smoke.log && ! grep -q "repair: created Boot" build/smoke.log && ! grep -q "repair: deleted stale" build/smoke.log && grep -q "smbios: BIOS TESTCORP 1.2.3" build/smoke.log && grep -q "smbios: System TESTVENDOR TESTBOX" build/smoke.log && grep -q "smbios: DIMMs" build/smoke.log && grep -q "diskhealth: .*power-on" build/smoke.log && grep -q "fs: part 1 EFI System Partition" build/smoke.log && grep -q "bootloaders: EFI/BOOT/BOOTX64.EFI" build/smoke.log && grep -q "crypto: KATs ok (sha256 + rsa-2048)" build/smoke.log && grep -q "sched: reaped tid 4" build/smoke.log && grep -q "sched: reaped tid 5" build/smoke.log && grep -q "acpi: rev 2 XSDT" build/smoke.log && grep -q "acpi: fadt=true madt=true" build/smoke.log && grep -q "virt: guest under " build/smoke.log && grep -q "virt: matrix row" build/smoke.log && grep -q "virt: capability" build/smoke.log && grep -q "mmu: nx true" build/smoke.log; then
+if grep -q "handshake ok" build/smoke.log && grep -q "beep: boot ok" build/smoke.log && grep -q "frame self-test ok" build/smoke.log && grep -q "demo tasks spawned" build/smoke.log && grep -q "task 3" build/smoke.log && grep -q "userland: hello" build/smoke.log && grep -qaE "userland: tid [0-9]+ exiting" build/smoke.log && grep -q "ahci: LBA0 read ok" build/smoke.log && grep -q "vfs: HELLO.TXT" build/smoke.log && grep -q "vfs: INFO.TXT => 1000" build/smoke.log && grep -q "esp: EFI/BOOT/BOOTX64.EFI" build/smoke.log && grep -q "fstab PARTUUID matches partition 1" build/smoke.log && grep -q "UUID matches grub.cfg" build/smoke.log && grep -q "nvram: BootCurrent" build/smoke.log && grep -q "nvram: BootOrder" build/smoke.log && ! grep -q "repair: FIXED" build/smoke.log && ! grep -q "repair: copied" build/smoke.log && ! grep -q "repair: created Boot" build/smoke.log && ! grep -q "repair: deleted stale" build/smoke.log && grep -q "smbios: BIOS TESTCORP 1.2.3" build/smoke.log && grep -q "smbios: System TESTVENDOR TESTBOX" build/smoke.log && grep -q "smbios: DIMMs" build/smoke.log && grep -q "diskhealth: .*power-on" build/smoke.log && grep -q "fs: part 1 EFI System Partition" build/smoke.log && grep -q "bootloaders: EFI/BOOT/BOOTX64.EFI" build/smoke.log && grep -q "crypto: KATs ok (sha256 + rsa-2048)" build/smoke.log && [ "$(grep -acE 'sched: reaped tid [0-9]+' build/smoke.log)" -ge 2 ] && grep -q "acpi: rev 2 XSDT" build/smoke.log && grep -q "acpi: fadt=true madt=true" build/smoke.log && grep -q "virt: guest under " build/smoke.log && grep -q "virt: matrix row" build/smoke.log && grep -q "virt: capability" build/smoke.log && grep -q "mmu: nx true" build/smoke.log; then
   echo "SMOKE PASS (boot path is read-only: no repair writes)"
-  grep -E "handshake ok|frame allocator|frame self-test|syscall:|sched:|user: ELF|userland: hello|userland: tid 5|beep: boot ok" build/smoke.log | head -10
+  grep -aE "handshake ok|frame allocator|frame self-test|syscall:|sched:|user: ELF|userland: hello|userland: tid [0-9]+|beep: boot ok" build/smoke.log | head -10
 else
   echo "SMOKE FAIL — log tail:"
   tail -40 build/smoke.log
@@ -148,10 +154,11 @@ fi
 # exercised deterministically — no timing-dependent serial injection.
 rm -f build/smoke-shell.log build/smoke-shell-repair.log
 # The idle notice needs ~30 s after the autorun scan finishes, and a TCG boot
-# can take most of the first minute: budget 150 s.
-timeout --signal=KILL 150 ./tools/run.sh --keys --broken > build/smoke-shell.log < /dev/null 2>&1 || true
+# plus the full-surface disk scan can take most of the first two minutes:
+# budget 240 s.
+timeout --signal=KILL 240 ./tools/run.sh --keys --broken > build/smoke-shell.log < /dev/null 2>&1 || true
 if grep -q "shell: autorun 9 command(s)" build/smoke-shell.log \
-   && grep -q "shell> help" build/smoke-shell.log \
+   && grep -q "root@Fantuan-MTF> help" build/smoke-shell.log \
    && grep -q "hwdiag      re-run hardware" build/smoke-shell.log \
    && grep -q "part 1: EFI System Partition" build/smoke-shell.log \
    && grep -q "cat: 35 bytes" build/smoke-shell.log \

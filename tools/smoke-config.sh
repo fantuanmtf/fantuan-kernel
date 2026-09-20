@@ -48,6 +48,12 @@ python3 tools/kconfig.py --check || fail "net profile validation"
 python3 tools/kconfig.py --emit >/dev/null || fail "--emit"
 grep -q "pub const CONFIG_NET: bool = true" build/config/features.rs || fail "features.rs net"
 grep -q "^config_net=y" build/config/features.env || fail "features.env net"
+if cargo tree -p fantuan-kernel --target x86_64-unknown-none -e normal --offline \
+     --features kconfig-net 2>/dev/null | grep -q "kernel-net"; then
+  ok "net profile: cargo tree has the kernel-net edge"
+else
+  fail "net profile: cargo tree has no kernel-net edge"
+fi
 NET_LOG="build/smoke-config-net.log"
 boot "$NET_LOG" "${SMOKE_CONFIG_TIMEOUT:-90}"
 if grep -q "shell: ready" "$NET_LOG" \
@@ -62,16 +68,26 @@ else
   exit 1
 fi
 
-echo "[phase minimal] .config = minimal profile..."
-python3 tools/kconfig.py --profile minimal >/dev/null || fail "writing the minimal profile"
-python3 tools/kconfig.py --check || fail "minimal profile validation"
+# C4 default: with no .config, kconfig.py assumes and build.sh materializes
+# the `minimal` profile; the kernel must have no kernel-net cargo edge.
+echo "[phase minimal] no .config -> minimal profile (C4 default)..."
+rm -f .config
+if ! python3 tools/kconfig.py --text 2>/dev/null | grep -q "profile minimal"; then
+  fail "kconfig.py did not assume the minimal profile without .config"
+fi
 MIN_LOG="build/smoke-config-min.log"
 boot "$MIN_LOG" "${SMOKE_CONFIG_TIMEOUT:-90}"
+grep -q "^# profile: minimal" .config || fail "build.sh did not materialize the minimal profile"
+if cargo tree -p fantuan-kernel --target x86_64-unknown-none -e normal --offline 2>/dev/null \
+     | grep -q "kernel-net"; then
+  fail "minimal profile: cargo tree still has a kernel-net edge"
+fi
 if grep -q "shell: ready" "$MIN_LOG" \
+   && grep -q "root@Fantuan-MTF" "$MIN_LOG" \
    && ! grep -q "net: lo0 up" "$MIN_LOG" \
    && ! grep -q "rump:" "$MIN_LOG" \
    && ! grep -q "net: tcp" "$MIN_LOG"; then
-  ok "minimal profile: shell + zero net:/rump: code"
+  ok "minimal profile: shell + zero net:/rump: code (no kernel-net edge)"
 else
   echo "SMOKE FAIL (config: minimal profile) — log tail:"
   tail -25 "$MIN_LOG"
@@ -113,10 +129,10 @@ ok "budget: $BUDGET_TOTAL bytes ($((BUDGET_TOTAL / 1048576)) MiB) <= 300 MiB (1-
 
 echo "[increment] flip DEBUG_SELFTEST and inspect the rebuild set..."
 python3 tools/kconfig.py --profile net >/dev/null || fail "net profile before baseline"
-cargo build -p fantuan-kernel --target x86_64-unknown-none --release \
+cargo build -p fantuan-kernel --target x86_64-unknown-none --release --features kconfig-net \
   > build/smoke-config-incr-base.log 2>&1 || fail "baseline x86_64 build"
 python3 tools/kconfig.py --profile net --symbol DEBUG_SELFTEST=N >/dev/null || fail "flip"
-cargo build -p fantuan-kernel --target x86_64-unknown-none --release \
+cargo build -p fantuan-kernel --target x86_64-unknown-none --release --features kconfig-net \
   > build/smoke-config-incr.log 2>&1 || fail "incremental x86_64 build"
 grep -a "Compiling" build/smoke-config-incr.log || true
 REBUILT="$(grep -a "Compiling" build/smoke-config-incr.log \

@@ -16,8 +16,9 @@ macro_rules! out {
 }
 
 pub fn cmd_hwdiag(_sh: &mut Shell, _s: &mut Log, _args: &[&[u8]]) {
-    let stage1: [diag::Check; 3] = [
+    let stage1 = [
         diag::Check { name: "cpu", run: diag::cpu::check },
+        #[cfg(kconfig_graphics)]
         diag::Check { name: "gpu", run: diag::gpu::check },
         diag::Check { name: "ram", run: diag::ram::check },
     ];

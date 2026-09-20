@@ -139,6 +139,7 @@ fn kmain(bi: *const BootInfo) -> ! {
                     run: kernel_core::diag::storage::check,
                 }];
                 kernel_core::diag::run_stage("2 storage", &stage2);
+                #[cfg(kconfig_rescue_repair)]
                 kernel_core::bootrepair::diagnose(&mut s, &vfs, bi.runtime_services);
             }
             None => {

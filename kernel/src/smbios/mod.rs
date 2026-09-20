@@ -24,8 +24,11 @@ struct StrRef { off: usize, len: usize }
 
 static mut BIOS: Option<(StrRef, StrRef, StrRef)> = None;
 static mut SYSTEM: Option<(StrRef, StrRef, StrRef)> = None;
+#[cfg(kconfig_graphics)]
 const MAX_SLOTS: usize = 64;
+#[cfg(kconfig_graphics)]
 static mut SLOTS: [SlotInfo; MAX_SLOTS] = [SlotInfo::ZERO; MAX_SLOTS];
+#[cfg(kconfig_graphics)]
 static mut SLOT_COUNT: usize = 0;
 const MAX_DIMMS: usize = 32;
 static mut DIMMS: [MemoryDevice; MAX_DIMMS] = [MemoryDevice::ZERO; MAX_DIMMS];
@@ -124,7 +127,10 @@ unsafe fn reset_catalog() {
     INITED = true;
     CORRUPT = false;
     STR_LEN = 0;
-    SLOT_COUNT = 0;
+    #[cfg(kconfig_graphics)]
+    {
+        SLOT_COUNT = 0;
+    }
     DIMM_COUNT = 0;
     BIOS = None;
     SYSTEM = None;
@@ -195,6 +201,8 @@ pub fn system_info() -> Option<SystemInfo> {
     }
 }
 
+/// The Type-9 slot catalog is consumed only by the CONFIG_GRAPHICS GPU check.
+#[cfg(kconfig_graphics)]
 pub fn system_slots() -> &'static [SlotInfo] {
     unsafe { &SLOTS[..SLOT_COUNT] }
 }
@@ -205,7 +213,9 @@ pub fn memory_devices() -> &'static [MemoryDevice] {
 
 pub struct BiosInfo { pub vendor: &'static str, pub version: &'static str, pub release_date: &'static str }
 pub struct SystemInfo { pub manufacturer: &'static str, pub product_name: &'static str, pub serial_number: &'static str }
+#[cfg(kconfig_graphics)]
 pub struct SlotInfo { pub slot_id: u8, pub designation: &'static str, pub in_use: bool, pub uses_pci: bool, pub display_class_hint: bool }
+#[cfg(kconfig_graphics)]
 impl SlotInfo { const ZERO: SlotInfo = SlotInfo { slot_id: 0, designation: "", in_use: false, uses_pci: false, display_class_hint: false }; }
 pub struct MemoryDevice { pub size_mb: u32, pub speed_mtps: u16, pub manufacturer: &'static str, pub part_number: &'static str }
 impl MemoryDevice { const ZERO: MemoryDevice = MemoryDevice { size_mb: 0, speed_mtps: 0, manufacturer: "", part_number: "" }; }

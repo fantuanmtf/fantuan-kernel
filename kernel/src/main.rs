@@ -26,9 +26,11 @@ extern "C" {
     static __bss_end: u8;
 }
 
-mod bootrepair;
+#[cfg(kconfig_virt)]
 mod acpi;
 mod arch;
+#[cfg(kconfig_rescue_repair)]
+mod bootrepair;
 mod bootlog;
 mod console;
 mod consts;
@@ -44,6 +46,7 @@ mod mm;
 mod net;
 mod panic;
 mod shell;
+#[cfg(kconfig_smbios)]
 mod smbios;
 mod task;
 mod timer;
@@ -141,18 +144,11 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     let kernel_end_phys = core::ptr::addr_of!(__bss_end) as u64 - fantuan_abi::PHYS_OFFSET;
     mm::frame::init(bi, kernel_end_phys, &[]);
     let alloc = mm::frame::get();
-    let _ = writeln!(
-        s,
-        "mm: frame allocator ready: {} MiB usable (bitmap {} KiB)",
-        alloc.usable_mib(),
-        mm::frame::BITMAP_BYTES / 1024
-    );
+    let _ = writeln!(s, "mm: frame allocator ready: {} MiB usable (bitmap {} KiB)",
+        alloc.usable_mib(), mm::frame::BITMAP_BYTES / 1024);
     let new_pml4 = mm::paging::init(alloc);
-    let _ = writeln!(
-        s,
-        "paging: kernel tables @ phys {:#x}, kmain @ {:#x}",
-        new_pml4, kmain as *const () as usize
-    );
+    let _ = writeln!(s, "paging: kernel tables @ phys {:#x}, kmain @ {:#x}",
+        new_pml4, kmain as *const () as usize);
 
     // The bootloader's tables are unreferenced after the switch: reclaim them.
     // reclaim() (not free()) because these reserved frames were never handed
@@ -231,20 +227,23 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     );
 
     // --- M5: diagnostics stage 1 (pure Rust core, DESIGN.md §6) ------------
-    // M5.5: SMBIOS tables feed the CPU/GPU diagnostics (BIOS/system identity,
-    // memory devices, slot list). The entry point lives in the F-segment on
-    // legacy firmware; a missing anchor degrades gracefully.
+    // M5.5: SMBIOS tables feed the CPU/GPU diagnostics (CONFIG_SMBIOS, C4);
+    // a missing anchor degrades gracefully.
+    #[cfg(kconfig_smbios)]
     unsafe {
         smbios::init_from_entry(bi.smbios_table);
         smbios::init(0xF_0000, 0x1_0000);
     }
-    // M12-1: ACPI tables (read-only; absent on the BIOS path for now).
+    // M12-1/M12-7: ACPI tables + virtualization report (CONFIG_VIRT; the
+    // IOMMU walk is ACPI's only consumer today).
+    #[cfg(kconfig_virt)]
     let acpi = acpi::init(bi.rsdp);
-    // M12-7: virtualization capability report (CPUID + ACPI IOMMU tables).
+    #[cfg(kconfig_virt)]
     diag::virt::report(acpi.as_ref());
 
-    let stage1: [diag::Check; 3] = [
+    let stage1 = [
         diag::Check { name: "cpu", run: diag::cpu::check },
+        #[cfg(kconfig_graphics)]
         diag::Check { name: "gpu", run: diag::gpu::check },
         diag::Check { name: "ram", run: diag::ram::check },
     ];
@@ -266,14 +265,13 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         }
 
         // --- M5: diagnostics stage 2 (needs the C storage driver) ----------
-        let stage2: [diag::Check; 1] = [
-            diag::Check { name: "storage", run: diag::storage::check },
-        ];
+        let stage2: [diag::Check; 1] = [diag::Check { name: "storage", run: diag::storage::check }];
         diag::run_stage("2 storage", &stage2);
 
-        // --- M7: boot repair v1 (read-only diagnosis + repair actions) ----
-        // The boot path is READ-ONLY: diagnosis only. Repairs run solely from
-        // the shell's confirmation-gated `grub-fix repair` (iron rule).
+        // --- M7: boot repair v1 (read-only diagnosis; CONFIG_RESCUE_REPAIR) -
+        // The boot path is READ-ONLY: repairs run solely from the shell's
+        // confirmation-gated `grub-fix repair` (iron rule).
+        #[cfg(kconfig_rescue_repair)]
         if let Some(v) = mounted {
             // Shared boot repair logs through the kernel-core Log sink.
             bootrepair::diagnose(&mut kernel_core::log::Log::new(), &v, bi.runtime_services);
@@ -288,13 +286,11 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     let _ = writeln!(s, "beep: boot ok (1 long)");
 
     // --- §10 Minimal shell -------------------------------------------------
-    // M8.5b: mirror serial output onto the GOP so the shell is usable on
-    // machines without a serial port. Enabled here, after the boot logs.
+    // M8.5b: mirror serial to the GOP so the shell works without a serial port.
     if con.is_some() {
         serial::enable_mirror();
         let _ = writeln!(s, "console: serial output mirrored to GOP (keyboard + display)");
     }
-    // The interactive loop replaces the idle spin: it halts between polls, so
-    // the scheduler keeps running the other tasks exactly as before.
+    // The loop halts between polls, so the scheduler keeps running the tasks.
     shell::enter(mounted, bi, bi.runtime_services);
 }

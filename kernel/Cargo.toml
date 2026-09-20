@@ -7,7 +7,12 @@ description = "fantuan-kernel core (M0)"
 [dependencies]
 fantuan-abi = { path = "../abi" }
 kernel-core = { path = "../kernel-core" }
-kernel-net = { path = "../kernel-net" }
+# Optional (C4): the rump network stack is only linked when CONFIG_NET=y.
+# tools/build.sh / build-bios.sh pass --features kconfig-net from .config.
+kernel-net = { path = "../kernel-net", optional = true }
+
+[features]
+kconfig-net = ["dep:kernel-net"]
 
 [build-dependencies]
 cc = "1"

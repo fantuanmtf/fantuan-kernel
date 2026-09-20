@@ -150,6 +150,7 @@ pub fn install_hooks() {
         drive_identity,
         storage_bdf,
     });
+    #[cfg(kconfig_rescue_repair)]
     kernel_core::bootrepair::set_auth_apply(crate::bootrepair::secureboot_auth::apply);
 }
 

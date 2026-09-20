@@ -88,7 +88,7 @@ pub extern "efiapi" fn efi_main(image_handle: Handle, system_table: *mut SystemT
     };
 
     // 4. Kernel image from the ESP
-    if loader::load_kernel(bs, con, &map).is_err() {
+    if loader::load_kernel(bs, con, &map, image_handle).is_err() {
         return EFI_LOAD_ERROR;
     }
 
