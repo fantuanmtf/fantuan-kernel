@@ -1,6 +1,6 @@
 # Build Guide
 
-How to build fantuan-kernel v0.0.2 (x86_64, i686 and riscv64) from source.
+How to build fantuan-kernel v0.0.2 (x86_64, i686, riscv64 and aarch64) from source.
 For *running* what you built see [USAGE.md](USAGE.md); for the CI-style
 checks see [OPERATIONS.md](OPERATIONS.md).
 
@@ -12,17 +12,20 @@ checks see [OPERATIONS.md](OPERATIONS.md).
 | `x86_64-unknown-none` | x86_64 kernel, userland | add target |
 | `x86_64-unknown-uefi` | UEFI bootloader | add target |
 | `riscv64gc-unknown-none-elf` | RISC-V kernel, userland | add target |
+| `aarch64-unknown-none` | aarch64 kernel (R9a) | built-in stable target, no build-std needed |
 | nightly + `rust-src` | i686 (32-bit) kernel | `rustup toolchain install nightly --profile minimal --component rust-src`; the crate pins nightly via `kernel-i686/rust-toolchain.toml` and builds core from source with `-Z build-std=core -Z json-target-spec --target targets/i686-fantuan-none.json` |
 | `qemu-system-x86_64` + OVMF (`edk2-ovmf`) | run/test x86_64 | SMM OVMF optional |
 | `qemu-system-riscv64` (>= 9) | run/test riscv64 | OpenSBI `fw_dynamic` ships with QEMU |
+| `qemu-system-aarch64` | run/test aarch64 | QEMU `virt`; the smoke pins `gic-version=2` |
 | `clang` + `llvm-ar` | build the C driver layer for riscv64 | any recent LLVM |
+| `llvm-objcopy` (or `aarch64-linux-gnu-objcopy`) | flatten the aarch64 ELF to the raw `Image` QEMU boots | LLVM tooling |
 | `python3` | disk fixtures (`tools/mkdisk.py`) | 3.8+ |
 | `objcopy` (binutils) | x86 kernel ELF -> flat binary | host binutils is fine |
 
 Install the Rust targets once:
 
 ```sh
-rustup target add x86_64-unknown-uefi x86_64-unknown-none riscv64gc-unknown-none-elf
+rustup target add x86_64-unknown-uefi x86_64-unknown-none riscv64gc-unknown-none-elf aarch64-unknown-none
 ```
 
 The system `cargo` may lack bare-metal targets; the scripts export
@@ -39,6 +42,7 @@ kernel/        fantuan-kernel x86_64 kernel (x86_64-unknown-none)
 kernel-i686/   kernel-i686    32-bit kernel (nightly + custom target JSON)
 kernel-core/   kernel-core    portable half shared by all three kernels
 kernel-riscv/  kernel-riscv   riscv64 kernel (riscv64gc-unknown-none-elf)
+kernel-aarch64/ kernel-aarch64 aarch64 kernel (aarch64-unknown-none, direct FDT)
 user/          fantuan-user   the userland test program (all arches)
 drivers/c/     C driver layer: blk.c + blk_ops + ahci/nvme/i8042/virtio_mmio
 tools/         build/run/smoke scripts + mkdisk.py + mkiso.py
@@ -52,6 +56,7 @@ All crates are version `0.0.2` (`panic = "abort"`, release `opt-level = "z"`).
 ```sh
 tools/build.sh                 # x86: userland -> kernel -> bootloader
 tools/build.sh --arch riscv64  # riscv: userland -> kernel-riscv
+tools/build.sh --arch aarch64  # aarch64: kernel-aarch64 -> raw Image (llvm-objcopy)
 tools/build-i686.sh            # i686: userland (ELF32) -> 32-bit kernel
 tools/build-bios.sh            # BIOS image from the x86_64 kernel
 tools/build-iso.sh             # hybrid BIOS+UEFI ISO (build/fantuan.iso)
@@ -66,6 +71,8 @@ Artifacts:
 | UEFI bootloader | `target/x86_64-unknown-uefi/release/fantuan-boot.efi` |
 | riscv userland (embedded by `kernel-riscv/build.rs`) | `kernel-riscv/user_program.bin` |
 | riscv kernel (loaded by OpenSBI at `0x80200000`) | `target/riscv64gc-unknown-none-elf/release/kernel-riscv` |
+| aarch64 kernel ELF | `target/aarch64-unknown-none/release/kernel-aarch64` |
+| aarch64 raw `Image` (QEMU loads it at `0x40080000`, DTB in x0) | `build/kernel-aarch64.bin` |
 | i686 kernel flat binary (BIOS stage2 loads it) | `build/kernel-i686.bin` |
 | BIOS boot image / hybrid ISO | `build/bios.img`, `build/bios-i686.img`, `build/fantuan.iso` |
 
@@ -110,9 +117,14 @@ cargo build -p fantuan-user    --target riscv64gc-unknown-none-elf --release
 cp target/riscv64gc-unknown-none-elf/release/fantuan-user kernel-riscv/user_program.bin
 cargo build -p kernel-riscv    --target riscv64gc-unknown-none-elf --release
 
+# aarch64 chain (R9a: no userland; flatten for QEMU's raw-Image boot)
+cargo build -p kernel-aarch64  --target aarch64-unknown-none --release
+llvm-objcopy -O binary target/aarch64-unknown-none/release/kernel-aarch64 build/kernel-aarch64.bin
+
 # library-only checks
 cargo build -p kernel-core     --target x86_64-unknown-none --release
 cargo build -p kernel-core     --target riscv64gc-unknown-none-elf --release
+cargo build -p kernel-core     --target aarch64-unknown-none --release
 
 # i686 chain (nightly crate; wraps build-std + the custom target JSON)
 ./tools/build-i686.sh
@@ -131,6 +143,10 @@ warning as a build break.
   `drivers/c/blk.c` + `drivers/c/virtio_mmio.c` with **clang**
   (`--target=riscv64-unknown-none-elf -march=rv64gc -mabi=lp64d
   -mcmodel=medany`, archived with `llvm-ar`).
+- `kernel-aarch64/build.rs`: only the Kconfig cfg emission and
+  `kernel-aarch64/link.ld` (link at `0x40080000`); `tools/build.sh --arch
+  aarch64` flattens the ELF to `build/kernel-aarch64.bin` with
+  `llvm-objcopy`. R9a links no C driver layer (block stubs return -1).
 - `user/build.rs`: applies `user/link.ld` (static ELF linked at
   `0x400000`, shared by both arches).
 
@@ -159,6 +175,7 @@ python3 tools/mkdisk.py --grub-regen build/test.img    # autorun runs grub-fix i
 | `clang: command not found` (riscv) | install clang; `kernel-riscv/build.rs` uses it for the C drivers |
 | `llvm-ar: command not found` | install LLVM tooling or add its directory to `PATH` |
 | `tools/run.sh: OVMF not found` | install `edk2-ovmf`; `run.sh` searches the usual paths |
+| `llvm-objcopy: command not found` (aarch64) | install LLVM tools or use `aarch64-linux-gnu-objcopy`; `tools/build.sh` needs one to flatten the raw image |
 | file-size rule failure | every source file must stay <= 300 lines; split it |
 
 ## 8. Versioning

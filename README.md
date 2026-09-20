@@ -65,6 +65,17 @@ verification is `smoke.sh` 13/13, `smoke-bios.sh` 2/2,
 §3). Windows boot repair stays permanently unsupported
 ([WINDOWS.md](docs/WINDOWS.md)).
 
+M11 (in progress, v0.0.3) adds the NetBSD-derived network stack and the
+aarch64 port. **R9a** brings up `kernel-aarch64/` as a direct FDT boot on
+QEMU `virt`: the raw `Image` boots through QEMU's Linux-compatible protocol
+(DTB in x0), with PL011, 4K-granule stage-1 tables (TTBR0 identity + TTBR1
+direct map at `0xffff000000000000`), GICv2 + the generic timer at 100 Hz,
+the shared frame allocator/scheduler/heartbeat and the shared shell.
+Build/boot with `tools/build.sh --arch aarch64` or
+`tools/run.sh --arch aarch64`; gate it with `tools/smoke-aarch64.sh`.
+Network/TLS on aarch64, virtio-net MMIO, the UEFI/AAVMF path and the
+v0.0.3 release are R9b.
+
 M9 brings up a second architecture and splits the portable half of the
 kernel into `kernel-core`: the riscv64 kernel boots under OpenSBI (QEMU
 `virt`), builds Sv39 tables with an identity + PHYS_OFFSET alias, runs a
@@ -131,27 +142,34 @@ the GPT + FAT32 test disk including the ESP fixture (`--broken` /
 - `kernel-riscv/` — riscv64 kernel (`riscv64gc-unknown-none-elf`): Sv39
   paging, traps, SBI timer, U-mode tasks and the virtio-mmio block driver
   glue (`drivers/c/virtio_mmio.c`).
+- `kernel-aarch64/` — aarch64 kernel (`aarch64-unknown-none`, M11 R9a):
+  direct FDT boot on QEMU `virt`, 4K-granule page tables with the
+  PHYS_OFFSET direct map, PL011, GICv2 + generic timer, shared scheduler and
+  shell. Booted as a raw `Image` (QEMU passes the DTB in x0).
 - `abi/` — the versioned BootInfo ABI shared by both sides.
 
 ## Quickstart
 
 Requirements: Rust (stable) with targets `x86_64-unknown-uefi`,
-`x86_64-unknown-none` and `riscv64gc-unknown-none-elf`, nightly + `rust-src`
-(i686 only), QEMU (x86_64 and riscv64), OVMF (`edk2-ovmf`), NASM (BIOS
-stages), binutils (objcopy), clang + llvm-ar (riscv C drivers), python3
-(disk/ISO fixtures).
+`x86_64-unknown-none`, `riscv64gc-unknown-none-elf` and
+`aarch64-unknown-none`, nightly + `rust-src` (i686 only), QEMU (x86_64,
+riscv64 and aarch64), OVMF (`edk2-ovmf`), NASM (BIOS stages), binutils
+(objcopy), clang + llvm-ar (riscv C drivers), llvm-objcopy (aarch64 raw
+image), python3 (disk/ISO fixtures).
 
 ```sh
-rustup target add x86_64-unknown-uefi x86_64-unknown-none riscv64gc-unknown-none-elf
+rustup target add x86_64-unknown-uefi x86_64-unknown-none riscv64gc-unknown-none-elf aarch64-unknown-none
 rustup toolchain install nightly --profile minimal --component rust-src
 tools/run.sh                             # x86: serial console
 tools/run.sh --graphics                  # x86: window (GOP console)
 tools/run-bios.sh                        # x86_64: legacy BIOS chain
 tools/run-bios.sh --arch i686            # i686: BIOS bring-up (no shell yet)
 tools/run.sh --arch riscv64 --disk --two-fs   # riscv: OpenSBI + virtio-blk + shell
+tools/run.sh --arch aarch64              # aarch64: QEMU virt direct FDT boot + shell
 tools/smoke.sh                           # x86 CI-style (13 phases)
 tools/smoke-bios.sh                      # BIOS CI-style (x86_64 + i686, 2 phases)
 tools/smoke-riscv.sh                     # riscv CI-style (bounded, serial-fed shell)
+tools/smoke-aarch64.sh                   # aarch64 CI-style (direct FDT boot)
 tools/smoke-iso.sh                       # hybrid ISO CI-style (BIOS + UEFI, 2 phases)
 ```
 

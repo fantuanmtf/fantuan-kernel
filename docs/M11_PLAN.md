@@ -253,12 +253,37 @@ the catalog (`apps/{ping,nslookup,wget}`, `requires = ["posix-libc"]`,
 `tools/build-bash-spike.sh`); the in-kernel tools stay the non-default
 interim bridge (R7) until M14-4. **R9 next**: arm64 FDT + UEFI + net/TLS, smokes, 0.0.3.
 
-### R9 - aarch64 bring-up + final docs
+### R9a outcome - aarch64 direct FDT boot
 
-Scope: direct FDT boot on QEMU `virt`; UEFI loader path under AAVMF; the
-full stack on aarch64; smoke phases; docs/matrices/THIRD_PARTY; 0.0.3.
-- Verify: aarch64 direct + UEFI smokes; smoke-net offline gate; all other
-  smokes green; version strings at 0.0.3.
+R9a (2026-09) delivered the first half of R9. `kernel-aarch64/` mirrors the
+riscv layout (link.ld, `_start` in `.text.entry`, `rust_entry`, module split)
+and boots on QEMU `virt` as a raw `Image`: QEMU's Linux-compatible protocol
+loads it at 0x40080000 and passes the DTB in x0 (the ELF direct path passes
+x0 = 0, verified; `tools/build.sh --arch aarch64` flattens the ELF with
+`llvm-objcopy`). FDT-lite parses the memory nodes/memreserve/model and
+sanity-checks the pl011 node; GICv2 (distributor 0x0800_0000, CPU interface
+0x0801_0000) and the generic-timer PPI 30 are hardcoded to the QEMU virt map
+and documented (run.sh pins `-machine virt,gic-version=2`). The MMU uses a
+4K granule (TCR T0SZ/T1SZ=16, TTBR0 identity + TTBR1 direct map at
+0xffff000000000000) with 2 MiB RAM/MMIO blocks and MAIR normal/device
+attributes. VBAR_EL1 carries the full 16-entry table, a save-frame stub and
+an exit path that restores ELR_EL1/SPSR_EL1 from the per-task frame (the
+global-register hazard riscv documents for sstatus); a deliberate `brk #0`
+prints `trap: brk handled` and resumes. The context switch saves v8-v15 +
+x19-x30 (NEON is enabled in the stable aarch64 target). The shared frame
+allocator, heartbeat, scheduler and shell run unchanged. `tools/smoke-aarch64.sh`
+asserts the boot markers, the BRK resume, the two demo tasks, the shell
+transcripts (`help`, `bootinfo`) and the no-unexpected-trap negative check.
+Network/TLS on aarch64, virtio-net MMIO, the UEFI/AAVMF path and the 0.0.3
+release stay in R9b.
+
+### R9 - aarch64 bring-up + final docs (R9b = the remainder)
+
+Scope: direct FDT boot on QEMU `virt` (done in R9a); UEFI loader path under
+AAVMF; the full stack on aarch64; smoke phases; docs/matrices/THIRD_PARTY;
+0.0.3.
+- Verify: aarch64 direct (R9a: `smoke-aarch64.sh` PASS) + UEFI smokes;
+  smoke-net offline gate; all other smokes green; version strings at 0.0.3.
 
 ## Checkpoint protocol
 

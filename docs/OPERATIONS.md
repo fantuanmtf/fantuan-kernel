@@ -14,6 +14,7 @@ itself see [USAGE.md](USAGE.md); for builds see [BUILD.md](BUILD.md).
 | `tools/smoke-net.sh` | M11 offline network gate (loopback/SLIRP/DNS/TLS/UDP) | ~8 min |
 | `tools/smoke-bios.sh` | legacy BIOS chain: x86_64 + i686 (2 phases) | ~2 min |
 | `tools/smoke-riscv.sh` | riscv acceptance suite (3 phases) | ~4 min |
+| `tools/smoke-aarch64.sh` | aarch64 direct-FDT bring-up (1 phase) | ~1 min |
 | `tools/smoke-iso.sh` | hybrid ISO: BIOS El Torito + UEFI 0xEF (2 phases) | ~3 min |
 | `tools/run.sh [flags]` | single interactive/scripted boot | until you quit |
 | `tools/kbd_test.sh` | QEMU-monitor keyboard injection (x86) | ~1 min |
@@ -57,6 +58,7 @@ template before phases 11–13 because NVRAM repairs mutate it.
 | i686 BIOS | SeaBIOS + the 32-bit stage2 variant | `smoke-bios.sh` phase 2 | 32-bit handoff, PSE paging, frame allocator, IDT/PIC/PIT, scheduler, ELF32 ring 3 via `int 0x80`, PIO ATA + shared VFS (read-only) |
 | i686 BIOS + data disk | as above, kernel on the primary **slave** (`build-bios.sh --arch i686 --slave`), `build/test.img` on the primary master | `smoke-bios.sh` phase 2 | the PIO ATA driver reads the delivered test disk while the firmware boots the slave image |
 | riscv64 | OpenSBI `fw_dynamic`, QEMU `virt` (no UEFI involved) | `smoke-riscv.sh` 3/3 | boot/Sv39/traps/SBI timer, U-mode + fault kill/reap, virtio-mmio, VFS/boot-repair, shell, repair YES/NO gate |
+| aarch64 direct | QEMU `virt` raw `Image` boot (no firmware; DTB in x0) | `smoke-aarch64.sh` 1/1 | boot/PL011/FDT, 4K-granule MMU + PHYS_OFFSET direct map, GICv2 + generic timer at 100 Hz, BRK-resume exception demo, kernel tasks, shell; no storage/user mode yet (R9b) |
 | Hybrid ISO BIOS | SeaBIOS `-cdrom`, El Torito no-emulation preload | `smoke-iso.sh` phase 1 | the x86_64 kernel reaches the shell from the ISO; the CD chain copies the kernel from the firmware preload instead of ATA |
 | Hybrid ISO UEFI | OVMF `-cdrom`, platform id 0xEF FAT ESP | `smoke-iso.sh` phase 2 | OVMF mounts the 0xEF FAT image and boots the same kernel to VFS + shell |
 | VBE console (i686) | SeaBIOS `-vga std` + stage2 VBE 2.0 mode set | `smoke-bios.sh` phase 2 asserts `fb: 1024x768x32` + `fb: console up`; the W5 checkpoint added a headless screendump decode and the `-vga none` fallback run | 1024x768x32 text console with serial mirroring; without VBE the kernel logs `fb: unavailable (serial console)` and continues on serial |
@@ -76,6 +78,9 @@ Known limitations across the matrix:
   std` is the only environment exercised).
 - **riscv has no UEFI**: OpenSBI is the boot path; Runtime Services are
   absent and NVRAM repair degrades honestly.
+- **aarch64 R9a is console-only**: the direct-FDT boot has no storage
+  transport, no user mode and no network yet (TLS/net/UEFI are R9b); the
+  shared VFS resolves through stub `blk_read`/`blk_write` returning -1.
 
 ## 4. The riscv suite (`tools/smoke-riscv.sh`, 3 phases)
 
@@ -91,11 +96,31 @@ stays open so QEMU does not see EOF. The same technique drives phases B/C.
 The script selects the `rescue` profile because the default minimal kernel
 does not register those commands (C5).
 
+## 4.1 The aarch64 suite (`tools/smoke-aarch64.sh`, 1 phase)
+
+One bounded boot of the raw `Image` on QEMU `virt` with `-cpu cortex-a72`
+and `-machine virt,gic-version=2` (QEMU's Linux-compatible raw-image
+protocol is what passes the DTB in x0). The script asserts the boot banner,
+the FDT memory/model/pl011 report, the frame allocator and direct-map
+markers, GICv2 + the 100 Hz timer, the `brk #0` resume, the two demo tasks,
+the `help`/`bootinfo` shell transcripts, no unexpected traps, no panic and
+no heartbeat after `shell: ready`. The phase selects the minimal profile
+(the only commands the R9a table registers). Quit QEMU with `Ctrl-A X`.
+
+```sh
+# the exact QEMU invocation run.sh uses (raw Image, GICv2, one A72):
+qemu-system-aarch64 -machine virt,gic-version=2 -cpu cortex-a72 \
+  -nographic -m 512M -nic none -kernel build/kernel-aarch64.bin
+
+tools/run.sh --arch aarch64        # interactive: build + QEMU virt
+tools/smoke-aarch64.sh             # bounded acceptance run (PASS/SKIP)
+```
+
 ## 5. `tools/run.sh` flags
 
 | Flag | Effect |
 |---|---|
-| `--arch x86_64\|riscv64` | select the platform (default x86_64) |
+| `--arch x86_64\|riscv64\|aarch64` | select the platform (default x86_64) |
 | `--graphics` | x86: show the GOP window instead of `-nographic` |
 | `--broken` / `--broken-shim` | build the ESP without fallback / without shim |
 | `--two-fs` | add the ext4 root + XFS probe fixture to the disk |
@@ -124,6 +149,7 @@ to `build/esp/fantuan/kernel.bin` on every run.
 | BIOS i686 + VFS | `tools/build-bios.sh --arch i686 --slave` + the QEMU layout in `smoke-bios.sh` | the same bring-up with `build/test.img` on the primary master (read-only VFS) |
 | Hybrid ISO | `tools/build-iso.sh` then `qemu-system-x86_64 -cdrom build/fantuan.iso -nographic` | the same kernel via El Torito on BIOS; OVMF boots the 0xEF ESP path (`smoke-iso.sh` shows the exact invocation) |
 | RISC-V | `tools/run.sh --arch riscv64 --disk --two-fs` | OpenSBI + virtio-blk + VFS/shell |
+| aarch64 | `tools/run.sh --arch aarch64` | QEMU `virt` raw-Image direct FDT boot: PL011, 4K-granule MMU + direct map, GICv2 + 100 Hz timer, demo tasks and the shared shell (R9a; no storage/net yet) |
 
 Useful shell commands: `help`, `bootinfo` (both in the minimal kernel), and
 with the `rescue` profile `lsos`, `diskhealth` (SMART needs AHCI/NVMe; the

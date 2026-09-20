@@ -18,6 +18,10 @@ pub const PHYS_OFFSET: u64 = 0xFFFF_8000_0000_0000; // -2 GiB, Linux-style
 /// Sv39's canonical high half (bits 63:39 sign-extend bit 38).
 #[cfg(target_arch = "riscv64")]
 pub const PHYS_OFFSET: u64 = 0xFFFF_FFC0_0000_0000;
+/// arm64 linear map (M11 R9a): the top 16 bits select TTBR1 with T1SZ=16
+/// (48-bit VA); the kernel's identity map stays in TTBR0.
+#[cfg(target_arch = "aarch64")]
+pub const PHYS_OFFSET: u64 = 0xFFFF_0000_0000_0000;
 /// i686 (M10): 3G/1G split; the direct map covers the first 1 GiB of RAM
 /// (see docs/M10_BOOT_32BIT.md 7.5).
 #[cfg(target_arch = "x86")]
@@ -113,11 +117,12 @@ pub struct BootInfo {
     pub smbios_table: u64,
     // M9.2 additions (append-only):
     /// Boot path discriminator: 1 = x86_64 UEFI, 2 = riscv64 OpenSBI,
-    /// 3 = BIOS (x86_64 or i686).
+    /// 3 = BIOS (x86_64 or i686), 4 = aarch64 direct FDT (QEMU virt).
     pub arch: u32,
-    /// RISC-V: hart id from the OpenSBI handoff (0 on x86_64).
+    /// RISC-V: hart id from the OpenSBI handoff (0 on x86_64/aarch64).
     pub hartid: u64,
-    /// RISC-V: physical DTB address from the OpenSBI handoff (0 on x86_64).
+    /// RISC-V: physical DTB address from the OpenSBI handoff (0 on x86_64);
+    /// aarch64: the DTB address QEMU passed in x0.
     pub dtb: u64,
 }
 

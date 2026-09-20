@@ -173,11 +173,24 @@ profile plus `TLS`. The offline smoke's fixture switch
 are consumed by `kernel-net/build.rs` and change only what the boot
 self-test runs — never what is compiled or linked.
 
+## Implemented in R9a (2026-09)
+
+`kernel-aarch64/build.rs` consumes the same `tools/kconfig_emit.rs` helper,
+so the aarch64 kernel emits `cfg(kconfig_<lower>)` + `cargo:rustc-check-cfg`
+exactly like x86_64/riscv/i686. Its command table mirrors the riscv one
+(`CORE_COMMANDS + RESCUE_COMMANDS` with the individual `#[cfg]` entries),
+which preserves the C5 invariant: the default minimal profile links only
+`help`/`bootinfo`, and the rescue commands exist only under
+`CONFIG_RESCUE_REPAIR`. No new symbols are introduced: R9a brings up the
+existing subsystems on the new arch, and the aarch64 NET/TOOLS/TLS gates
+arrive with the R9b port.
+
 Heartbeat: the timers stop the 10 s `tick:` line as soon as the shell is
 ready (`kernel-core::heartbeat`, raised before the `shell: ready` line);
 the 30 s cap stays as the no-shell fallback (i686 has no periodic heartbeat
-— its PIT only drives the scheduler — so it is unchanged). The default
-prompt is `root@Fantuan-MTF> ` (`kernel_core::shell::HOSTNAME`).
+— its PIT only drives the scheduler — so it is unchanged; aarch64 reuses
+the shared heartbeat like riscv). The default prompt is
+`root@Fantuan-MTF> ` (`kernel_core::shell::HOSTNAME`).
 
 ## Budgets, incrementality and the Live direction
 

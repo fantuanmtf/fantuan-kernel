@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # fantuan-kernel — one-shot build & run in QEMU/OVMF.
-# Usage: tools/run.sh [--arch x86_64|riscv64] [--disk] [--graphics] [--broken]
+# Usage: tools/run.sh [--arch x86_64|riscv64|aarch64] [--disk] [--graphics] [--broken]
 #                     [--broken-shim] [--smm] [--no-smbios] [--two-fs]
 #                     [--keys] [--shell-repair] [--nvme] [--bigcluster]
 #                     [--liar] [--grub-regen] [--net]
@@ -64,6 +64,18 @@ if [ "$ARCH" = "riscv64" ]; then
   # Modern virtio-mmio transports (version 2); QEMU's virt default is legacy.
   exec qemu-system-riscv64 -machine virt -bios default -nographic \
     -global virtio-mmio.force-legacy=false -kernel "$KERNEL" $DEV_OPT
+fi
+
+if [ "$ARCH" = "aarch64" ]; then
+  # aarch64 direct FDT boot (M11 R9a): QEMU virt, no firmware. The raw
+  # `Image` boots through QEMU's Linux-compatible protocol, which is what
+  # passes the DTB in x0; gic-version=2 pins the GICD/GICC MMIO map the
+  # kernel hardcodes (0x0800_0000 / 0x0801_0000). No console disk yet.
+  echo "[1/2] building kernel-aarch64..."
+  ./tools/build.sh --arch aarch64
+  echo "[2/2] starting qemu-system-aarch64..."
+  exec qemu-system-aarch64 -machine virt,gic-version=2 -cpu cortex-a72 \
+    -nographic -m 512M -nic none -kernel build/kernel-aarch64.bin
 fi
 
 GRAPHICS=0

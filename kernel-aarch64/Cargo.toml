@@ -1,0 +1,9 @@
+[package]
+name = "kernel-aarch64"
+version = "0.0.2"
+edition = "2021"
+description = "fantuan kernel — aarch64 direct-FDT (M11 R9a)"
+
+[dependencies]
+fantuan-abi = { path = "../abi" }
+kernel-core = { path = "../kernel-core" }

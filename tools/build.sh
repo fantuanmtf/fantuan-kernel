@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Build order (x86_64): user program -> kernel (embeds it) -> bootloader.
 # --arch riscv64 builds only the RISC-V kernel (OpenSBI is the boot path).
+# --arch aarch64 builds only the aarch64 kernel and flattens it to the raw
+# `Image` QEMU boots (the raw path passes the DTB in x0).
 set -euo pipefail
 export PATH="$HOME/.cargo/bin:$PATH"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,6 +37,22 @@ if [ "$ARCH" = "riscv64" ]; then
 
   echo "[riscv] building kernel-riscv..."
   cargo build -p kernel-riscv --target riscv64gc-unknown-none-elf --release
+  exit 0
+fi
+
+if [ "$ARCH" = "aarch64" ]; then
+  echo "[aarch64] building kernel-aarch64..."
+  cargo build -p kernel-aarch64 --target aarch64-unknown-none --release
+  # QEMU only passes the DTB in x0 through its raw-Image boot protocol; the
+  # ELF is the cargo artifact and this flat image is what run.sh boots.
+  OBJCOPY="$(command -v llvm-objcopy || command -v aarch64-linux-gnu-objcopy || true)"
+  if [ -z "$OBJCOPY" ]; then
+    echo "error: llvm-objcopy (or aarch64-linux-gnu-objcopy) not found" >&2
+    exit 1
+  fi
+  mkdir -p build
+  "$OBJCOPY" -O binary target/aarch64-unknown-none/release/kernel-aarch64 build/kernel-aarch64.bin
+  echo "[aarch64] build/kernel-aarch64.bin: $(stat -c %s build/kernel-aarch64.bin) bytes"
   exit 0
 fi
 
