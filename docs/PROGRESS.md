@@ -14,7 +14,7 @@
 | v0.0.3 | M11 ARM64 + full TCP/HTTPS | `[##########] 100%` | released as 0.0.3: R1-R8 verified; C5 minimal/tools/bash-prep; R9a direct-FDT boot + R9b virtio-net/TLS (`smoke-aarch64.sh` 2/2), `smoke-net.sh` PASS, `smoke-config.sh` PASS, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3; aarch64 UEFI/AAVMF deferred to M14 |
 | v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[#---------] 10%` | design only |
 | v0.0.5 | M13 graphics/input + interface freeze | `[#---------] 10%` | design only |
-| v0.1.0 | M14 Linux userspace + bootstrap + hypervisor V2 | `[#---------] 10%` | design only |
+| v0.1.0 | M14 Linux userspace + bootstrap + hypervisor V2 | `[##--------] 15%` | P1 POSIX/libc foundation (working tree): `tools/smoke-posix.sh` PASS |
 | v0.1.5 | M15 desktop + isolation + MinGW | `[----------] 0%` | - |
 | v0.5.0/1.0.0 | M16 finalize | `[----------] 0%` | - |
 
@@ -260,9 +260,17 @@ Design: `M13_GRAPHICS.md`.
 Design: `M14_LINUXUSERS.md`.
 
 - [ ] M14-1 kernel heap + VMA + demand paging + COW
-- [ ] M14-2 POSIX round 1 (mmap/brk/open/read/write/stat/getdents, tmpfs)
+- [~] M14-2 POSIX round 1 (mmap/brk/open/read/write/stat/getdents, tmpfs):
+      first tranche landed by **P1** (`docs/POSIX_PLAN.md`) - P1 ABI
+      additions `SYS_OPEN 6`..`SYS_RENAME 28` (append-only; `SYS_VERSION`
+      stays 1), kernel-core `vfs/{tmpfs,fd,posix}.rs`,
+      `brk.rs`, `user::UserMemOps`, plus `libc-fantuan` (MIT) and the C
+      hello boot proof `tools/smoke-posix.sh`; `mmap` is still a stub and
+      the kernel heap/VMA/demand-paging half belongs to M14-1
 - [ ] M14-3 POSIX round 2 (fork/execve/wait4, signals, futex, pipes)
-- [ ] M14-4 musl port + toybox + bmake
+- [ ] M14-4 musl vs libc-fantuan decision + toybox + bmake (P4 triggers in
+      `docs/POSIX_PLAN.md`; bash spike with libc-fantuan: configure exits 0,
+      13/43 headers missing, 76/102 symbols defined)
 - [ ] M14-5 seed/self-host chain + `/bootstrap.sh` + reproducibility hash
 - [ ] M14-6 C++ seed (clang) in the developer image
 - [ ] M14-7 hypervisor V2 (VMX first, then SVM) + guest serial
@@ -283,6 +291,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | P1 POSIX/libc foundation (working tree): P1 ABI additions `SYS_OPEN 6`..`SYS_RENAME 28` (append-only; `SYS_VERSION` stays 1), kernel-core `vfs/{tmpfs,fd,posix}.rs` + `brk.rs` + `user::UserMemOps`, x86_64 `spawn_user_args` SysV stack, writable tmpfs with `/dev/{console,null}` (disk mounts stay ro); `libc-fantuan` (MIT) archive built deterministically by `tools/build-libc.sh --verify`; `user/hello.c` runs through the ELF loader under the minimal profile (`tools/smoke-posix.sh` PASS: argv printf, brk malloc, tmpfs round trip, pipe, clock, exit, reap); `smoke-config.sh` PASS (minimal ELF still free of net/rump/tls/rescue/tool strings, 2 MiB budget); `smoke-bios.sh` 2/2; x86_64 minimal/net/tls + riscv64 + i686 + aarch64 builds zero warnings; bash spike with libc-fantuan: configure exits 0 (was `cannot compute sizeof (size_t)`), missing headers 39 -> 13 of 43, 76 of 102 probed symbols defined (62 real + 14 stubs) - **bash does not run**, dash is the P2 target (`docs/POSIX_PLAN.md`) | PASS |
 | 2026-09 | M11 R9b aarch64 network + TLS + 0.0.3: `kernel-net` built and run for `aarch64-unknown-none` (per-arch clang flags; `kernel-aarch64/src/net.rs` Env; polled virtio-net MMIO at 0x0a000000+0x200*n with modern negotiation, 12-byte headers, RX/TX virtqueues behind the e1000's `net_ops`); the aarch64 smoke network phase on SLIRP asserts `net: virtio-net up mac=...`, DHCP lease, the IPv4/TCP suite (64 KiB transfer + retransmit + rump self-tests), HTTP/DNS/ping/wget, `tls: KATs ok`, pinned-CA `net: https get ok`, `net: udp host ok`, `net: ext skip` and the shell `nslookup`/`ping`/`wget` transcripts; `smoke-aarch64.sh` 2/2, `smoke-net.sh` PASS (x86_64 gate unchanged), `smoke-config.sh` PASS (aarch64 rows), `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3; x86_64 minimal/net/tls, riscv64, i686 and aarch64 minimal/net/tls builds zero warnings; version transition to 0.0.3; aarch64 UEFI/AAVMF deferred to M14 (documented blocker: the loader port, not the toolchain) | PASS |
 | 2026-09 | M11 R9a aarch64 direct FDT boot: `kernel-aarch64/` raw-`Image` boot on QEMU `virt` (DTB in x0, PL011, 4K-granule TTBR0 identity + TTBR1 direct map, GICv2 + PPI 30 at 100 Hz, BRK resume, shared scheduler/heartbeat/shell); `tools/smoke-aarch64.sh` PASS; `smoke-config.sh` PASS; `smoke-bios.sh` 2/2; `smoke-riscv.sh` 3/3 (second run after the documented riscv serial-input flake dropped the first command byte); x86_64 minimal boot reaches `shell: ready`; aarch64/x86_64/i686 builds zero warnings | PASS |
 | 2026-09 | C5 minimal default + tools' catalog home + bash early start: default `.config` absent -> `minimal` = SHELL only (plus the declared `BASH` symbol); minimal ELF free of net/rump/tls/rescue/tool command strings; typed `help` lists only `help`/`bootinfo`; `smoke-config.sh` PASS (net links tools without rescue commands, rescue links commands without tools, 2.6 MB budget, incrementality); `smoke-net.sh` PASS all phases; `smoke.sh` 13/13; `smoke-bios.sh` 2/2; `smoke-riscv.sh` 3/3; `smoke-iso.sh` 2/2; `smoke-gpl.sh`/`smoke-apps.sh` PASS; `build-bash-spike.sh` records configure `cannot compute sizeof (size_t)` + 39/43 headers + 102/102 POSIX symbols missing (bash does not run); x86_64 minimal/net/tls, riscv64 minimal/rescue, i686 minimal/rescue builds zero warnings | PASS |
@@ -361,7 +370,11 @@ Design: `M14_LINUXUSERS.md`.
   W5 checkpoint hit it again and reruns passed. At the W6/M10-7 checkpoint
   it hit once in phase C and once in phase B of two consecutive full runs
   (`stval=0x7f8 sepc=0x80200c4e` each time); the third full run passed
-  3/3. Watch item; hunt in M11 follow-ups.
+  3/3. Watch item; hunt in M11 follow-ups. **P1 (2026-09)**: hit twice in
+  three P1-tree runs (`scause=0xd stval=0x192`, UART puts loop) and the
+  first-serial-byte input flake once; two pristine-HEAD worktree runs also
+  failed phase A on the same input flake, confirming the smoke is flaky
+  before P1.
 
 ## M10 completion plan
 
@@ -478,12 +491,58 @@ then R9.
        `tools/smoke-iso.sh`, `tools/build-bash-spike.sh` and the
        x86_64/riscv64/i686 zero-warning builds.
 
+## Cross-cutting - P batches (POSIX/libc foundation)
+
+Owner direction: before the M14 process model, land a small, honest POSIX
+base so dash can be ported first and bash second. Ledger and blocker lists:
+`docs/POSIX_PLAN.md`; the ABI stays append-only and the built-in shell stays
+the default `sh` until a real shell passes.
+
+- [~] **P1** native ABI additions (round 1) + tmpfs + libc-fantuan + first C
+      program (working tree; owner to commit):
+      - `abi` gains `SYS_OPEN 6`..`SYS_RENAME 28` (append-only; `SYS_WRITE`
+        3 keeps its v1 debug semantics, fd writes use `SYS_WRITE_FD` 9),
+        Fantuan-native negative errnos and the `Stat`/`Timespec`/`Dirent`/
+        `Termios`/`Winsize` layouts (`abi/src/posix.rs`);
+      - kernel-core: `vfs/tmpfs.rs` (static tables: 32 nodes, 8 files x
+        8 KiB, 64 KiB pool), `vfs/fd.rs` (16 fds/task, 64 opens, 8 pipes x
+        512 B, refcounted dup/dup2), `vfs/posix.rs` (user copies + path
+        syscalls), `brk.rs` (per-task heap at 0x500000),
+        `user::UserMemOps` and task fd/heap reset at registration/exit;
+        `/` + `/tmp` `/etc` `/bin` `/usr` writable, `/dev/{console,null}`
+        fixed, disk mounts stay read-only;
+      - `libc-fantuan/` (new, MIT, first-party): P1 headers plus
+        `sys/time.h`, `sys/resource.h`, `sys/select.h`, `sys/times.h`,
+        `sys/ioctl.h`, `poll.h`, `strings.h`, `pwd.h`, `inttypes.h`,
+        `paths.h`, `sys/file.h`, `sys/param.h`; wrappers, brk malloc,
+        string/memory, buffered stdio, printf core, dirent, time, termios,
+        ctype, pwd/grp and ENOSYS stubs; built by `tools/build-libc.sh`
+        (deterministic, `--verify`);
+      - first C program: `user/hello.c` -> `kernel/hello_program.bin`,
+        spawned by `spawn_user_args` with the SysV `argc/argv/envp` stack;
+        `tools/smoke-posix.sh` asserts `user: hello from C (argc=1
+        argv0=/bin/hello)`, the tmpfs round trip, the pipe, the clock, the
+        exit and the reap under the **minimal** profile;
+      - bash spike now measures progress: with libc-fantuan configure exits
+        0, missing headers drop 39 -> 13 of 43, and 76 of 102 probed
+        symbols are defined (62 real + 14 stubs). **bash does not run**;
+        dash is next (P2).
+      - smoke-riscv note: three P1-tree runs hit the documented pre-existing
+        flakes (1x dropped first serial input byte, 2x the `uart` load
+        fault); two pristine-HEAD worktree runs failed on the same input
+        flake, so this is not a P1 regression (see Known issues).
+
 ## Next action
 
 **M12 W-a** (M11 released as 0.0.3): the owner pushes the R9b/0.0.3
 transition, then M12 starts with the disk imager (`clone`) and the NTFS
 read path; the remaining M12 checkboxes are listed above and the design is
-`docs/M12_TOOLS_HW.md`. M11-8 is closed: aarch64 direct FDT + virtio-net
+`docs/M12_TOOLS_HW.md`. **P1 (POSIX/libc foundation) is landed in the
+working tree and verified** (`tools/smoke-posix.sh` PASS, `smoke-bios.sh`
+2/2, `smoke-config.sh` PASS; the exact blast radius is in the P-batch
+section above); the next POSIX step is **P2** - the fork/exec/wait +
+signals + COW/VMA tranche, then the dash port per `docs/POSIX_PLAN.md`.
+M11-8 is closed: aarch64 direct FDT + virtio-net
 MMIO + TLS verified by `tools/smoke-aarch64.sh` (2 phases), the x86_64
 offline gate by `tools/smoke-net.sh`. The aarch64 UEFI/AAVMF path is
 deferred to M14 with the loader-port reason recorded in `M11_PLAN.md`; the

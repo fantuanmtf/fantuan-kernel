@@ -53,7 +53,10 @@ fn main() {
     table.push_str("    ]\n}\n");
     fs::write(format!("{out}/isr_table.rs"), table).unwrap();
 
-    // 3. embed the user program (built by tools/build.sh before the kernel)
+    // 3. embed the user program (built by tools/build.sh before the kernel).
+    // P1: the libc-fantuan C hello (tools/build-libc.sh) is embedded when
+    // present; a missing artifact leaves HELLO_ELF empty so default builds
+    // are unchanged.
     let user = format!("{dir}/user_program.bin");
     println!("cargo:rerun-if-changed={user}");
     if !std::path::Path::new(&user).exists() {
@@ -61,7 +64,14 @@ fn main() {
             "kernel/user_program.bin is missing — build the user crate first (tools/build.sh or tools/run.sh)"
         );
     }
-    let gen = format!("pub static USER_ELF: &[u8] = include_bytes!({user:?});\n");
+    let hello = format!("{dir}/hello_program.bin");
+    println!("cargo:rerun-if-changed={hello}");
+    let mut gen = format!("pub static USER_ELF: &[u8] = include_bytes!({user:?});\n");
+    if std::path::Path::new(&hello).exists() {
+        gen.push_str(&format!("pub static HELLO_ELF: &[u8] = include_bytes!({hello:?});\n"));
+    } else {
+        gen.push_str("pub static HELLO_ELF: &[u8] = &[];\n");
+    }
     fs::write(format!("{out}/user_program.rs"), gen).unwrap();
 
     // 4. compile the assembly + C drivers into a static archive for the link.

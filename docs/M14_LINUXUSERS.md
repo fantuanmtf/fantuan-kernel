@@ -47,10 +47,21 @@ order (numbers never renumber):
 - network (from M11): `socket`/`bind`/`connect`/`sendto`/`recvfrom`;
 - misc: `uname`, `getcwd`/`chdir`, `ioctl` (framebuffer/input from M13).
 
+**P1 first tranche (landed 2026-09):** `open/close/read/write-on-fd/lseek/
+stat/fstat/getdents/brk/pipe/dup/dup2/ioctl/clock_gettime/getpid/getppid/
+chdir/getcwd/unlink/mkdir/rmdir/rename` + a writable tmpfs and
+`/dev/console`/`/dev/null`; `mmap` is an ENOSYS stub; fork/exec/wait,
+signals and futex are P2. The execution ledger is `docs/POSIX_PLAN.md`,
+the libc is `libc-fantuan/` (MIT), and the proof is
+`tools/smoke-posix.sh` (a C hello runs, exits and is reaped). The built-in
+shell remains the default `sh` until P2 lands dash.
+
 Kernel-side work (F3/F4): demand paging, COW, a kernel heap for page-table
 and process structures, a VMA list per process, `fork/exec` cloning of
 address spaces, `tmpfs`, a minimal `/dev` (null/zero/tty/fb/input) and
-`/proc` (self/status/mounts).
+`/proc` (self/status/mounts). **P1 status:** the tmpfs and a minimal `/dev`
+(null/console) exist as fixed static tables (no kernel heap, no `/proc`
+yet); demand paging, COW and the VMA list remain for P2.
 
 ## 5. Toolchain bootstrap chain (F7)
 
@@ -118,13 +129,22 @@ started the real port work so M14-4/M14-8 begin from evidence:
   probed POSIX symbols are missing;
 - `tools/build-bash-spike.sh` - reruns the cross-build attempt and writes
   `build/bash-spike/blockers.txt` deterministically (no network;
-  `BASH_SPIKE_STRICT=1` fails while blocked).
+  `BASH_SPIKE_STRICT=1` fails while blocked). P1 added the optional
+  `BASH_SPIKE_LIBC_INC`/`BASH_SPIKE_LIBC_A` probe: with libc-fantuan the
+  configure step exits 0, missing headers drop 39 -> 13 of 43 and 76 of 102
+  probed symbols are now defined (62 real + 14 ENOSYS stubs) - the exact
+  remainder is tabulated in `docs/POSIX_PLAN.md` P3.
 
-**M14-4** must port musl over the native ABI (Track A syscalls + tmpfs from
-§4) and re-run the spike; the header/symbol counts dropping to the musl set
-is the exit criterion. **M14-8** then adds the replayable `patches/`, builds
-`/usr/bin/bash` and flips the default `sh`; until then the kernel's built-in
-shell and the interim `ping`/`nslookup`/`wget` bridge remain.
+**P1 (2026-09)** landed the first POSIX tranche (`docs/POSIX_PLAN.md`):
+the v2 syscalls, a writable tmpfs with `/dev/console`/`/dev/null`,
+`libc-fantuan` (MIT), and a C hello that runs, prints, exits and is reaped
+under the existing ELF loader (`tools/smoke-posix.sh`). **bash still does
+not run** and the spike is still expected to fail at the build stage.
+**P2** ports dash (BSD) first and only then flips the default `sh`;
+**M14-4** decides musl vs libc-fantuan per the P4 triggers. **M14-8** then
+adds the replayable `patches/`, builds `/usr/bin/bash` and flips
+`CONFIG_APP_BASH` once `posix-libc` is available. Until then the kernel's
+built-in shell and the interim `ping`/`nslookup`/`wget` bridge remain.
 
 ## 8. Spikes before coding
 

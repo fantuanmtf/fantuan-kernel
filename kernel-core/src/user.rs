@@ -56,6 +56,53 @@ fn unset_p2v(p: u64) -> u64 {
 }
 fn unset_log(_s: &str) {}
 
+/// Arch user-memory copy bridge (P1). Kernels that run fd/path syscalls
+/// install real copies (with SMAP bracketing on x86_64); the default refuses,
+/// so file syscalls report ERR_NOSYS on kernels without user mode.
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct UserMemOps {
+    /// Copy `dst.len()` bytes from user address `src`; false on refusal.
+    pub copy_in: fn(dst: &mut [u8], src: u64) -> bool,
+    /// Copy `src` to user address `dst`; false on refusal.
+    pub copy_out: fn(dst: u64, src: &[u8]) -> bool,
+}
+
+fn unset_in(_dst: &mut [u8], _src: u64) -> bool {
+    false
+}
+fn unset_out(_dst: u64, _src: &[u8]) -> bool {
+    false
+}
+
+static mut MEM_OPS: UserMemOps = UserMemOps { copy_in: unset_in, copy_out: unset_out };
+
+pub fn set_mem_ops(ops: UserMemOps) {
+    unsafe { core::ptr::write(core::ptr::addr_of_mut!(MEM_OPS), ops) };
+}
+
+pub fn mem_ops() -> UserMemOps {
+    unsafe { core::ptr::addr_of!(MEM_OPS).read() }
+}
+
+/// Copy into kernel memory; None when no bridge is installed or it refuses.
+pub fn copy_in(dst: &mut [u8], src: u64) -> Option<()> {
+    if (mem_ops().copy_in)(dst, src) {
+        Some(())
+    } else {
+        None
+    }
+}
+
+/// Copy out of kernel memory; None when no bridge is installed or it refuses.
+pub fn copy_out(dst: u64, src: &[u8]) -> Option<()> {
+    if (mem_ops().copy_out)(dst, src) {
+        Some(())
+    } else {
+        None
+    }
+}
+
 static mut OPS: UserOps = UserOps {
     machine: 0,
     new_root: unset_root,

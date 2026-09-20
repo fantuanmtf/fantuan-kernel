@@ -11,6 +11,7 @@
 pub mod arch;
 #[cfg(kconfig_rescue_repair)]
 pub mod bootrepair;
+pub mod brk;
 pub mod diag;
 pub mod drv;
 pub mod elf;

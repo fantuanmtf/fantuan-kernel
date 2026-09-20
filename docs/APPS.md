@@ -218,6 +218,13 @@ the attempt and writes `build/bash-spike/blockers.txt` deterministically
 the vendored tree, the licence register and the `requires = ["posix-libc"]`
 gate are unchanged.
 
+**P1 (2026-09)** started the POSIX/libc layer (`docs/POSIX_PLAN.md`):
+`libc-fantuan` (MIT) + ABI v2 files/brk/pipe syscalls + a writable tmpfs, and
+`tools/smoke-posix.sh` runs a C program through the ELF loader. With the libc
+probe the bash spike's configure now exits 0 and the counts drop to 13/43
+missing headers and 76/102 defined symbols; dash is ported first (P2), bash
+second (P3). The GPL firewall and the source-provision policy are untouched.
+
 ## Budgets
 
 - Boot + kernel + shell stay within **300 MiB** (hard build check); the

@@ -47,12 +47,24 @@ pub fn write_file(fs: &fat::Fat32, dir_cluster: u32, name: &[u8; 11], data: &[u8
     fs.write_file(dir_cluster, name, data, &token)
 }
 
+pub mod dir;
 pub mod ext4;
 pub mod fat;
 pub mod fat_dir;
 pub mod fat_write;
+pub mod fd;
+pub mod io;
 pub mod part;
+pub mod pipe;
+pub mod posix;
+pub mod posix_path;
 pub mod probe;
+pub mod tmpfs;
+pub mod tmpfs_file;
+
+/// Internal fs-layer sentinel: "would block, retry after a sleep". Never
+/// reaches user space (the blocking wrappers loop on it).
+pub(crate) const ERR_WOULD_BLOCK: u64 = u64::MAX - 1000;
 
 /// The mounted world: filesystems + partition table, shared with the
 /// boot-repair diagnostics (M7).

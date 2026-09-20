@@ -11,11 +11,15 @@
 #   BASH_SPIKE_STRICT=1 tools/build-bash-spike.sh   # exit 1 while blocked
 #   BASH_SPIKE_TARGET=riscv64-unknown-none-elf ...  # another bare target
 #   BASH_SPIKE_HEADERS=10 BASH_SPIKE_SYMBOLS=15 ... # report caps
+#   BASH_SPIKE_LIBC_INC=libc-fantuan/include \
+#   BASH_SPIKE_LIBC_A=build/libc-fantuan/libc-fantuan.a \
+#       tools/build-bash-spike.sh   # measure what libc-fantuan now covers
 #
 # Outputs (all under build/bash-spike/):
 #   configure.log        raw configure transcript
 #   missing-headers.txt  probed headers the target libc does not provide
 #   missing-symbols.txt  probed POSIX symbols left undefined by the compiler
+#   provided-symbols.txt (with BASH_SPIKE_LIBC_A) symbols the archive defines
 #   blockers.txt         the report (also printed)
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,6 +42,11 @@ SRC="$WORK/bash-5.3"
 
 RES_INC="$(clang -print-resource-dir)/include"
 CFLAGS=(--target="$TARGET" -ffreestanding -nostdinc -isystem "$RES_INC")
+LIBC_INC="${BASH_SPIKE_LIBC_INC:-}"
+LIBC_A="${BASH_SPIKE_LIBC_A:-}"
+if [ -n "$LIBC_INC" ]; then
+  CFLAGS+=(-I "$LIBC_INC")
+fi
 CC_STR="clang ${CFLAGS[*]}"
 
 echo "[1/3] configure attempt (host $TARGET)..."
@@ -113,6 +122,17 @@ for s in "${SYMBOLS[@]}"; do
 done
 MISSING_SYMBOL_TOTAL="$(wc -l < "$WORK/missing-symbols.txt" | tr -d ' ')"
 
+# Optional: measure how many probed symbols libc-fantuan.a now defines (P1).
+PROVIDED_TOTAL=0
+: > "$WORK/provided-symbols.txt"
+if [ -n "$LIBC_A" ] && [ -f "$LIBC_A" ]; then
+  "$NM" --defined-only "$LIBC_A" | awk '{print $NF}' | sort -u > "$WORK/libc-defined.txt"
+  for s in "${SYMBOLS[@]}"; do
+    if grep -qx "$s" "$WORK/libc-defined.txt"; then echo "$s" >> "$WORK/provided-symbols.txt"; fi
+  done
+  PROVIDED_TOTAL="$(wc -l < "$WORK/provided-symbols.txt" | tr -d ' ')"
+fi
+
 {
   echo "# bash 5.3 early-port blocker report (C5)"
   echo "# target: $TARGET"
@@ -123,6 +143,12 @@ MISSING_SYMBOL_TOTAL="$(wc -l < "$WORK/missing-symbols.txt" | tr -d ' ')"
   head -n "$MAX_HEADERS" "$WORK/missing-headers.txt" | sed 's/^/  - /'
   echo "# missing POSIX symbols: $MISSING_SYMBOL_TOTAL of ${#SYMBOLS[@]} probed; first $MAX_SYMBOLS:"
   head -n "$MAX_SYMBOLS" "$WORK/missing-symbols.txt" | sed 's/^/  - /'
+  if [ -n "$LIBC_A" ] && [ -f "$LIBC_A" ]; then
+    echo "# libc-fantuan ($LIBC_A) provides $PROVIDED_TOTAL of ${#SYMBOLS[@]} probed symbols"
+    echo "# libc-fantuan headers in the probe: $LIBC_INC"
+    echo "# headers still missing: $((MISSING_HEADER_TOTAL)) of ${#HEADERS[@]}"
+    echo "# symbols still missing from libc-fantuan: $((MISSING_SYMBOL_TOTAL))"
+  fi
 } > "$WORK/blockers.txt"
 
 cat "$WORK/blockers.txt"

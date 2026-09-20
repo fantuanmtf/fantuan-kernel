@@ -218,13 +218,16 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     // --- M4: user mode ------------------------------------------------------
     let u1 = task::spawn_user(USER_ELF);
     let u2 = task::spawn_user(USER_ELF);
-    let _ = writeln!(
-        s,
-        "user: ELF {} bytes -> tids {} {} (ring 3, per-task page tables)",
-        USER_ELF.len(),
-        u1.unwrap_or(0),
-        u2.unwrap_or(0)
-    );
+    let _ = writeln!(s, "user: ELF {} bytes -> tids {} {} (ring 3, per-task page tables)", USER_ELF.len(), u1.unwrap_or(0), u2.unwrap_or(0));
+
+    // --- P1: POSIX round 1 --------------------------------------------------
+    // The C hello (libc-fantuan) uses the same loader with SysV argv; it is
+    // only present when tools/build-libc.sh produced it.
+    syscall::init_mem_ops();
+    if !HELLO_ELF.is_empty() {
+        let h = task::spawn_user_args(HELLO_ELF, &[b"/bin/hello"]);
+        let _ = writeln!(s, "user: C hello ELF {} bytes -> tid {} (libc-fantuan, fd syscalls)", HELLO_ELF.len(), h.unwrap_or(0));
+    }
 
     // --- M5: diagnostics stage 1 (pure Rust core, DESIGN.md §6) ------------
     // M5.5: SMBIOS tables feed the CPU/GPU diagnostics (CONFIG_SMBIOS, C4);

@@ -31,6 +31,35 @@ pub fn syscall(n: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64 {
     unsafe { syscall_trampoline(n, a1, a2, a3, a4, a5) }
 }
 
+/// Install the P1 user-memory bridge (docs/POSIX_PLAN.md). Under SMAP the
+/// kernel cannot touch user pages without AC, so every copy is bracketed by
+/// stac/clac; addresses in the kernel half are refused outright.
+pub fn init_mem_ops() {
+    kernel_core::user::set_mem_ops(kernel_core::user::UserMemOps { copy_in, copy_out });
+}
+
+fn copy_in(dst: &mut [u8], src: u64) -> bool {
+    let Some(end) = src.checked_add(dst.len() as u64) else { return false };
+    if src == 0 || end > fantuan_abi::PHYS_OFFSET {
+        return false;
+    }
+    crate::cpu::stac();
+    unsafe { core::ptr::copy_nonoverlapping(src as *const u8, dst.as_mut_ptr(), dst.len()) };
+    crate::cpu::clac();
+    true
+}
+
+fn copy_out(dst: u64, src: &[u8]) -> bool {
+    let Some(end) = dst.checked_add(src.len() as u64) else { return false };
+    if dst == 0 || end > fantuan_abi::PHYS_OFFSET {
+        return false;
+    }
+    crate::cpu::stac();
+    unsafe { core::ptr::copy_nonoverlapping(src.as_ptr(), dst as *mut u8, src.len()) };
+    crate::cpu::clac();
+    true
+}
+
 /// Called from isr_dispatch with the interrupt frame of INT 0x60.
 pub fn dispatch(frame: &mut InterruptFrame) {
     let args = [frame.rdi, frame.rsi, frame.rdx, frame.r10, frame.r8];

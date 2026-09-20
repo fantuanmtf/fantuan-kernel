@@ -104,6 +104,46 @@ pub fn init_arch() {
 
 /// Spawn a user task from a static ELF image (M4).
 pub fn spawn_user(elf_image: &[u8]) -> Option<u64> {
+    spawn_user_args(elf_image, &[])
+}
+
+/// Write bytes into the mapped user stack through the physical alias.
+fn user_stack_write(ustack_phys: u64, off: usize, bytes: &[u8]) {
+    let p = phys_to_virt(ustack_phys) as *mut u8;
+    unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), p.add(off), bytes.len()) };
+}
+
+/// Build the SysV x86_64 process-entry stack and return the initial RSP:
+/// `[argc][argv0..argvN-1][NULL][envp NULL]`, 16-byte aligned. The C runtime
+/// reads argc/argv from here (P1 hello pipeline).
+fn build_user_stack(ustack_phys: u64, args: &[&[u8]]) -> u64 {
+    let base = USER_STACK_TOP - USER_STACK_PAGES * frame::FRAME_SIZE;
+    let mut pos = (USER_STACK_PAGES * frame::FRAME_SIZE) as usize;
+    let mut ptrs = [0u64; 16];
+    let mut n = 0;
+    for arg in args.iter().take(ptrs.len()) {
+        pos -= arg.len() + 1;
+        user_stack_write(ustack_phys, pos, arg);
+        user_stack_write(ustack_phys, pos + arg.len(), &[0]);
+        ptrs[n] = base + pos as u64;
+        n += 1;
+    }
+    pos &= !15; // align the word array (entry RSP must be 16-byte aligned)
+    pos -= 8;
+    user_stack_write(ustack_phys, pos, &0u64.to_le_bytes()); // envp terminator
+    pos -= 8;
+    user_stack_write(ustack_phys, pos, &0u64.to_le_bytes()); // argv NULL
+    for i in (0..n).rev() {
+        pos -= 8;
+        user_stack_write(ustack_phys, pos, &ptrs[i].to_le_bytes());
+    }
+    pos -= 8;
+    user_stack_write(ustack_phys, pos, &(n as u64).to_le_bytes());
+    base + pos as u64
+}
+
+/// Spawn a user task with argv (P1); the stack layout is the SysV one.
+pub fn spawn_user_args(elf_image: &[u8], args: &[&[u8]]) -> Option<u64> {
     use kernel_core::task::{alloc_kernel_stack, dead_body, has_free_slot, register, State, Task};
 
     if !has_free_slot() {
@@ -131,6 +171,7 @@ pub fn spawn_user(elf_image: &[u8]) -> Option<u64> {
             user::P_PRESENT | user::P_WRITABLE | user::P_USER | user::P_NX,
         );
     }
+    let user_rsp = build_user_stack(ustack_phys, args);
 
     // Kernel stack + the ring-3 iretq frame: six saved-register zeros, then
     // user_entry as the ret target, then [rip][cs][rflags][rsp][ss].
@@ -151,7 +192,7 @@ pub fn spawn_user(elf_image: &[u8]) -> Option<u64> {
         *sp.add(8) = entry;
         *sp.add(9) = USER_CS_SEL as u64;
         *sp.add(10) = 0x202; // user RFLAGS: IF set
-        *sp.add(11) = USER_STACK_TOP;
+        *sp.add(11) = user_rsp;
         *sp.add(12) = USER_DS_SEL as u64;
     }
     let id = register(Task {

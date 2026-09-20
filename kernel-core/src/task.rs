@@ -162,7 +162,13 @@ pub fn register(mut t: Task) -> Option<u64> {
     };
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed) + 1;
     t.id = id;
+    let is_user = t.is_user;
     unsafe { ptr::write(ptr::addr_of_mut!(TASKS[slot]), t) };
+    if is_user {
+        // P1: stdio on /dev/console (fds 0..2) and a fresh heap.
+        crate::vfs::fd::init_task(slot);
+        crate::brk::init_task(slot);
+    }
     arch::irq_restore(flags);
     Some(id)
 }
@@ -248,14 +254,16 @@ pub fn exit(code: u64) -> ! {
         t.state = State::Exited;
         t.exit_code = code;
     }
+    crate::vfs::fd::close_all(CURRENT.load(Ordering::Relaxed));
     loop {
         schedule();
     }
 }
 
-pub fn current_id() -> u64 {
-    unsafe { (*ptr::addr_of!(TASKS[CURRENT.load(Ordering::Relaxed)])).id }
-}
+pub fn current_id() -> u64 { unsafe { (*ptr::addr_of!(TASKS[CURRENT.load(Ordering::Relaxed)])).id } }
+
+/// Slot index of the running task (P1: per-task fd table / cwd / brk key).
+pub fn current_slot() -> usize { CURRENT.load(Ordering::Relaxed) }
 
 /// Address-space root of the running task (used by riscv to re-enter the
 /// user root on the way back to U-mode).
@@ -276,6 +284,8 @@ fn reap_exited(current: usize) {
                 continue;
             }
             let tid = t.id;
+            // P1: release fds/pipes before the slot can be reused.
+            crate::vfs::fd::close_all(i);
             for p in 0..STACK_PAGES {
                 frame::get().free(t.stack_phys + p * frame::FRAME_SIZE);
             }
