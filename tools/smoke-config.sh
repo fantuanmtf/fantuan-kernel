@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # C1 config smoke: profile invariants, the 300 MiB boot+kernel+shell budget
-# and config incrementality.
+# and config incrementality. Extended in C5 with the rescue/tool string
+# invariants and the minimal command-table proof.
 #
 #   phase net:     .config = net; boot log shows the net:/rump: markers and
-#                  reaches the shell.
-#   phase minimal: .config = minimal; boot log shows none of them and still
-#                  reaches the shell.
+#                  reaches the shell; the tools are linked, the rescue
+#                  commands are not (CONFIG_RESCUE_REPAIR=n in net).
+#   phase minimal: .config = minimal; boot log shows none of them, still
+#                  reaches the shell, types `help` and lists only the core
+#                  builtins (help, bootinfo).
+#   strings:       the minimal ELF contains no net/rump/tls/rescue/tool
+#                  strings; the rescue profile links the rescue commands
+#                  without the tools.
 #   budget:        built boot + kernel + shell artifacts (exact file set in
 #                  ARTIFACTS below) <= 300 MiB. The check is first run with a
 #                  1-byte limit to prove it rejects an over-budget set.
@@ -34,12 +40,38 @@ trap cleanup EXIT
 fail() { echo "SMOKE FAIL (config): $*"; exit 1; }
 ok() { echo "SMOKE PASS (config: $*)"; }
 
+ELF="$ROOT/target/x86_64-unknown-none/release/fantuan-kernel"
+
+# Whole-token match on the ELF's printable strings, so `cat`/`ping` cannot
+# false-positive inside another word (e.g. "certificate"). grep must consume
+# all input (no -q): under `pipefail` an early grep exit would SIGPIPE
+# `strings` and turn a match into a non-zero pipeline.
+elf_has_string() { # elf name
+  strings -a "$1" | grep -E "(^|[^A-Za-z0-9_-])$2([^A-Za-z0-9_-]|$)" > /dev/null
+}
+
+# The command names that must disappear from the minimal/default ELF (their
+# tables and implementations are gated by CONFIG_RESCUE_REPAIR/CONFIG_TOOLS).
+# `clone` (M12) is included as a forward guard; `part` cannot be a string
+# invariant because the boot-time VFS already prints "part: LBA ...".
+RESCUE_STRINGS=(diskhealth lsmnt lsos mount umount cat hwdiag lsdev grub-fix crypto-selftest clone)
+TOOL_STRINGS=(ping nslookup wget)
+
 boot() { # log timeout
   # Build once outside the timeout: the config flip rebuilds three crates, and
   # that must not eat the boot window (run.sh's own build is then incremental).
   rm -f "$1"
   ./tools/build.sh >/dev/null 2>&1 || fail "build before boot"
   ( timeout --signal=KILL "$2" ./tools/run.sh < /dev/null > "$1" 2>&1 ) 2>/dev/null || true
+}
+
+# Minimal-shell boot: type `help` mid-run (the UART holds the bytes until the
+# shell polls; the pipe stays open so the boot window is unchanged).
+boot_help() { # log timeout
+  rm -f "$1"
+  ./tools/build.sh >/dev/null 2>&1 || fail "build before boot"
+  ( ( sleep 20; printf 'help\n'; sleep 40 ) \
+    | timeout --signal=KILL "$2" ./tools/run.sh > "$1" 2>&1 ) 2>/dev/null || true
 }
 
 echo "[phase net] .config = net profile..."
@@ -56,14 +88,19 @@ else
 fi
 NET_LOG="build/smoke-config-net.log"
 boot "$NET_LOG" "${SMOKE_CONFIG_TIMEOUT:-90}"
-if ! grep -aq "nslookup" target/x86_64-unknown-none/release/fantuan-kernel; then
+if ! elf_has_string "$ELF" nslookup; then
   fail "net profile: R7 tools not linked (no nslookup string)"
 fi
+for s in "${RESCUE_STRINGS[@]}"; do
+  if elf_has_string "$ELF" "$s"; then
+    fail "net profile: rescue command '$s' leaked (CONFIG_RESCUE_REPAIR=n)"
+  fi
+done
 if grep -q "shell: ready" "$NET_LOG" \
    && grep -q "net: lo0 up 127.0.0.1/8" "$NET_LOG" \
    && grep -q "rump: mbuf self-test ok" "$NET_LOG" \
    && ! grep -q "net: ip4 FAILED" "$NET_LOG"; then
-  ok "net profile: net:/rump: markers + shell"
+  ok "net profile: net:/rump: markers + shell; tools linked, rescue commands absent"
   grep -aE "net: lo0 up|rump: mbuf self-test ok|shell: ready" "$NET_LOG" | head -3
 else
   echo "SMOKE FAIL (config: net profile) — log tail:"
@@ -71,34 +108,62 @@ else
   exit 1
 fi
 
-# C4 default: with no .config, kconfig.py assumes and build.sh materializes
-# the `minimal` profile; the kernel must have no kernel-net cargo edge.
-echo "[phase minimal] no .config -> minimal profile (C4 default)..."
+# C5 default: with no .config, kconfig.py assumes and build.sh materializes
+# the `minimal` profile (SHELL only); the kernel must have no kernel-net edge
+# and no rescue/tool command strings.
+echo "[phase minimal] no .config -> minimal profile (C5 default)..."
 rm -f .config
 if ! python3 tools/kconfig.py --text 2>/dev/null | grep -q "profile minimal"; then
   fail "kconfig.py did not assume the minimal profile without .config"
 fi
 MIN_LOG="build/smoke-config-min.log"
-boot "$MIN_LOG" "${SMOKE_CONFIG_TIMEOUT:-90}"
+boot_help "$MIN_LOG" "${SMOKE_CONFIG_TIMEOUT:-90}"
 grep -q "^# profile: minimal" .config || fail "build.sh did not materialize the minimal profile"
 if cargo tree -p fantuan-kernel --target x86_64-unknown-none -e normal --offline 2>/dev/null \
      | grep -q "kernel-net"; then
   fail "minimal profile: cargo tree still has a kernel-net edge"
 fi
-if grep -aq "nslookup" target/x86_64-unknown-none/release/fantuan-kernel; then
-  fail "minimal profile: R7 tools leaked into the kernel"
-fi
+for s in "${RESCUE_STRINGS[@]}" "${TOOL_STRINGS[@]}"; do
+  if elf_has_string "$ELF" "$s"; then
+    fail "minimal profile: command string '$s' leaked into the kernel ELF"
+  fi
+done
+for s in rump mbedtls "net:" "tls:"; do
+  if elf_has_string "$ELF" "$s"; then
+    fail "minimal profile: '$s' leaked into the kernel ELF"
+  fi
+done
 if grep -q "shell: ready" "$MIN_LOG" \
-   && grep -q "root@Fantuan-MTF" "$MIN_LOG" \
+   && grep -q "root@Fantuan-MTF> " "$MIN_LOG" \
+   && grep -q "shell commands (root@Fantuan-MTF" "$MIN_LOG" \
+   && grep -q "^  help        this table" "$MIN_LOG" \
+   && grep -q "^  bootinfo    boot handover details" "$MIN_LOG" \
+   && ! grep -qE "^  (hwdiag|lsdev|lsos|lsmnt|mount|umount|cat|diskhealth|grub-fix|crypto-selftest|ping|nslookup|wget) " "$MIN_LOG" \
    && ! grep -q "net: lo0 up" "$MIN_LOG" \
    && ! grep -q "rump:" "$MIN_LOG" \
    && ! grep -q "net: tcp" "$MIN_LOG"; then
-  ok "minimal profile: shell + zero net:/rump: code (no kernel-net edge)"
+  ok "minimal profile: shell + help lists only core builtins; ELF free of net/rump/tls/rescue/tool strings"
 else
   echo "SMOKE FAIL (config: minimal profile) — log tail:"
-  tail -25 "$MIN_LOG"
+  tail -30 "$MIN_LOG"
   exit 1
 fi
+
+# Rescue profile: the command-table gate in the other direction - the rescue
+# commands link, the non-default tools stay out.
+echo "[phase rescue] .config = rescue profile..."
+python3 tools/kconfig.py --profile rescue >/dev/null || fail "writing the rescue profile"
+cargo build -p fantuan-kernel --target x86_64-unknown-none --release \
+  > build/smoke-config-rescue-build.log 2>&1 || fail "rescue profile x86_64 build"
+for s in diskhealth grub-fix; do
+  elf_has_string "$ELF" "$s" || fail "rescue profile: '$s' missing from the ELF"
+done
+for s in "${TOOL_STRINGS[@]}"; do
+  if elf_has_string "$ELF" "$s"; then
+    fail "rescue profile: tool '$s' leaked (CONFIG_TOOLS=n)"
+  fi
+done
+ok "rescue profile: rescue commands linked, tools absent"
 
 # Budget file set: the built x86_64 kernel (release ELF + flat BIOS binary +
 # ESP copy), the embedded userland program, the UEFI bootloader (release EFI +

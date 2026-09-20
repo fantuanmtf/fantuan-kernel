@@ -100,8 +100,11 @@ def sync_command(args, root, catalog, preserve):
         return 0
     for entry in targets:
         name = entry["name"] if entry else args.name
-        if entry is not None and not args.from_ and entry.get("source") == "upstream":
-            print(f"{name}: pinned upstream tarball (not a catalog source; sync n/a)")
+        if entry is not None and not args.from_ and entry.get("source") in ("upstream", "planned"):
+            if entry["source"] == "upstream":
+                print(f"{name}: pinned upstream tarball (not a catalog source; sync n/a)")
+            else:
+                print(f"{name}: planned catalog skeleton (sources land at M14; sync n/a)")
             continue
         source = resolve_source(args, root, catalog, entry)
         if (

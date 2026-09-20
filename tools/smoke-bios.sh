@@ -9,6 +9,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 export PATH="$HOME/.cargo/bin:$PATH"
 
+# C5: phase 2 asserts the shared storage diagnostic (`fs: part 1 ...`), which
+# the default minimal profile gates behind CONFIG_RESCUE_REPAIR; select the
+# rescue profile for both phases.
+python3 tools/kconfig.py --profile rescue >/dev/null || exit 1
+
 run() { # image log timeout
   timeout --signal=KILL "$3" qemu-system-x86_64 -machine pc -m 512M \
     -drive format=raw,file="$1" -nographic -no-reboot \

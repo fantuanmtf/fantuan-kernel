@@ -6,8 +6,8 @@ export PATH="$HOME/.cargo/bin:$PATH"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# Kernel config (C4): a missing .config materializes the `minimal` profile
-# (SHELL + RESCUE_REPAIR). kernel-net is an optional dependency behind the
+# Kernel config (C5): a missing .config materializes the `minimal` profile
+# (SHELL only). kernel-net is an optional dependency behind the
 # kconfig-net feature: pass it only when CONFIG_NET=y.
 [ -f .config ] || ./tools/kconfig.py --profile minimal >/dev/null
 KERNEL_FEATURES=()

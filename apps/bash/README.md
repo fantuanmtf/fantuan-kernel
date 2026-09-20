@@ -15,6 +15,7 @@ registered in [THIRD_PARTY.md](../../THIRD_PARTY.md) and allowed by
 | `src/SOURCE` | release URL, retrieval date, signature and provenance notes |
 | `COPYING` | GPLv3 text, extracted from the tarball |
 | `patches/` | replayable musl/fantuan-ABI patches (empty until M14-8) |
+| `port/` | early-start record: `README.md` (flags + blockers) and `REQUIREMENTS.md` (minimal POSIX surface) |
 
 ## Source provision (GPLv3)
 
@@ -30,7 +31,12 @@ travels with the same tree, so a recipient can rebuild the exact binary.
 Nothing is built yet: libc/POSIX arrives with **M14-4** (musl) and M14-8 wires
 the shell. The manifest therefore carries `requires = ["posix-libc"]`; until
 that layer lands `tools/appctl menu` offers `CONFIG_APP_BASH` as unavailable
-(`default n` plus a note) and never enables it. At M14 the build script:
+(`default n` plus a note) and never enables it. **C5 started the real port
+work**: `port/README.md` records the exact configure/host flags attempted and
+`port/REQUIREMENTS.md` the minimal libc/POSIX surface;
+`tools/build-bash-spike.sh` reruns the cross-build attempt and records the
+blocker list (configure failure, first missing headers and symbols) without
+network access. bash does not run yet. At M14 the build script:
 
 1. extracts `src/bash-5.3.tar.gz` into `build/apps/bash/`;
 2. applies the replayable patches listed in `patches/` (musl build flags,

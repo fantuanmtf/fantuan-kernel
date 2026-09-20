@@ -3,6 +3,10 @@
 //! HTTP GET all live in kernel-net; these handlers only parse arguments,
 //! resolve names through the DHCP (or explicit) resolver and format the
 //! result for the shell.  Gated behind CONFIG_TOOLS + CONFIG_NET.
+//!
+//! Interim bridge (C5): the app-catalog versions live in
+//! apps/{ping,nslookup,wget} and take over at M14-4; these in-kernel
+//! commands are non-default (TOOLS) and are the R7 evidence.
 
 use core::fmt::Write;
 

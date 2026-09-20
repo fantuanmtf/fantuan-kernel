@@ -3,9 +3,9 @@
 //
 // Reads the repo-root .config and emits cargo:rustc-cfg=kconfig_<lower> for
 // every enabled symbol plus the matching check-cfg lines. A missing .config
-// resolves to the `minimal` profile (C4): SHELL + RESCUE_REPAIR, with the
-// other defaults from config/Kconfig. The symbol set mirrors
-// tools/kconfig.py --profile minimal + the schema defaults.
+// resolves to the `minimal` profile (C5): SHELL (plus the declared BASH
+// symbol), with the other defaults from config/Kconfig. The symbol set
+// mirrors tools/kconfig.py --profile minimal + the schema defaults.
 //
 // FEATURE_GATED lists the symbols whose code depends on an optional crate
 // (`kernel-net`): their cfg is only emitted when the matching cargo feature
@@ -30,7 +30,7 @@ fn kconfig_values() -> std::collections::BTreeMap<String, bool> {
         ("virt", false),
         ("graphics", false),
         ("desktop", false),
-        ("rescue_repair", true),
+        ("rescue_repair", false),
         ("debug_selftest", false),
         ("secure_wipe", false),
         ("smbios", false),

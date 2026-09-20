@@ -100,6 +100,31 @@ are documented then, in the threat model.
 | M14-5 | Seed/tcc/self-host chain + `/bootstrap.sh` + reproducibility hash |
 | M14-6 | C++ seed (clang) in the developer image; build one C++ program |
 | M14-7 | Hypervisor V2 (VMX first, SVM second) + guest serial + docs/threat model stubs |
+| M14-8 | POSIX shell: bash over the native ABI (default `sh`, separate GPLv3 program with its sources); the built-in shell keeps the rescue builtins |
+
+## 7.1 bash early start (C5, 2026-09)
+
+Bash is already vendored (`apps/bash/`, GNU Bash 5.3, GPLv3, complete
+sources), gated on `requires = ["posix-libc"]` and **does not run yet**. C5
+started the real port work so M14-4/M14-8 begin from evidence:
+
+- `apps/bash/port/REQUIREMENTS.md` - the minimal libc/POSIX surface
+  (startup/`fork`/`execve`/`wait4`, pipes, signals, termios/job control,
+  `getpwnam`, `glob`, locale/time stubs, ...);
+- `apps/bash/port/README.md` - the exact configure/host flags attempted
+  against `x86_64-unknown-none` (`--without-bash-malloc --disable-nls
+  --without-readline --enable-static-link`) and the result: configure stops
+  at `cannot compute sizeof (size_t)`, 39/43 probed headers and 102/102
+  probed POSIX symbols are missing;
+- `tools/build-bash-spike.sh` - reruns the cross-build attempt and writes
+  `build/bash-spike/blockers.txt` deterministically (no network;
+  `BASH_SPIKE_STRICT=1` fails while blocked).
+
+**M14-4** must port musl over the native ABI (Track A syscalls + tmpfs from
+§4) and re-run the spike; the header/symbol counts dropping to the musl set
+is the exit criterion. **M14-8** then adds the replayable `patches/`, builds
+`/usr/bin/bash` and flips the default `sh`; until then the kernel's built-in
+shell and the interim `ping`/`nslookup`/`wget` bridge remain.
 
 ## 8. Spikes before coding
 

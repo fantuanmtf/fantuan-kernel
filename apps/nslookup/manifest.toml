@@ -1,0 +1,10 @@
+name = "nslookup"
+version = "0.1"
+license = "BSD-3-Clause"
+abi_min = 1
+build = "custom"
+deps = []
+patches = []
+requires = ["posix-libc"]
+description = "DNS A-record resolver (catalog version; in-kernel bridge until M14)"
+gpl = false

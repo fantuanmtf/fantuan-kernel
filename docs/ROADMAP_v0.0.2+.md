@@ -22,7 +22,7 @@
 2. **Engineering rules** (DESIGN §13): English artifacts, docs before code,
    <=300-line source files, zero warnings, append-only ABIs, the read-only
    iron rule, spike-before-code, evidence in every commit.
-3. **Images**: a base rescue image below 1 GB (UEFI + BIOS hybrid ISO) and a
+3. **Images**: a base Live image below 1 GB (UEFI + BIOS hybrid ISO) and a
    developer image at most 4 GB (ext4 root). Large toolchains and source
    trees (MinGW, desktop sources) are fetched at runtime by scripts and are
    never embedded.
@@ -76,6 +76,9 @@ CPUs are supported. Design: `M10_BOOT_32BIT.md` (written before code).
   **TLS: mbedTLS (Apache-2.0)** for HTTPS. *No Linux `net/` code (GPLv2 is
   incompatible with this project).* Design: `M11_NET.md`.
 - **Tools**: `ping`, `wget` (HTTP/HTTPS), `nslookup`; NIC link diagnostics.
+  The kernel-integrated commands are the non-default interim bridge (C5) —
+  their catalog home is `apps/{ping,nslookup,wget}` and they are retired when
+  the M14-4 POSIX layer lands.
 - **Verification**: arm64 smoke; QEMU user-net and loopback; HTTP(S) GET
   against a fixture server; TLS known-answer tests.
 
@@ -115,13 +118,14 @@ Design: `M14_LINUXUSERS.md` (written before code).
 - **POSIX layer (F4)**: fork/execve/wait4, signals, pipes, futex, mmap/brk +
   COW, tmpfs, minimal `/dev` and `/proc`; a musl port; bmake; bash as the
   default shell (GPLv3, separate program with its sources).
-- **Full shell and utilities**: the built-in rescue shell (DESIGN §10) stays
-  minimal by design; a complete Bash-style command set arrives as a
+- **Full shell and utilities**: the built-in shell (DESIGN §10) stays
+  minimal by design — its core is `help`/`bootinfo`, the rescue profile adds
+  the diagnostic commands; a complete Bash-style command set arrives as a
   *userspace* program here. bash compiled against musl in-system (or
   shipped in the developer image) is the default shell, registered as a
-  separate GPLv3 program with its sources; a permissively licensed `dash`
-  may be evaluated as a fallback. Operators on the built-in shell keep the
-  twelve rescue commands until then. Tracked as M14-8.
+  separate GPLv3 program with its sources (early port work: C5,
+  `apps/bash/port/`); a permissively licensed `dash` may be evaluated as a
+  fallback. Tracked as M14-8.
 - **Bootstrap (F7)**: the image ships a cross-built seed (tcc + nasm,
   musl, toybox, bmake); in-system, tcc rebuilds itself and then builds NASM,
   after which C userland sources are compiled on target. The C++ seed

@@ -9,4 +9,6 @@ pub mod virt;
 #[cfg(kconfig_graphics)]
 pub mod gpu;
 
-pub use kernel_core::diag::{diskhealth, ram, run_stage, storage, Check, Severity};
+pub use kernel_core::diag::{ram, run_stage, Check, Severity};
+#[cfg(kconfig_rescue_repair)]
+pub use kernel_core::diag::{diskhealth, storage};

@@ -19,23 +19,26 @@ a `menuconfig`-style configuration instead of being pre-linked.
 ## Schema (first cut)
 
 ```
-CONFIG_SHELL            bool  default y    # rescue shell (kernel-core)
-CONFIG_BASH             bool  default n    # full POSIX shell (M14-8)
-CONFIG_TOOLS            bool  default n    # userland tool set
+CONFIG_SHELL            bool  default y    # built-in kernel shell (kernel-core)
+CONFIG_BASH             bool  default y    # full POSIX shell (M14-8; no code yet)
+CONFIG_TOOLS            bool  default n    # interim kernel tool bridge
 CONFIG_NET              bool  default n    # rump network stack (M11)
 CONFIG_NET_DRIVERS      bool  depends NET  # e1000 / virtio-net
 CONFIG_TLS              bool  depends NET  # mbedTLS + HTTPS (M11 R8)
 CONFIG_VIRT             bool  default n    # hypervisor V2 (M14-7)
 CONFIG_GRAPHICS         bool  default n    # fb_info/KMS API (M13)
 CONFIG_DESKTOP          bool  depends GRAPHICS  # M15
-CONFIG_RESCUE_REPAIR    bool  default y    # bootrepair paths
+CONFIG_RESCUE_REPAIR    bool  default n    # rescue/diagnostic + bootrepair (C5)
 CONFIG_SMBIOS           bool  default n    # SMBIOS identity/DIMM/slots
 CONFIG_DEBUG_SELFTEST   bool  default n    # rump/scheduler self-tests
 CONFIG_SECURE_WIPE      bool  default n    # Live shutdown RAM wipe
 ```
 
-Profiles: `minimal` (SHELL + RESCUE_REPAIR), `net` (adds NET + TOOLS),
-`desktop` (adds GRAPHICS + TOOLS), `hypervisor` (adds VIRT), `all`.
+Profiles (C5): `minimal` (SHELL only - the Live boot set), `rescue` (adds
+the diagnostic commands and boot repair), `net` (adds TOOLS + NET +
+drivers + self-test), `tls` (net + mbedTLS), `desktop`, `hypervisor`, `all`.
+The non-default `TOOLS` bridge is the R7 in-kernel ping/nslookup/wget; the
+catalog home is `apps/{ping,nslookup,wget}` from M14 (APPS.md).
 
 ## Mechanics
 
@@ -64,7 +67,7 @@ prompt/help and the documented `CONFIG_APP_*` hook - fragments land in
 `tools/smoke-config.sh`.
 
 ```sh
-tools/kconfig.py --profile net        # minimal|net|desktop|hypervisor|all
+tools/kconfig.py --profile net        # minimal|rescue|net|tls|desktop|hypervisor|all
 tools/kconfig.py --text               # show the effective configuration
 tools/kconfig.py --symbol NET=N       # flip a symbol (repeatable)
 tools/kconfig.py --check              # validate depends / reject impossible
@@ -81,11 +84,13 @@ all targets. Gated end-to-end: `kernel/src/main.rs`, `kernel/src/timer.rs`
 and `kernel/src/net.rs` behind `kconfig_net`, and the rump self-test task
 behind `kconfig_debug_selftest`.
 
-Default profile (C4): a missing `.config` resolves to the `minimal` profile
-(SHELL + RESCUE_REPAIR) in `tools/kconfig.py`, every `build.rs` default
-table and the build scripts. Net is explicit: `tools/smoke-net.sh` writes
-`--profile net` and the build scripts pass `--features kconfig-net` only
-when `CONFIG_NET=y`.
+Default profile (C4; contents trimmed in C5): a missing `.config` resolves
+to the `minimal` profile (SHELL only) in `tools/kconfig.py`, the
+`tools/kconfig_emit.rs` default table and the build scripts. Everything else
+is explicit: `tools/smoke-net.sh` writes `--profile net`, the riscv/BIOS
+smokes write `--profile rescue`, `tools/smoke.sh` starts from minimal and
+flips `RESCUE_REPAIR`/`VIRT`/`SMBIOS`, and the build scripts pass
+`--features kconfig-net` only when `CONFIG_NET=y`.
 
 ## Implemented in C4 (2026-09)
 
@@ -104,8 +109,8 @@ Gated subsystems (C4), all zero-warning on the three targets:
   `kconfig_net` (C1, kept).
 - `kernel-core::bootrepair` and the x86 glue, boot diagnosis, the
   `grub-fix` shell paths and the authenticated-variable bridge behind
-  `kconfig_rescue_repair`; with it off the shell prints
-  `grub-fix: not built (CONFIG_RESCUE_REPAIR=n)`.
+  `kconfig_rescue_repair` (C5 extends the gate to the whole rescue command
+  table, so no `grub-fix`/`diskhealth` command exists when it is off).
 - `kernel/src/diag/virt.rs` + `kernel/src/acpi.rs` behind `kconfig_virt`
   (the IOMMU walk is ACPI's only current consumer).
 - `kernel/src/diag/gpu.rs` behind `kconfig_graphics`; its SMBIOS slot
@@ -113,19 +118,47 @@ Gated subsystems (C4), all zero-warning on the three targets:
 - `kernel/src/smbios/` behind `kconfig_smbios` (new symbol, default n).
 - The rump self-test task stays behind `kconfig_debug_selftest` (C1).
 
-Still ungated and why: `vfs`/`cat`/`lsos`/`mount`/`bootinfo`/`diskhealth`
-(the rescue shell is built on them), the storage/driver layer (`drivers`,
-AHCI/NVMe/ATA), `mm`/`paging`/`task` (the kernel cannot boot without them),
-the shared shell itself (`SHELL`, enabled in every profile; gating it would
-compile a console-less kernel) and `BASH`/`DESKTOP`/`SECURE_WIPE`, which
-still have no code to gate. `TLS` was in that last group until R8; it now
-gates real code (below).
+Still ungated and why: the VFS/storage stack (`vfs`, `drivers`, AHCI/NVMe/
+ATA), `mm`/`paging`/`task` (the kernel cannot boot or mount anything without
+them), `bootinfo` (a core builtin that reports the handover) and the shared
+shell itself (`SHELL`, enabled in every profile; gating it would compile a
+console-less kernel). `BASH`/`DESKTOP`/`SECURE_WIPE` still have no code to
+gate. `TLS` was in that group until R8; it now gates real code (below).
 
 Gated in R7: `CONFIG_TOOLS` selects the x86_64 `ping`/`nslookup`/`wget`
 shell commands (`kernel/src/shell/cmds_net.rs`); the clients themselves
 live in `kernel-net` behind `CONFIG_NET`, and a TOOLS-without-NET build
 gets one-line `not built (CONFIG_NET=n)` stubs in the `help` table.  The
 minimal profile (`TOOLS=n`) links neither the commands nor the clients.
+
+## Implemented in C5 (2026-09)
+
+The default `minimal` profile is now the Live boot set only: SHELL (plus the
+declared `BASH` symbol, no code yet). `RESCUE_REPAIR` defaults to n and the
+whole rescue/diagnostic block is gated at the **command table**, not just in
+the implementations:
+
+- `kernel-core/src/shell/rescue.rs` (new: lsos, lsmnt, mount, umount,
+  diskhealth, grub-fix) and `kernel-core/src/shell/cat.rs` are
+  `#[cfg(kconfig_rescue_repair)]`; `kernel-core/src/shell/cmds.rs` keeps the
+  two core builtins (help, bootinfo).
+- the x86 and riscv tables assemble their length from cfg blocks
+  (`CORE_COMMANDS + RESCUE_COMMANDS + TOOL_COMMANDS`), correct for every
+  `RESCUE_REPAIR x TOOLS x NET` combination (TOOLS-without-NET still gets the
+  one-line stubs).
+- `diag::storage`/`diag::diskhealth` and the stage-2 storage report are
+  gated too, so the minimal ELF carries no `diskhealth` symbols or strings.
+- `tools/smoke-config.sh` proves it: the minimal ELF has zero
+  net/rump/tls/rescue/tool command strings, the boot types `help` and lists
+  only `help`/`bootinfo`, the net profile links the tools but no rescue
+  commands, and the rescue profile links the rescue commands but no tools.
+
+The tools themselves stay (R7 evidence) as a non-default interim bridge:
+`apps/{ping,nslookup,wget}` are catalog skeletons (`requires =
+["posix-libc"]`, `source = "planned"`) and take over at M14-4 (APPS.md).
+Bash's early port started in `apps/bash/port/` with
+`tools/build-bash-spike.sh` recording the blocker list; bash does not run
+yet (M14_LINUXUSERS.md).
 
 Gated in R8: `CONFIG_TLS` (depends on `NET`) selects the mbedTLS subset and
 the whole HTTPS path. `kernel-net/build.rs` extracts the vendored tarball

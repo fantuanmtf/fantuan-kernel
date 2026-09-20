@@ -6,13 +6,14 @@ at the repo root and, with --emit, the content-hashed build/config/features.rs
 + build/config/features.env. Python stdlib only; no curses.
 
   menu (default)  interactive toggle UI   --symbol NAME=Y|N  set symbol
-  --text          print effective config  --profile minimal|net|desktop|
-  --olddefconfig  fill missing defaults       hypervisor|all
+  --text          print effective config  --profile minimal|rescue|net|
+  --olddefconfig  fill missing defaults       tls|desktop|hypervisor|all
   --check         validate depends only   --emit  regenerate features.{rs,env}
 
-A missing .config resolves to the `minimal` profile (SHELL +
-RESCUE_REPAIR), matching the build scripts' default; the net profile is
-explicit (`--profile net`, CONFIG_NET=y drives the kconfig-net feature).
+A missing .config resolves to the `minimal` profile (SHELL only, plus the
+declared BASH symbol), matching the build scripts' default; the rescue and
+net profiles are explicit (`--profile rescue|net`, CONFIG_NET=y drives the
+kconfig-net feature).
 """
 import argparse, glob, hashlib, os, sys
 
@@ -23,10 +24,14 @@ CONFIG_PATH = os.path.join(ROOT, ".config")
 FEATURES_RS = os.path.join(ROOT, "build", "config", "features.rs")
 FEATURES_ENV = os.path.join(ROOT, "build", "config", "features.env")
 
-NET = ["SHELL", "RESCUE_REPAIR", "TOOLS", "NET", "NET_DRIVERS", "DEBUG_SELFTEST"]
+# minimal (C5): the Live kernel's boot set - kernel + boot + shell only. The
+# rescue/diagnostic commands and boot repair are a profile (`rescue`), and the
+# tools are non-default (app catalog at M14; kernel bridge until then).
+NET = ["SHELL", "TOOLS", "NET", "NET_DRIVERS", "DEBUG_SELFTEST"]
 TLS = NET + ["TLS"]
 PROFILES = {
-    "minimal": ["SHELL", "RESCUE_REPAIR"],
+    "minimal": ["SHELL"],
+    "rescue": ["SHELL", "RESCUE_REPAIR"],
     "net": NET,
     "tls": TLS,
     "desktop": NET + ["GRAPHICS", "DESKTOP"],

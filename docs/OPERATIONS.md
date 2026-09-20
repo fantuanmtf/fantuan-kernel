@@ -10,6 +10,8 @@ itself see [USAGE.md](USAGE.md); for builds see [BUILD.md](BUILD.md).
 |---|---|---|
 | `tools/build.sh [--arch riscv64]` | build all artifacts for one arch | < 1 min |
 | `tools/smoke.sh` | full x86 acceptance suite (13 phases) | ~25 min |
+| `tools/smoke-config.sh` | profile invariants, command-string gating, budget, incrementality | ~3 min |
+| `tools/smoke-net.sh` | M11 offline network gate (loopback/SLIRP/DNS/TLS/UDP) | ~8 min |
 | `tools/smoke-bios.sh` | legacy BIOS chain: x86_64 + i686 (2 phases) | ~2 min |
 | `tools/smoke-riscv.sh` | riscv acceptance suite (3 phases) | ~4 min |
 | `tools/smoke-iso.sh` | hybrid ISO: BIOS El Torito + UEFI 0xEF (2 phases) | ~3 min |
@@ -20,6 +22,11 @@ All smoke scripts bound every QEMU run with `timeout --signal=KILL` and
 exit non-zero on the first failing phase. Logs land in `build/*.log`.
 
 ## 2. The x86 suite (`tools/smoke.sh`, 13 phases)
+
+The suite selects an explicit richer profile before booting
+(`minimal` + `RESCUE_REPAIR` + `VIRT` + `SMBIOS`): it asserts the storage
+diagnostics and rescue/VFS shell commands that the default minimal kernel
+gates out (C5).
 
 | # | Phase (PASS string suffix) | What it proves |
 |---|---|---|
@@ -81,6 +88,8 @@ Known limitations across the matrix:
 Phase A drives the shell by piping commands into QEMU's serial console
 (`sleep 5; printf 'diskhealth\ncat HELLO.TXT\n'; sleep ...`) — the pipe
 stays open so QEMU does not see EOF. The same technique drives phases B/C.
+The script selects the `rescue` profile because the default minimal kernel
+does not register those commands (C5).
 
 ## 5. `tools/run.sh` flags
 
@@ -108,7 +117,7 @@ to `build/esp/fantuan/kernel.bin` on every run.
 
 | Path | Command | What you get |
 |---|---|---|
-| UEFI x86_64 | `tools/run.sh` | full rescue stack: VFS, diagnostics, userland, interactive shell on serial |
+| UEFI x86_64 | `tools/run.sh` | full profile stack: VFS, diagnostics, userland, interactive shell on serial (the default minimal boot has the core builtins only) |
 | UEFI x86_64 GUI | `tools/run.sh --graphics` | the same plus a GOP window (serial stays on stdio) |
 | BIOS x86_64 | `tools/run-bios.sh` | the M10 BIOS chain and an interactive shell; the image has no partitions, so `lsos`/`cat` report no filesystems |
 | BIOS i686 | `tools/run-bios.sh --arch i686` | the 32-bit bring-up lines (handoff, memmap, frame allocator, interrupts, ELF32 user tasks, VBE console); no disk, so `ata: no primary master (VFS skipped)`, and no shell yet |
@@ -116,10 +125,11 @@ to `build/esp/fantuan/kernel.bin` on every run.
 | Hybrid ISO | `tools/build-iso.sh` then `qemu-system-x86_64 -cdrom build/fantuan.iso -nographic` | the same kernel via El Torito on BIOS; OVMF boots the 0xEF ESP path (`smoke-iso.sh` shows the exact invocation) |
 | RISC-V | `tools/run.sh --arch riscv64 --disk --two-fs` | OpenSBI + virtio-blk + VFS/shell |
 
-Useful shell commands: `help`, `bootinfo`, `lsos`, `diskhealth` (SMART needs
-AHCI/NVMe; the BIOS IDE path degrades), `cat <path>`. Quit QEMU with
-`Ctrl-A X`. For fixture variants (`--broken`, `--keys`, `--shell-repair`,
-`--nvme`, `--smm`) see the flags table above.
+Useful shell commands: `help`, `bootinfo` (both in the minimal kernel), and
+with the `rescue` profile `lsos`, `diskhealth` (SMART needs AHCI/NVMe; the
+BIOS IDE path degrades) and `cat <path>`. Quit QEMU with `Ctrl-A X`. For
+fixture variants (`--broken`, `--keys`, `--shell-repair`, `--nvme`, `--smm`)
+see the flags table above.
 
 ## 6. Driving and debugging a run
 

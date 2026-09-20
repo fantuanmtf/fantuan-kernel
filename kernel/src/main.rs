@@ -265,8 +265,9 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         }
 
         // --- M5: diagnostics stage 2 (needs the C storage driver) ----------
-        let stage2: [diag::Check; 1] = [diag::Check { name: "storage", run: diag::storage::check }];
-        diag::run_stage("2 storage", &stage2);
+        // Rescue/diagnostic reporting; CONFIG_RESCUE_REPAIR (C5).
+        #[cfg(kconfig_rescue_repair)]
+        diag::run_stage("2 storage", &[diag::Check { name: "storage", run: diag::storage::check }]);
 
         // --- M7: boot repair v1 (read-only diagnosis; CONFIG_RESCUE_REPAIR) -
         // The boot path is READ-ONLY: repairs run solely from the shell's

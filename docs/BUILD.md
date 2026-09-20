@@ -71,6 +71,31 @@ Artifacts:
 
 Both `user_program.bin` files are generated and git-ignored; never edit them.
 
+## 3.1 Configuration profiles (Kconfig-lite)
+
+The kernel is configured before it is built; a missing `.config` resolves to
+the default **minimal** profile (kernel + boot + shell, plus the declared
+`BASH` symbol; bash itself arrives with M14). Everything else is opt-in:
+
+```sh
+tools/kconfig.py --profile minimal     # default: SHELL only
+tools/kconfig.py --profile rescue      # + diagnostic commands + boot repair
+tools/kconfig.py --profile net         # + TOOLS + rump network + drivers + self-test
+tools/kconfig.py --profile tls         # net + mbedTLS/HTTPS
+tools/kconfig.py --profile desktop|hypervisor|all
+tools/kconfig.py --text                # effective configuration
+tools/kconfig.py --check --emit        # validate + regenerate build/config/features.*
+tools/smoke-config.sh                  # profile invariants, string gating, budget
+```
+
+`tools/build.sh` / `build-bios.sh` / `build-i686.sh` materialize the minimal
+profile when `.config` is absent and pass `--features kconfig-net` only when
+`CONFIG_NET=y`. The `.config` is read by every crate's `build.rs` through
+`tools/kconfig_emit.rs`; the profile, enabled list and config hash appear in
+the boot banner. Apps add `CONFIG_APP_*` symbols via
+`tools/appctl/appctl.py menu` (see [APPS.md](APPS.md)); bash is vendored but
+not built, with the early-port record in `apps/bash/port/`.
+
 ## 4. Build with cargo directly
 
 ```sh

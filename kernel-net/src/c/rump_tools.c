@@ -4,7 +4,9 @@
  * override, since the DHCP resolver 10.0.2.3 cannot know the fixture
  * name), ICMP-echo the resolved address and HTTP-GET the fixture through
  * that name.  Bounded: each client carries its own retry/timeout budget;
- * the state machine just sequences them and prints the gate markers. */
+ * the state machine just sequences them and prints the gate markers.
+ * Interim bridge (C5): the catalog versions (apps/{ping,nslookup,wget})
+ * take over at M14-4. */
 
 #include <sys/types.h>
 #include <sys/param.h>

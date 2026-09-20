@@ -11,6 +11,13 @@ way and compiled into `kernel-net` under `CONFIG_TLS` (registered in
 `THIRD_PARTY.md`; the `CONFIG_APP_MBEDTLS` menu entry stays off until the M14
 `posix-libc` layer).
 
+`ping/`, `nslookup/` and `wget/` (C5) are **catalog skeletons**: a manifest
+(`requires = ["posix-libc"]`, `gpl = false`), a README and a lock entry with
+`source = "planned"`. They are the future home of the tools currently
+integrated into the kernel behind `CONFIG_TOOLS`/`CONFIG_NET` (the interim
+bridge, see `docs/APPS.md`); the sources land in `src/` at M14-4. `sync`/
+`upgrade` skip planned and upstream entries and leave them alone.
+
 ```
 apps/<name>/manifest.toml     metadata and the build recipe (see docs/APPS.md)
 apps/<name>/README.md         what it is, how to build/run (also the menu help)

@@ -7,16 +7,20 @@
 
 ## 1. Vision
 
-fantuan-kernel is a self-written operating system kernel targeting **live rescue systems**.
-It boots from removable media on real machines, diagnoses hardware and boot-chain problems,
-and repairs broken boot setups — primarily Linux, with read-only diagnosis for BSD.
-Windows repair is explicitly deferred.
+fantuan-kernel is a self-written operating system kernel targeting **Live
+environments** (RAM-first, clean shutdown, optional persistence). It boots
+from removable media on real machines; the default minimal build is the
+kernel + boot + shell, and an opt-in `rescue` profile diagnoses hardware and
+boot-chain problems and repairs broken boot setups — primarily Linux, with
+read-only diagnosis for BSD. Windows repair is explicitly deferred.
 
 Design drivers:
 
-- **Offline-first** — no network drivers in v1.
-- **Read-only-first** — a rescue kernel must never write to a disk the user did not
-  explicitly ask to modify. Every automatic action is read-only.
+- **Offline-first** — the default minimal build carries no network drivers;
+  `net`/`tls` are explicit profiles.
+- **Read-only-first** — the kernel must never write to a disk the user did not
+  explicitly ask to modify. Every automatic action is read-only, and rescue
+  writes are gated behind the repair confirmation.
 - **Evolvable** — interfaces are append-only and versioned; features can be added or
   removed without breaking the core.
 
@@ -273,7 +277,7 @@ diagnostic codes above, so a healthy boot can never be mistaken for a GPU fault.
   512 bytes), Percentage Used, Media Errors.
 - **Surface scan**: optional (`diskhealth --scan`), background, progress bar,
   cancellable; reports slow sectors (>500 ms) and read errors. **Off by default** —
-  full scans can accelerate the death of a failing drive; rescue-first.
+  full scans can accelerate the death of a failing drive; off unless asked.
 - All quantities displayed in decimal GB/TB (matching vendor marketing units).
 - Example report:
 
@@ -479,7 +483,7 @@ fantuan-kernel/
   /etc/fstab) in `tools/mkdisk.py`, with XFS magic on a third partition to
   prove unsupported filesystems stay probe-only.
 - **M7.5b** — DONE (repair writes): vfs::write_file behind an explicit
-  repair-mode gate (the rescue iron rule), FAT32 write path
+  repair-mode gate (the read-only iron rule), FAT32 write path
   (kernel/src/vfs/fat_write.rs: cluster allocation, both FAT copies,
   data→FAT→dir-entry ordering, overwrite-in-place), bootrepair self-test
   (FIXED.TXT write+readback) and the fallback-loader repair (shim copied into
@@ -515,7 +519,7 @@ fantuan-kernel/
   Boot state is read through the enumeration path (direct-name GetVariable is
   unreliable on some firmware — OVMF reported the variables absent while
   enumeration shows Secure Boot disabled + SetupMode ACTIVE). When the
-  firmware is in Setup Mode the rescue system can enroll the platform key
+  firmware is in Setup Mode the kernel can enroll the platform key
   (and KEK/db) unauthenticated, as the UEFI spec allows: certificates are
   read from the ESP (\EFI\fantuan\PK.cer etc.), written with NV|BS|RT, and
   verified by re-reading; the log warns that Secure Boot becomes enforced on
@@ -686,7 +690,7 @@ M9.1/M9.2 (boot, Sv39, traps, timer, scheduler, `kernel-core`), M9.3
 (U-mode, per-task roots, ecall syscalls, fault kill/reap, FDT
 diagnostics), M9.4 (virtio-mmio storage, shared VFS/diag/boot-repair/
 shell on RISC-V) and M9.5 (audit, docs/M9_AUDIT.md). M10 (Linux/BSD
-guest-ABI layer) remains design-first. The x86_64 rescue system
+guest-ABI layer) remains design-first. The x86_64 Live kernel
 remains the product; the RISC-V port proves the arch/ split and keeps the
 core portable. The reference platform is QEMU `virt` with OpenSBI
 (`qemu-system-riscv64`, `-bios default`).

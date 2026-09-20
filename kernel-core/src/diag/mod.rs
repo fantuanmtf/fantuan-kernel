@@ -10,8 +10,10 @@ use core::fmt::Write;
 
 use crate::log::Log;
 
+#[cfg(kconfig_rescue_repair)]
 pub mod diskhealth;
 pub mod ram;
+#[cfg(kconfig_rescue_repair)]
 pub mod storage;
 
 #[derive(Clone, Copy, PartialEq, PartialOrd)]

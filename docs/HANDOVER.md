@@ -8,13 +8,14 @@ role guides: [BUILD.md](BUILD.md), [USAGE.md](USAGE.md),
 
 ## 1. What this project is
 
-A self-written operating system kernel for **live rescue systems**:
-diagnose hardware and boot-chain problems from its own kernel, inspect
-filesystems read-only, and repair boot loaders/NVRAM only after explicit
-operator consent. Research vehicle as much as product: the same portable
-core now runs on two architectures.
+The kernel of a **Live OS** (RAM-first, clean shutdown, optional
+persistence), self-written: the default minimal build is kernel + boot +
+shell, and the opt-in `rescue` profile diagnoses hardware and boot-chain
+problems from its own kernel, inspects filesystems read-only and repairs boot
+loaders/NVRAM only after explicit operator consent. Research vehicle as much
+as product: the same portable core now runs on two architectures.
 
-- **Primary target**: x86_64 UEFI rescue kernel (the product).
+- **Primary target**: x86_64 UEFI Live kernel (the product).
 - **Second target**: riscv64 under OpenSBI on QEMU `virt` (portability
   proof of the arch split, not a hardware-support claim).
 - **v0.0.2 adds**: a self-written legacy-BIOS boot chain for x86_64 plus a
@@ -37,7 +38,14 @@ core now runs on two architectures.
   tracked under "Known issues" in `docs/PROGRESS.md`.
 - **Milestone plans**: `docs/M10_PLAN.md` (W1–W6 closed) and
   `docs/M10_BOOT_32BIT.md` (M10 design of record); the v0.0.1 plan is
-  `docs/M9_KERNEL_v0.0.1.md`.
+  `docs/M9_KERNEL_v0.0.1.md`; M11 batches are in `docs/M11_PLAN.md`
+  (next: R9, aarch64 + 0.0.3).
+- **Current direction (C5, 2026-09)**: the default `minimal` profile is the
+  kernel + boot + shell only; the diagnostic commands and boot repair live
+  behind the `rescue` profile, the network tools are the non-default interim
+  bridge whose catalog home is `apps/{ping,nslookup,wget}`, and bash's early
+  port is recorded in `apps/bash/port/`. See `docs/CONFIG_PLAN.md` and
+  `docs/APPS.md`.
 
 ## 3. Architecture in one page
 
@@ -109,7 +117,7 @@ core now runs on two architectures.
 | M6 | VFS: GPT/MBR, FAT32, ext4 ro | DESIGN §8 |
 | M7 | boot-repair chain: diagnosis, FAT writes, NVRAM, Secure Boot, shell | DESIGN §9–§10 |
 | M8 | hardening (W^X/SMEP/SMAP), crypto KATs, PS/2 + GOP mirror, NVMe, authenticated variables | DESIGN §11–§13 |
-| M9 | kernel-core extraction, riscv port (boot/Sv39/traps/U-mode), virtio-mmio, shared rescue stack, audit | `M9_KERNEL_v0.0.1.md`, `M9_AUDIT.md` |
+| M9 | kernel-core extraction, riscv port (boot/Sv39/traps/U-mode), virtio-mmio, shared VFS/diagnostic/repair stack, audit | `M9_KERNEL_v0.0.1.md`, `M9_AUDIT.md` |
 | M10 | legacy BIOS boot chain (MBR/stage2/VBE), i686 port (32-bit paging, scheduler, ring 3/ELF32, read-only PIO ATA VFS), hybrid BIOS+UEFI ISO | `M10_BOOT_32BIT.md`, `M10_PLAN.md`, `PROGRESS.md` |
 
 ## 6. Known debt and risks

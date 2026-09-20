@@ -134,11 +134,16 @@ fn kmain(bi: *const BootInfo) -> ! {
         match kernel_core::vfs::init() {
             Some(vfs) => {
                 let _ = writeln!(s, "vfs: ok");
-                let stage2: [kernel_core::diag::Check; 1] = [kernel_core::diag::Check {
-                    name: "storage",
-                    run: kernel_core::diag::storage::check,
-                }];
-                kernel_core::diag::run_stage("2 storage", &stage2);
+                // Without the rescue diagnostics the mounted handle is unused.
+                let _ = &vfs;
+                #[cfg(kconfig_rescue_repair)]
+                {
+                    let stage2: [kernel_core::diag::Check; 1] = [kernel_core::diag::Check {
+                        name: "storage",
+                        run: kernel_core::diag::storage::check,
+                    }];
+                    kernel_core::diag::run_stage("2 storage", &stage2);
+                }
                 #[cfg(kconfig_rescue_repair)]
                 kernel_core::bootrepair::diagnose(&mut s, &vfs, bi.runtime_services);
             }

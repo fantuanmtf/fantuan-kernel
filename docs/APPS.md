@@ -183,6 +183,41 @@ under `build/` into the kernel and serves HTTPS from it. The bash precedent
 holds: `verify mbedtls` needs no `--apps-layer` (Apache-2.0, `gpl = false`);
 the GPL firewall is unchanged and `tools/smoke-gpl.sh` stays green.
 
+## Implemented in C5 (2026-09) - the tools' future home
+
+The working `ping`/`nslookup`/`wget` shell commands are the R7 evidence and
+stay in the kernel, but they are an **interim bridge**, not the home:
+
+- `CONFIG_TOOLS` (default n) registers the commands in
+  `kernel/src/shell/cmds_net.rs`; the clients live in `kernel-net` behind
+  `CONFIG_NET` and the boot self-test is `rump_tools.c`. They exist in the
+  `net`/`tls` profiles and are absent from the default `minimal` kernel.
+- `apps/ping/`, `apps/nslookup/` and `apps/wget/` are catalog skeletons:
+  `manifest.toml` (`license = "BSD-3-Clause"`, `abi_min = 1`,
+  `build = "custom"`, `requires = ["posix-libc"]`, `gpl = false`,
+  `description`), a README documenting the bridge/migration, and an
+  `apps.lock` entry with `source = "planned"` (`sync`/`upgrade` skip planned
+  and upstream entries). `appctl menu` writes
+  `config/apps/{ping,nslookup,wget}.kconfig`, all `default n` with the
+  "unavailable: requires posix-libc (M14 POSIX/libc layer)" note.
+- **M14-4 migration**: with `posix-libc` available, the tool sources are
+  written/vendored into each `src/` (plus replayable `patches/`),
+  `CONFIG_APP_PING`/`NSLOOKUP`/`WGET` become selectable, and the in-kernel
+  commands are retired; the kernel is never rebuilt because an app was added.
+
+## Implemented in C5 (2026-09) - bash early start
+
+The real bash port starts before M14: `apps/bash/port/README.md` records the
+exact configure/host flags attempted against `x86_64-unknown-none`
+(`--without-bash-malloc --disable-nls --without-readline --enable-static-link`)
+and the result (`configure: error: cannot compute sizeof (size_t)`; 39/43
+headers and 102/102 POSIX symbols missing), `apps/bash/port/REQUIREMENTS.md`
+lists the minimal libc/POSIX surface, and `tools/build-bash-spike.sh` reruns
+the attempt and writes `build/bash-spike/blockers.txt` deterministically
+(`BASH_SPIKE_STRICT=1` exits non-zero while blocked). bash does not run yet;
+the vendored tree, the licence register and the `requires = ["posix-libc"]`
+gate are unchanged.
+
 ## Budgets
 
 - Boot + kernel + shell stay within **300 MiB** (hard build check); the

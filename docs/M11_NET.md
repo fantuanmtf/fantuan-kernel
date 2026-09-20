@@ -6,7 +6,7 @@
 ## 1. Goal
 
 Bring up wired networking on x86_64 and arm64 with a full TCP/IP stack, so
-the rescue system can use the network: `ping`, DHCP, DNS and HTTP/HTTPS
+the Live kernel can use the network: `ping`, DHCP, DNS and HTTP/HTTPS
 downloads in v0.0.3, and sockets for userspace in M14.
 
 ## 2. Source and licensing

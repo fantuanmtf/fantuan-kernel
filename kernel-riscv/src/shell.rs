@@ -1,23 +1,40 @@
 //! RISC-V shell glue (M9.4): the shared shell core lives in kernel-core;
 //! this module owns the riscv command table. `grub-fix` can diagnose, and
 //! its NVRAM paths see rt = 0 and degrade honestly.
+//!
+//! Core: help, bootinfo. The rescue/diagnostic block is compiled only under
+//! CONFIG_RESCUE_REPAIR (C5), so the minimal command table lists the core
+//! builtins only.
 
 use fantuan_abi::BootInfo;
 use kernel_core::shell::Command;
 use kernel_core::vfs::Vfs;
 
-/// Shared commands only: the x86 hardware commands (hwdiag/lsdev/crypto)
-/// have no riscv counterpart yet.
-static COMMANDS: [Command; 9] = [
+const CORE_COMMANDS: usize = 2;
+#[cfg(kconfig_rescue_repair)]
+const RESCUE_COMMANDS: usize = 7;
+#[cfg(not(kconfig_rescue_repair))]
+const RESCUE_COMMANDS: usize = 0;
+
+const N_COMMANDS: usize = CORE_COMMANDS + RESCUE_COMMANDS;
+
+static COMMANDS: [Command; N_COMMANDS] = [
     Command { name: "help", help: "this table", run: kernel_core::shell::cmds::cmd_help },
-    Command { name: "lsos", help: "filesystems per partition (probe table)", run: kernel_core::shell::cmds::cmd_lsos },
-    Command { name: "lsmnt", help: "mount table", run: kernel_core::shell::cmds::cmd_lsmnt },
-    Command { name: "mount", help: "mount esp0 /mnt/esp0 - ro alias only", run: kernel_core::shell::cmds::cmd_mount },
-    Command { name: "umount", help: "umount <path>", run: kernel_core::shell::cmds::cmd_umount },
-    Command { name: "cat", help: "cat <path> - print a file (FAT or ext4, 4 KiB max)", run: kernel_core::shell::cat::cmd_cat },
     Command { name: "bootinfo", help: "boot handover details", run: kernel_core::shell::cmds::cmd_bootinfo },
-    Command { name: "diskhealth", help: "disk health [--scan]", run: kernel_core::shell::cmds::cmd_diskhealth },
-    Command { name: "grub-fix", help: "boot repair [diagnose|repair|install]", run: kernel_core::shell::cmds::cmd_grubfix },
+    #[cfg(kconfig_rescue_repair)]
+    Command { name: "lsos", help: "filesystems per partition (probe table)", run: kernel_core::shell::rescue::cmd_lsos },
+    #[cfg(kconfig_rescue_repair)]
+    Command { name: "lsmnt", help: "mount table", run: kernel_core::shell::rescue::cmd_lsmnt },
+    #[cfg(kconfig_rescue_repair)]
+    Command { name: "mount", help: "mount esp0 /mnt/esp0 - ro alias only", run: kernel_core::shell::rescue::cmd_mount },
+    #[cfg(kconfig_rescue_repair)]
+    Command { name: "umount", help: "umount <path>", run: kernel_core::shell::rescue::cmd_umount },
+    #[cfg(kconfig_rescue_repair)]
+    Command { name: "cat", help: "cat <path> - print a file (FAT or ext4, 4 KiB max)", run: kernel_core::shell::cat::cmd_cat },
+    #[cfg(kconfig_rescue_repair)]
+    Command { name: "diskhealth", help: "disk health [--scan]", run: kernel_core::shell::rescue::cmd_diskhealth },
+    #[cfg(kconfig_rescue_repair)]
+    Command { name: "grub-fix", help: "boot repair [diagnose|repair|install]", run: kernel_core::shell::rescue::cmd_grubfix },
 ];
 
 /// Enter the interactive shell (never returns); idle() is wfi, so the SBI

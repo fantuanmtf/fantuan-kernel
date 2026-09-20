@@ -12,7 +12,7 @@ license = "GPL-3.0-or-later"
 gpl = true
 source = "upstream"
 rev = "unversioned"
-sha256 = "509486344381428f48ca47422acc9351bfe27c8915b153ebb647524cee5a15d2"
+sha256 = "2f69249e6f998731517aa2a0ed860265c307d792f852a2c47421e156e7f53d35"
 
 [[app]]
 name = "mbedtls"
@@ -22,3 +22,30 @@ gpl = false
 source = "upstream"
 rev = "unversioned"
 sha256 = "c745d835eb315e98d81a5de928bc1261d9db210c07f70f6db5c711b73c5c5a1b"
+
+[[app]]
+name = "nslookup"
+version = "0.1"
+license = "BSD-3-Clause"
+gpl = false
+source = "planned"
+rev = "unversioned"
+sha256 = "32cc83049bcff86ce9212293aee0bf4d9a640f1161fa34d79a80af4a8a3c2fa2"
+
+[[app]]
+name = "ping"
+version = "0.1"
+license = "BSD-3-Clause"
+gpl = false
+source = "planned"
+rev = "unversioned"
+sha256 = "55e33c536731542a372bd589bc2a33e082fed7036b7d821719bba82a0c4ab477"
+
+[[app]]
+name = "wget"
+version = "0.1"
+license = "BSD-3-Clause"
+gpl = false
+source = "planned"
+rev = "unversioned"
+sha256 = "4d43261db7804b83fbc3ab78f28be28d045136f52ca5be12efcd24767a0a5308"

@@ -5,10 +5,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 mkdir -p build
 
-# C4: the full x86 suite asserts the diagnostic subsystems (SMBIOS identity,
-# ACPI, virtualization) that the default `minimal` profile leaves out; select
-# them explicitly and build once so the first timed boot is boot time only.
-python3 tools/kconfig.py --profile minimal --symbol VIRT=Y --symbol SMBIOS=Y >/dev/null
+# C5: the full x86 suite asserts the diagnostic subsystems (SMBIOS identity,
+# ACPI, virtualization) and the rescue/VFS shell commands that the default
+# `minimal` profile leaves out; select them explicitly and build once so the
+# first timed boot is boot time only.
+python3 tools/kconfig.py --profile minimal --symbol RESCUE_REPAIR=Y \
+  --symbol VIRT=Y --symbol SMBIOS=Y >/dev/null
 ./tools/build.sh >/dev/null 2>&1 || { echo "SMOKE FAIL — pre-build"; exit 1; }
 
 # Reset the non-SMM vars store before each phase — repairs mutate NVRAM.

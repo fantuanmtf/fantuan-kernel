@@ -11,7 +11,7 @@
 |---|---|---|---|
 | v0.0.1 | M0-M9 (x86_64 rescue + RISC-V port) | `[##########] 100%` | tag `v0.0.1` (local) |
 | v0.0.2 | M10 legacy BIOS boot + i686 | `[##########] 100%` | released as 0.0.2: `smoke.sh` 13/13, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3, `smoke-iso.sh` 2/2 |
-| v0.0.3 | M11 ARM64 + full TCP/HTTPS | `[#---------] 10%` | design only |
+| v0.0.3 | M11 ARM64 + full TCP/HTTPS | `[########--] 80%` | R1-R8 verified; C5 minimal/tools/bash-prep; R9 (aarch64) next |
 | v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[#---------] 10%` | design only |
 | v0.0.5 | M13 graphics/input + interface freeze | `[#---------] 10%` | design only |
 | v0.1.0 | M14 Linux userspace + bootstrap + hypervisor V2 | `[#---------] 10%` | design only |
@@ -254,6 +254,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | C5 minimal default + tools' catalog home + bash early start: default `.config` absent -> `minimal` = SHELL only (plus the declared `BASH` symbol); minimal ELF free of net/rump/tls/rescue/tool command strings; typed `help` lists only `help`/`bootinfo`; `smoke-config.sh` PASS (net links tools without rescue commands, rescue links commands without tools, 2.6 MB budget, incrementality); `smoke-net.sh` PASS all phases; `smoke.sh` 13/13; `smoke-bios.sh` 2/2; `smoke-riscv.sh` 3/3; `smoke-iso.sh` 2/2; `smoke-gpl.sh`/`smoke-apps.sh` PASS; `build-bash-spike.sh` records configure `cannot compute sizeof (size_t)` + 39/43 headers + 102/102 POSIX symbols missing (bash does not run); x86_64 minimal/net/tls, riscv64 minimal/rescue, i686 minimal/rescue builds zero warnings | PASS |
 | 2026-09 | C4 kernel subsystem isolation: default `.config` absent -> `minimal` (shell + `root@Fantuan-MTF> ` prompt, zero `net:`/`rump:` and zero `tick:` lines, typed commands clean); `smoke-config.sh` PASS (minimal/net cargo-tree edge invariants, 2.7 MB budget, incrementality); `smoke-net.sh` PASS; `smoke.sh` 13/13; `smoke-bios.sh` 2/2; `smoke-riscv.sh` 3/3 (third run after the documented uart flake); three-target builds zero warnings. Includes the bootloader SFS fix (kernel loaded from the loaded-image volume instead of the first SFS) that made the SMM Secure Boot phase deterministic | PASS |
 | 2026-09 | C2 catalog/appctl: `tools/smoke-apps.sh` PASS (fixture add/sync + lock sha256, kernel-layer GPL refusal plus apps-layer allow list, menu fragment merged by `tools/kconfig.py --check`, SBOM JSON, remove cleanup, corrupt-tree failure); `bash -n tools/{smoke-apps,mkbranches}.sh` clean; three-target builds zero warnings | PASS |
 | 2026-09 | C3 bash vendor/GPL compliance: `tools/smoke-gpl.sh` PASS (tarball sha256 `0d5cd86965f8...` = `SHA256SUMS` = manifest and GPG-verified upstream; `COPYING` = the tarball's GPLv3 text; kernel/base `verify` refused with the GPL message while `--apps-layer` passed via `gpl_allow`; `menu` kept `CONFIG_APP_BASH=n` with the posix-libc/M14 note; SBOM bash `gpl=true`; the x86_64 kernel rebuild left `apps/bash` untouched, with no Cargo edge into `apps/` and no bash symbols/app paths in the ELF); `smoke-apps.sh` PASS, `smoke-config.sh` PASS; three-target builds zero warnings | PASS |
@@ -359,7 +360,8 @@ with `apps.lock`. GitHub carries every branch (`main`, `fantuan-apps`,
 `package`); Codeberg mirrors the **pure kernel only** (`main`), no catalog
 or tooling branches. Batches: **C1** config foundation, **C2** catalog/
 appctl, **C3** bash vendor + GPL compliance, **C4** kernel subsystem
-isolation; then R7.
+isolation, **C5** minimal default + tools' catalog home + bash early port;
+then R9.
 
 - [x] C1 config foundation: `config/Kconfig` (12 symbols + documented
       `CONFIG_APP_*` hook, fragments merged from `config/apps/*.kconfig`),
@@ -421,17 +423,39 @@ isolation; then R7.
       was not the boot volume; it now uses the loaded-image device handle
       (falling back to the first SFS). Phase 9's budget became 240 s for the
       TCG scan time. Verify
-      `tools/smoke-config.sh`, `tools/smoke-net.sh`, `tools/smoke.sh`,
-      `tools/smoke-bios.sh`, `tools/smoke-riscv.sh`, three-target
-      zero-warning builds.
+       `tools/smoke-config.sh`, `tools/smoke-net.sh`, `tools/smoke.sh`,
+       `tools/smoke-bios.sh`, `tools/smoke-riscv.sh`, three-target
+       zero-warning builds.
+- [x] C5 minimal default + tools' catalog home + bash early port (working
+       tree; owner to commit): `RESCUE_REPAIR` defaults to n and the whole
+       rescue/diagnostic command block (lsos/lsmnt/mount/umount/cat/
+       diskhealth/hwdiag/lsdev/crypto-selftest/grub-fix) plus the stage-2
+       storage diagnostic is gated in the command tables and the
+       implementations (`kernel-core/src/shell/rescue.rs`, x86 + riscv
+       tables with `CORE + RESCUE + TOOLS` lengths for every combination);
+       default `minimal` = SHELL only (plus the declared `BASH` symbol, no
+       code); `apps/{ping,nslookup,wget}` catalog skeletons with
+       `requires = ["posix-libc"]`, `source = "planned"` lock entries and
+       the interim-bridge note (APPS.md/M11_PLAN.md); bash early port
+       (`apps/bash/port/{README,REQUIREMENTS}.md`,
+       `tools/build-bash-spike.sh` records the configure failure + first
+       missing headers/symbols, bash does not run); Live-first identity in
+       USAGE/DESIGN/HANDOVER/OPERATIONS/BUILD/ROADMAP; `tools/kconfig.py`
+       gained the `rescue` profile and smoke-config the minimal-ELF string
+       invariants. Verify `tools/smoke-config.sh`, `tools/smoke-net.sh`,
+       `tools/smoke.sh`, `tools/smoke-bios.sh`, `tools/smoke-riscv.sh`,
+       `tools/smoke-iso.sh`, `tools/build-bash-spike.sh` and the
+       x86_64/riscv64/i686 zero-warning builds.
 
 ## Next action
 
-**R9** (M11-8 aarch64 bring-up + release) on the R8 base: the direct FDT
-boot on QEMU `virt` and the UEFI loader path under AAVMF (verify
-`aarch64-unknown-uefi` availability), the full network stack/TLS on
+**R9** (M11-8 aarch64 bring-up + release) on the C5 base — the next batch:
+the direct FDT boot on QEMU `virt` and the UEFI loader path under AAVMF
+(verify `aarch64-unknown-uefi` availability), the full network stack/TLS on
 aarch64, smoke phases for both boot paths, docs/matrices/THIRD_PARTY final
-update and the workspace/banner version bump to 0.0.3. bash stays pinned
+update and the workspace/banner version bump to 0.0.3. The aarch64 boot set
+stays the minimal kernel + boot + shell; the rescue/net profiles and the
+catalog skeletons carry over unchanged. bash stays pinned
 behind
 `requires = ["posix-libc"]`: the M14-4 musl port and M14-8 shell flip
 `app_manifest.AVAILABLE_REQUIRES` and add the in-image `/usr/src/bash`

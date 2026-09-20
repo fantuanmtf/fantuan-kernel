@@ -16,26 +16,31 @@
 # CONFIG_APP_* prefix and never enter the kernel/base layer.
 
 config SHELL
-    bool "Rescue shell (kernel-core)"
+    bool "Built-in kernel shell (kernel-core)"
     default y
     help
-        The built-in rescue shell; the only always-on user interface.
-        Disabling it leaves the boot banner only (debug builds).
+        The built-in shell; the only always-on user interface (the Live
+        kernel's boot set: kernel + boot + shell). Disabling it leaves the
+        boot banner only (debug builds).
 
 config BASH
     bool "Full POSIX shell (M14-8)"
     default y
     help
         The full POSIX shell shipped as a separate GPLv3 program with its
-        sources (APPS.md); the built-in shell keeps the rescue builtins.
+        sources (APPS.md); declared now, no code yet. The built-in shell
+        stays as the fallback and keeps the rescue builtins.
 
 config TOOLS
     bool "Userland tool set"
     default n
     depends on SHELL
     help
-        The configured userland tools (ping/nslookup/wget/... once R7
-        lands). Tools are add-ons and are never linked into the kernel.
+        Interim bridge: the kernel-integrated ping/nslookup/wget shell
+        commands (kernel-net, R7). Non-default; the app catalog's
+        apps/{ping,nslookup,wget} take over at M14-4 and the in-kernel
+        commands are retired then. Tools are add-ons and are never linked
+        into the kernel or base.
 
 config NET
     bool "NetBSD rump network stack (M11)"
@@ -79,11 +84,13 @@ config DESKTOP
         The XFCE/CDE desktop layer; requires GRAPHICS.
 
 config RESCUE_REPAIR
-    bool "Boot-repair paths"
-    default y
+    bool "Rescue/diagnostic commands + boot repair"
+    default n
     help
-        The read-only boot-repair diagnosis; disabling removes the repair
-        commands from the rescue shell.
+        The rescue/diagnostic shell commands (diskhealth, lsos/lsmnt/mount,
+        cat, hwdiag, lsdev, crypto-selftest), the bootrepair diagnosis and
+        the grub-fix repair chain. Off in the default minimal kernel; the
+        `rescue` profile enables it.
 
 config SMBIOS
     bool "SMBIOS parsing (identity/DIMM/slots)"

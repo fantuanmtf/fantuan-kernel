@@ -244,6 +244,15 @@ flow for a real model answer.  Without a proxy the boot prints
 `net: ext skip (no relay)` and the phase prints SKIP; external results are
 recorded, never gated.
 
+### C5 note - minimal default, catalog home, early bash port
+
+C5 (2026-09): default `minimal` = kernel + boot + shell only (no rescue
+commands/bootrepair without `CONFIG_RESCUE_REPAIR`); the tools' home moved to
+the catalog (`apps/{ping,nslookup,wget}`, `requires = ["posix-libc"]`,
+`source = "planned"`) and bash's early port started (`apps/bash/port/`,
+`tools/build-bash-spike.sh`); the in-kernel tools stay the non-default
+interim bridge (R7) until M14-4. **R9 next**: arm64 FDT + UEFI + net/TLS, smokes, 0.0.3.
+
 ### R9 - aarch64 bring-up + final docs
 
 Scope: direct FDT boot on QEMU `virt`; UEFI loader path under AAVMF; the

@@ -19,6 +19,11 @@ if ! command -v qemu-system-riscv64 >/dev/null 2>&1; then
   exit 0
 fi
 
+# C5: the suite drives `diskhealth`/`cat` and the repair YES/NO gate, so it
+# selects the rescue profile explicitly (the default minimal has the rescue
+# commands gated out).
+python3 tools/kconfig.py --profile rescue >/dev/null || exit 1
+
 LOG="build/smoke-riscv.log"
 rm -f "$LOG"
 # Feed the shell commands through the serial console (the pipe is kept open

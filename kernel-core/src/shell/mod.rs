@@ -1,6 +1,8 @@
 //! Minimal shell v1 (DESIGN.md §10): serial line editor, command table and
-//! the interactive rescue loop. The command implementations live in
-//! shell/cmds.rs; this file owns input, dispatch and the mount aliases.
+//! the interactive loop. The core commands (help, bootinfo) live in
+//! shell/cmds.rs; the rescue/diagnostic commands are in shell/rescue.rs and
+//! only compiled under CONFIG_RESCUE_REPAIR. This file owns input, dispatch
+//! and the mount aliases.
 //!
 //! The command table is injected by each kernel, so x86-only commands stay
 //! out of the shared crate. Idle behaviour: when no byte is ready the loop
@@ -14,8 +16,11 @@ use fantuan_abi::BootInfo;
 use crate::log::Log;
 use crate::vfs::{self, Vfs};
 
+#[cfg(kconfig_rescue_repair)]
 pub mod cat;
 pub mod cmds;
+#[cfg(kconfig_rescue_repair)]
+pub mod rescue;
 
 const LINE_MAX: usize = 128;
 /// Autorun script: EFI/fantuan/shell.cmd, one command per line.
@@ -172,8 +177,9 @@ impl<'a> Shell<'a> {
         &self.line[..self.len]
     }
 
-    // --- mount aliases ---
+    // --- mount aliases (rescue commands only) ---
 
+    #[cfg(kconfig_rescue_repair)]
     fn mount_alias(&mut self, path: &[u8]) -> bool {
         for m in self.mounts.iter_mut() {
             if m.2 && &m.0[..m.1] == path {
@@ -192,6 +198,7 @@ impl<'a> Shell<'a> {
         false
     }
 
+    #[cfg(kconfig_rescue_repair)]
     fn umount_alias(&mut self, path: &[u8]) -> bool {
         for m in self.mounts.iter_mut() {
             if m.2 && &m.0[..m.1] == path {

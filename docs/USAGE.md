@@ -1,15 +1,21 @@
-# Usage Guide (Rescue Operator)
+# Usage Guide (Live Operator)
 
-What fantuan-kernel does, how to boot it, and how to use the shell to
-diagnose and repair a broken machine. For building it see
-[BUILD.md](BUILD.md); for the smoke suites and flag reference see
+How to boot the Live kernel and use its built-in shell; the rescue profile
+adds hardware/boot-chain diagnosis and consent-gated repair. For building
+it see [BUILD.md](BUILD.md); for the smoke suites and flag reference see
 [OPERATIONS.md](OPERATIONS.md).
 
 ## 1. What this is
 
-A self-written rescue kernel. It boots on bare metal or in QEMU, inspects
-storage and boot-chain problems read-only, and only writes when an operator
-explicitly turns on repair mode and confirms with `YES`. The main paths:
+The kernel of a **Live OS** (RAM-first, clean shutdown, optional
+persistence), self-written and booting on bare metal or in QEMU. The default
+build is the minimal boot set — kernel + boot + shell (the declared
+`CONFIG_BASH` full shell arrives with the M14 POSIX layer) — and everything
+else is opt-in through profiles: `rescue` (diagnostic commands + boot
+repair), `net`/`tls` (TCP/HTTPS; tools come from the app catalog at M14, with
+the non-default in-kernel commands as the interim bridge until then). The
+rescue path inspects storage and boot-chain problems read-only and only
+writes after an explicit `YES`. The main paths:
 
 | | x86_64 | riscv64 |
 |---|---|---|
@@ -17,7 +23,7 @@ explicitly turns on repair mode and confirms with `YES`. The main paths:
 | Console | 16550 serial + GOP framebuffer mirror | NS16550 MMIO UART |
 | Storage | AHCI (reference) and NVMe | virtio-mmio block |
 | UEFI/NVRAM repair | yes (Runtime Services) | no (diagnosis only, honest degrade) |
-| Shell commands | 12 | 9 (no hwdiag/lsdev/crypto-selftest) |
+| Shell commands | 2 core; `rescue` adds 10; `net`/`tls` add 3 tools | 2 core; `rescue` adds 7 |
 
 Current release: **v0.0.2** (see [HANDOVER.md](HANDOVER.md) for status).
 The release adds a self-written legacy-BIOS boot chain (x86_64 and i686)
@@ -38,8 +44,8 @@ Quit QEMU with `Ctrl-A X` (headless) or close the window.
 ## 3. What a boot looks like
 
 x86: bootloader banner -> `handshake ok` -> memory map summary ->
-hardware/storage diagnostic stages -> VFS mount -> userland demo tasks ->
-the shell prompt `root@Fantuan-MTF> `.
+hardware diagnostics (the storage stage is part of the `rescue` profile) ->
+VFS mount -> userland demo tasks -> the shell prompt `root@Fantuan-MTF> `.
 
 riscv: OpenSBI banner -> `fantuan v0.0.2 (riscv64)` -> FDT memory/CPU
 report -> Sv39 tables -> `blk: virtio registered` -> VFS + read-only
@@ -60,20 +66,29 @@ The shell is also fed by an autorun script when the ESP contains
 
 ## 4. Shell commands
 
-| Command | What it does |
-|---|---|
-| `help` | lists the command table |
-| `hwdiag` | re-runs hardware diagnostics (x86 only) |
-| `lsdev` | lists PCI storage/display devices + drive identity (x86 only) |
-| `lsos` | filesystems per partition (the probe table) |
-| `lsmnt` | current mount aliases |
-| `mount esp0 /mnt/esp0` | read-only alias for the ESP |
-| `umount <path>` | removes an alias |
-| `cat <path>` | prints a file (FAT or ext4, up to 4 KiB) |
-| `bootinfo` | boot handover details (memory map, framebuffer, RSDP, ...) |
-| `diskhealth [--scan]` | identity + SMART; `--scan` reads the surface (`q` cancels) |
-| `grub-fix [diagnose\|repair\|install]` | boot-repair chain (see below) |
-| `crypto-selftest` | SHA-256/RSA known-answer tests (x86 only) |
+The default minimal kernel's table holds only the **core builtins**
+(`help`, `bootinfo`). The `[rescue]` rows need `CONFIG_RESCUE_REPAIR=y`
+(`tools/kconfig.py --profile rescue`); the `[tools]` rows need
+`CONFIG_TOOLS=y` plus networking (the `net`/`tls` profiles) and are the
+non-default interim bridge until the app catalog takes over at M14.
+
+| Command | Profile | What it does |
+|---|---|---|
+| `help` | core | lists the command table |
+| `bootinfo` | core | boot handover details (memory map, framebuffer, RSDP, ...) |
+| `hwdiag` | [rescue] | re-runs hardware diagnostics (x86 only) |
+| `lsdev` | [rescue] | lists PCI storage/display devices + drive identity (x86 only) |
+| `lsos` | [rescue] | filesystems per partition (the probe table) |
+| `lsmnt` | [rescue] | current mount aliases |
+| `mount esp0 /mnt/esp0` | [rescue] | read-only alias for the ESP |
+| `umount <path>` | [rescue] | removes an alias |
+| `cat <path>` | [rescue] | prints a file (FAT or ext4, up to 4 KiB) |
+| `diskhealth [--scan]` | [rescue] | identity + SMART; `--scan` reads the surface (`q` cancels) |
+| `grub-fix [diagnose\|repair\|install]` | [rescue] | boot-repair chain (see below) |
+| `crypto-selftest` | [rescue] | SHA-256/RSA known-answer tests (x86 only) |
+| `ping <host> [count]` | [tools] | ICMP echo (count 1-5) |
+| `nslookup <name> [server]` | [tools] | DNS A-record lookup |
+| `wget [--insecure] http[s]://host/` | [tools] | HTTP/HTTPS GET, status/bytes |
 
 Examples:
 
@@ -90,6 +105,10 @@ On virtio storage `diskhealth` prints
 values.
 
 ## 5. The repair model (safety)
+
+The commands below are compiled in with the `rescue` profile; the default
+minimal kernel cannot repair because it does not carry the rescue commands
+(`grub-fix` is not registered without `CONFIG_RESCUE_REPAIR`).
 
 - **Read-only by default.** Every diagnostic, listing, mount and `cat` is
   read-only. The kernel enforces this with a `RepairToken`: write functions

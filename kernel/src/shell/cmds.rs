@@ -1,6 +1,7 @@
-//! x86-only shell commands: hardware diagnostics, PCI/drive listing and the
-//! crypto self-test. The shared commands (including diskhealth) live in
-//! kernel-core::shell::cmds.
+//! x86 rescue/diagnostic commands (CONFIG_RESCUE_REPAIR): hardware
+//! diagnostics, PCI/drive listing and the crypto self-test. The shared
+//! rescue commands (diskhealth, lsos, cat, ...) live in kernel-core; the
+//! module is not compiled in the minimal kernel.
 
 use core::fmt::Write;
 

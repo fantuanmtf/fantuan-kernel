@@ -26,7 +26,7 @@ All repository artifacts are in English. The authoritative design lives in
 
 | Guide | Audience |
 |---|---|
-| [docs/USAGE.md](docs/USAGE.md) | rescue operators: booting, the shell, repair workflows, support matrix |
+| [docs/USAGE.md](docs/USAGE.md) | Live operators: booting, the shell, profiles, rescue workflows, support matrix |
 | [docs/APPS.md](docs/APPS.md) | app/package authors: branch model, vendoring, manifests, licensing |
 | [docs/BUILD.md](docs/BUILD.md) | building from source: toolchains, all three arches, disk fixtures |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | the smoke suites, the boot/test matrix, `run.sh` flags, troubleshooting |
@@ -48,7 +48,7 @@ All repository artifacts are in English. The authoritative design lives in
 
 ## Current state: v0.0.2 — M10 complete (legacy BIOS + i686)
 
-M10 makes the rescue kernel reachable on machines without UEFI and on
+M10 makes the Live kernel reachable on machines without UEFI and on
 32-bit x86 CPUs. A self-written BIOS chain (`boot-bios/` stage1 in the MBR
 plus stage2) collects E820, sets a VBE mode when available, loads the flat
 kernel and hands over a `BootInfo arch=3`. The x86_64 kernel boots from it
