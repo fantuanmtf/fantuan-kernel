@@ -383,3 +383,61 @@ phases run silently without one).  Residual stubs unchanged from R5
 (raw sockets, IGMP, encapsulation, portalgo, vestigial TIME_WAIT,
 synchronous wqinput, select/kqueue no-ops, blocking waits); the IPv6/NDP
 frames SLIRP emits are counted and dropped by the e1000 demux.
+
+## 11. R7 outcome (2026-09): DNS resolver and the tools
+
+No NetBSD files were imported (the tree stays at 259 files): the resolver,
+the request slot and the boot sequence are adapter code, and the shell
+commands are Rust in the x86_64 kernel crate.
+
+- `rump_dns_pkt.c` builds a standard recursive A query and parses the
+  response without allocation: it requires the transaction id to match,
+  the question echo label by label (case-insensitive, one compression
+  pointer followed) and a non-error RCODE, then returns the first IN/A
+  answer.  `rump_dns.c` is the UDP state machine over the real socket
+  layer: connected non-blocking socket bound to port 41353, three sends
+  1 s apart on the PIT tick, every failure step recorded for the caller.
+  The resolver address is the DHCP option 6 value
+  (`rump_dns_default_server()`), overridable per query (the boot self-test
+  and `nslookup` pass `10.0.2.2:5353`, the smoke fixture).
+- `rump_tools.c` is the bounded boot sequence `dns -> ping -> wget` that
+  prints the R7 markers.  `rump_toolreq.c` is the shell request slot: a
+  shell command fills it and waits, and `rump_net_poll()` steps the client
+  in the net task, because the pre-SMP shim locks assume one task owns
+  socket processing.
+- Two latent kernel bugs surfaced when a second task started sleeping
+  during the boot tests: (1) the x86_64 `switch_context` saved only the
+  callee-saved registers, so a task resumed from a timer-interrupt switch
+  could inherit IF=0 and freeze the PIT; it now pushes/pops RFLAGS and the
+  initial kernel/user switch frames carry an explicit `0x202` (the same
+  bug masked the R7 waits as random hangs).  (2) the R5 TCP test counted
+  net-task iterations for its timeout, which an extra sleeping task
+  inflates; it is now tick (wall-clock) bounded like the other clients.
+- The x86_64 shell commands `ping`/`nslookup`/`wget` live in
+  `kernel/src/shell/cmds_net.rs` behind `CONFIG_TOOLS`; without
+  `CONFIG_NET` they are three one-line "not built" stubs, so minimal
+  builds contain none of the clients.  `ping <host> [count]` resolves
+  (or takes a literal) and echoes 1-5 times; `nslookup <name>
+  [server[:port]]` prints the resolved address (default: the DHCP
+  resolver); `wget http://host[:port]/` prints status, bytes and hash.
+- `tools/smoke-net.sh` gained `phase_dns_tools`: a python-stdlib
+  authoritative UDP DNS server on 127.0.0.1:5353 (reachable as the SLIRP
+  host alias 10.0.2.2) answers `test.fantuan` with 10.0.2.2 and NXDOMAIN
+  otherwise, alongside the R6 HTTP fixture.  The shell commands are fed
+  through the serial console by a paced feeder (the UART FIFO is 16 bytes
+  and the kernel polls it) only after the boot self-test released the
+  clients, with a retry per command; feeding them during the self-test
+  perturbs the R5 loss/retransmit timing.
+
+Boot markers (SLIRP phase of `tools/smoke-net.sh`):
+
+```
+net: dns ok (name=test.fantuan addr=10.0.2.2)
+net: ping test.fantuan ok (seq=1 rtt=10 ticks)
+net: wget ok (url=http://test.fantuan:18080/ bytes=1408 hash=6bb06745)
+```
+
+Failure markers: `net: dns FAILED (<step>)` and
+`net: tool FAILED (<step>)` (`ping-<step>` / `wget-<step>`).  The shell
+outputs are `nslookup: <name> => <addr>`, `ping: <host> (<addr>) seq=...
+rtt=... ticks` and `wget: <url> <status> bytes=<n> hash=<8 hex>`.

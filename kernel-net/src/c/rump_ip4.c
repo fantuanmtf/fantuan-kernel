@@ -39,6 +39,7 @@ enum {
 	IP4_TCP,
 	IP4_NIC,
 	IP4_HTTP,
+	IP4_TOOLS,
 	IP4_DONE,
 	IP4_STOP,
 	IP4_FAILED
@@ -141,6 +142,14 @@ rump_ip4_up(void)
 }
 
 int
+rump_net_selftest_busy(void)
+{
+
+	return ip4_bringup_ok && ip4_state != IP4_STOP &&
+	    ip4_state != IP4_FAILED;
+}
+
+int
 rump_net_poll(void)
 {
 	unsigned long long in, out;
@@ -151,6 +160,9 @@ rump_net_poll(void)
 	 * stack input callbacks. */
 	rump_e1000_poll();
 	rump_pktq_drain();
+	/* M11 R7: shell tool requests are stepped here, in the net task; the
+	 * shell only waits for rump_tool_status(). */
+	(void)rump_tool_poll();
 
 	if (!ip4_bringup_ok)
 		return ip4_fail("link");
@@ -213,6 +225,20 @@ rump_net_poll(void)
 		break;
 	case IP4_HTTP:
 		r = rump_http_poll();
+		if (r != 0) {
+			/* M11 R7: with a NIC the DNS/ping/wget self-test runs
+			 * after the R6 HTTP check (the tools sequence prints
+			 * its own markers); without one there is no path. */
+			if (rump_e1000_ready()) {
+				rump_tools_begin();
+				ip4_state = IP4_TOOLS;
+			} else {
+				ip4_state = IP4_DONE;
+			}
+		}
+		break;
+	case IP4_TOOLS:
+		r = rump_tools_poll();
 		if (r != 0)
 			ip4_state = IP4_DONE;
 		break;

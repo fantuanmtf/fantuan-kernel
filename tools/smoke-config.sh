@@ -56,6 +56,9 @@ else
 fi
 NET_LOG="build/smoke-config-net.log"
 boot "$NET_LOG" "${SMOKE_CONFIG_TIMEOUT:-90}"
+if ! grep -aq "nslookup" target/x86_64-unknown-none/release/fantuan-kernel; then
+  fail "net profile: R7 tools not linked (no nslookup string)"
+fi
 if grep -q "shell: ready" "$NET_LOG" \
    && grep -q "net: lo0 up 127.0.0.1/8" "$NET_LOG" \
    && grep -q "rump: mbuf self-test ok" "$NET_LOG" \
@@ -81,6 +84,9 @@ grep -q "^# profile: minimal" .config || fail "build.sh did not materialize the 
 if cargo tree -p fantuan-kernel --target x86_64-unknown-none -e normal --offline 2>/dev/null \
      | grep -q "kernel-net"; then
   fail "minimal profile: cargo tree still has a kernel-net edge"
+fi
+if grep -aq "nslookup" target/x86_64-unknown-none/release/fantuan-kernel; then
+  fail "minimal profile: R7 tools leaked into the kernel"
 fi
 if grep -q "shell: ready" "$MIN_LOG" \
    && grep -q "root@Fantuan-MTF" "$MIN_LOG" \

@@ -14,6 +14,7 @@
 
     .global switch_context
 switch_context:
+    pushfq
     push    rbx
     push    rbp
     push    r12
@@ -31,6 +32,7 @@ switch_context:
     pop     r12
     pop     rbp
     pop     rbx
+    popfq
     ret
 
 /* user_entry — first entry into a user task. switch_context returns here with

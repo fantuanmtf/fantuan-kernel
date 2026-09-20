@@ -26,14 +26,15 @@ fn arch_set_kernel_stack(top: u64, _is_user: bool) {
     gdt::set_rsp0(top);
 }
 
-/// Initial kernel frame: [r15..rbx zeros][task_entry] <- rsp.
+/// Initial kernel frame: [r15..rbx zeros][rflags][task_entry] <- rsp.
 fn arch_init_kernel_stack(stack_top: u64, _body: fn() -> !) -> u64 {
-    let sp = (stack_top - 7 * 8) as *mut u64;
+    let sp = (stack_top - 8 * 8) as *mut u64;
     unsafe {
         for i in 0..6 {
             *sp.add(i) = 0;
         }
-        *sp.add(6) = task_entry as *const () as u64;
+        *sp.add(6) = 0x202; // IF set: kernel tasks run with interrupts on
+        *sp.add(7) = task_entry as *const () as u64;
     }
     sp as u64
 }
@@ -140,17 +141,18 @@ pub fn spawn_user(elf_image: &[u8]) -> Option<u64> {
         crate::cpu::irq_restore(flags);
         return None;
     };
-    let sp = (stack_top - 12 * 8) as *mut u64;
+    let sp = (stack_top - 13 * 8) as *mut u64;
     unsafe {
         for i in 0..6 {
             *sp.add(i) = 0;
         }
-        *sp.add(6) = user_entry as *const () as u64;
-        *sp.add(7) = entry;
-        *sp.add(8) = USER_CS_SEL as u64;
-        *sp.add(9) = 0x202; // IF set: user code runs with interrupts on
-        *sp.add(10) = USER_STACK_TOP;
-        *sp.add(11) = USER_DS_SEL as u64;
+        *sp.add(6) = 0x202; // switch frame RFLAGS: IF set
+        *sp.add(7) = user_entry as *const () as u64;
+        *sp.add(8) = entry;
+        *sp.add(9) = USER_CS_SEL as u64;
+        *sp.add(10) = 0x202; // user RFLAGS: IF set
+        *sp.add(11) = USER_STACK_TOP;
+        *sp.add(12) = USER_DS_SEL as u64;
     }
     let id = register(Task {
         state: State::Ready,

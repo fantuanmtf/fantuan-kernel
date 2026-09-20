@@ -41,7 +41,8 @@ enum tcp_state {
 static struct socket *tcp_cl, *tcp_c, *tcp_s;
 static struct lwp *tcp_lwp;
 static size_t tcp_rx_len;
-static int tcp_state, tcp_wait, tcp_shut_client, tcp_shut_server;
+static int tcp_state, tcp_shut_client, tcp_shut_server;
+static uint64_t tcp_deadline;
 static uint64_t tcp_t0, tcp_ticks;
 
 static int
@@ -67,7 +68,7 @@ rump_tcp_begin(void)
 	tcp_lwp = curlwp;
 	rump_tcp_io_init();
 	tcp_state = TCP_SETUP_CLEAN;
-	tcp_wait = 0;
+	tcp_deadline = fantuan_rump_ticks() + TCP_TIMEOUT;
 }
 
 int
@@ -76,16 +77,15 @@ rump_tcp_poll(void)
 	int r;
 
 	rump_pktq_drain();
-	tcp_wait++;
-	if (tcp_wait > TCP_TIMEOUT &&
-	    tcp_state != TCP_DONE && tcp_state != TCP_FAILED)
+	if (tcp_state != TCP_DONE && tcp_state != TCP_FAILED &&
+	    fantuan_rump_ticks() > tcp_deadline)
 		return tcp_fail("timeout");
 
 	switch (tcp_state) {
 	case TCP_SETUP_CLEAN:
 		if (tcp_setup(TCP_PORT_CA, TCP_PORT_SA) != 0)
 			return tcp_fail("setup");
-		tcp_wait = 0;
+		tcp_deadline = fantuan_rump_ticks() + TCP_TIMEOUT;
 		tcp_state = TCP_CONNECT_CLEAN;
 		break;
 	case TCP_CONNECT_CLEAN:
@@ -135,7 +135,7 @@ rump_tcp_poll(void)
 		    (tcp_s->so_state & SS_ISDISCONNECTED) != 0) {
 			printf("net: tcp close ok (state=CLOSED)\n");
 			rump_tcp_close(&tcp_cl, &tcp_c, &tcp_s);
-			tcp_wait = 0;
+			tcp_deadline = fantuan_rump_ticks() + TCP_TIMEOUT;
 			tcp_state = TCP_SETUP_LOSS;
 		}
 		break;
@@ -144,7 +144,7 @@ rump_tcp_poll(void)
 			return tcp_fail("loss-setup");
 		rump_tcp_io_reset();
 		tcp_rx_len = 0;
-		tcp_wait = 0;
+		tcp_deadline = fantuan_rump_ticks() + TCP_TIMEOUT;
 		tcp_state = TCP_CONNECT_LOSS;
 		break;
 	case TCP_CONNECT_LOSS:
@@ -165,7 +165,7 @@ rump_tcp_poll(void)
 		if (r < 0)
 			return tcp_fail("loss-send");
 		if (r > 0) {
-			tcp_wait = 0;
+			tcp_deadline = fantuan_rump_ticks() + TCP_TIMEOUT;
 			tcp_state = TCP_RECV_LOSS;
 		}
 		break;

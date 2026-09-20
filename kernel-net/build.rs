@@ -95,6 +95,11 @@ const SHIM_CSRCS: &[&str] = &[
     "rump_dhcp_pkt.c",
     "rump_dhcp_if.c",
     "rump_http.c",
+    "rump_http_pkt.c",
+    "rump_dns.c",
+    "rump_dns_pkt.c",
+    "rump_tools.c",
+    "rump_toolreq.c",
     "rump_selftest.c",
     "rump_md5.c",
 ];
@@ -113,6 +118,9 @@ fn main() {
         println!("cargo:rerun-if-changed={dir}/src/c/{f}");
     }
     println!("cargo:rerun-if-changed={dir}/src/c/rump_shim.h");
+    println!("cargo:rerun-if-changed={dir}/src/c/rump_dhcp.h");
+    println!("cargo:rerun-if-changed={dir}/src/c/rump_dns.h");
+    println!("cargo:rerun-if-changed={dir}/src/c/rump_http.h");
     println!("cargo:rerun-if-changed={shim}/machine/mutex.h");
     println!("cargo:rerun-if-changed={shim}/machine/cpu.h");
     println!("cargo:rerun-if-changed={shim}/ether.h");

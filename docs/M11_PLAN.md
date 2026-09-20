@@ -171,6 +171,26 @@ Scope: resolver, `ping`/`nslookup`/`wget` as shared shell commands.
 - Verify: offline DNS server (host-side) + fetch from the local HTTP
   server; external phase is optional per the Tor policy.
 
+### R7 outcome - the offline DNS fixture and the tools
+
+The resolver (`rump_dns.c` + `rump_dns_pkt.c`) is a bounded UDP client on
+the real socket layer: query id, question echo and RCODE are verified,
+three sends 1 s apart, and the DHCP option-6 address is the default server
+with an explicit override for the boot self-test and `nslookup`.  The
+tools are x86_64 shell commands (`kernel/src/shell/cmds_net.rs`) behind
+`CONFIG_TOOLS`; when `CONFIG_NET=n` they are one-line stubs, so minimal
+builds contain no client code.  A shell command does not call into the
+stack itself: `rump_toolreq.c` is a request slot the net task steps.  Two
+latent bugs surfaced while adding the second (shell) task: the x86_64
+context switch now saves/restores RFLAGS (a task could resume from a
+timer-interrupt switch with IF=0 and freeze the PIT), and the R5 TCP test
+timeout is tick-based instead of net-task iterations.  The R7 boot
+sequence (`rump_tools.c`) resolves `test.fantuan` against the smoke's
+authoritative UDP DNS fixture (10.0.2.2:5353), ICMP-echoes the resolved
+address and wgets the R6 HTTP fixture by name.  `tools/smoke-net.sh`
+gained `phase_dns_tools` with both host fixtures and a paced serial feeder
+that exercises `nslookup`/`ping`/`wget`/`help` in the shell after the boot
+self-test; the phase asserts the exact markers plus the shell transcripts.
 ### R8 - mbedTLS port + HTTPS + KAT
 
 Scope: vendored mbedTLS config for the kernel, TLS client in `wget`, TLS

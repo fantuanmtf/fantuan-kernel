@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
-"""mkdisk_fat.py — FAT32 ESP fixture writer for tools/mkdisk.py.
-
-Builds the BPB, both FAT copies, the HELLO/INFO demo files and the
-boot-repair ESP fixture (EFI tree, fstab/grub.cfg, Secure Boot certs, shell
-autorun, and the M7.9 systemd-boot/UKI stubs). Split out of mkdisk.py to keep
-every file inside the size rule; not a standalone tool.
-"""
+"""mkdisk_fat.py — FAT32 ESP fixture writer for tools/mkdisk.py: BPB, FATs,
+HELLO/INFO, the boot-repair ESP tree (fstab/grub.cfg, Secure Boot certs,
+shell autorun) and the M7.9 systemd-boot/UKI stubs; not standalone."""
 
 import base64
 import struct
@@ -13,9 +9,8 @@ import struct
 SECTOR = 512
 
 # EFI authenticated-variable bundle for EFI/fantuan/PK.AUTH (M8.1b): 16-byte
-# EFI_TIME + WIN_CERTIFICATE_UEFI_GUID (PKCS#7 SignedData) + the new value.
-# Generated once with OpenSSL and re-checked with Python;
-# tools/gen_auth_fixture.sh records the exact commands.
+# EFI_TIME + WIN_CERTIFICATE_UEFI_GUID (PKCS#7 SignedData) + the new value,
+# generated once with OpenSSL and re-checked in tools/gen_auth_fixture.sh.
 AUTH_BLOB = base64.b64decode(
     b"AAAAAAAAAAAAAAAAAAAAAPkEAAAAAvEOndKvSt9o7kmKqTR9N1ZlpzCCBN0GCSqGSIb3DQEHAqCCBM4wggTKAgEBMQ8wDQYJ"
     b"YIZIAWUDBAIBBQAwMwYJKoZIhvcNAQcBoCYEJGZhbnR1YW4gYXV0aCBwYXlsb2FkICh2YXJpYWJsZSBkYXRhKaCCAxswggMX"
@@ -180,9 +175,8 @@ def build(out, part_lba, part_sectors, flags, fstab):
 
     # --- ESP structure (M7 boot-repair fixture) ---------------------------
     # Cluster map: 7=EFI/ 8=EFI/BOOT/ 9=EFI/ubuntu/ 10=BOOTX64.EFI 11=grub.cfg
-    # 12=shimx64.efi 13=grubx64.efi 14=fstab
-    # --keys adds 15=EFI/fantuan/ 16=PK.cer 17=KEK.cer 18=db.cer 19=SHELL.CMD
-    # (M7.7 keys + §10 shell autorun script)
+    # 12=shimx64.efi 13=grubx64.efi 14=fstab; --keys adds 15=EFI/fantuan/,
+    # 16=PK.cer 17=KEK.cer 18=db.cer 19=SHELL.CMD (M7.7 + §10 autorun).
 
     EFI_DIR = bytearray(SECTOR)
     EFI_DIR[0:32] = self_entry(7)
@@ -217,12 +211,11 @@ def build(out, part_lba, part_sectors, flags, fstab):
     UBUNTU_DIR[128:160] = dent("GRUBX64", "EFI", 13, len(GRUBX64))
     wsect(cluster_sector(9), UBUNTU_DIR)
 
-    # M7.7: platform-key fixtures for the Setup-Mode enrollment path. The blob
-    # is a dummy DER-ish certificate — Setup Mode accepts it unauthenticated.
+    # M7.7: platform-key fixtures; Setup Mode accepts the DER-ish blob.
     CERT = b"\x30\x82\x00\x40" + (b"FANTUAN TEST CERTIFICATE " * 4)
-    # §10 shell autorun script. --shell-repair swaps in the confirmation-gated
-    # repair sequence (the shell feeds the next script line as the YES answer);
-    # --grub-regen runs the M7.9 install path instead.
+    # §10 shell autorun script. --shell-repair swaps in the confirmation-
+    # gated repair sequence (the shell feeds the next script line as the YES
+    # answer); --grub-regen runs the M7.9 install path instead.
     if flags.get("kbd_test"):
         SHELL_CMD = b"help\nlsmnt\n"
     elif grub_regen:

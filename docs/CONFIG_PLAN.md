@@ -117,8 +117,14 @@ Still ungated and why: `vfs`/`cat`/`lsos`/`mount`/`bootinfo`/`diskhealth`
 (the rescue shell is built on them), the storage/driver layer (`drivers`,
 AHCI/NVMe/ATA), `mm`/`paging`/`task` (the kernel cannot boot without them),
 the shared shell itself (`SHELL`, enabled in every profile; gating it would
-compile a console-less kernel) and `TOOLS`/`BASH`/`TLS`/`DESKTOP`/
-`SECURE_WIPE`, which still have no code to gate.
+compile a console-less kernel) and `BASH`/`TLS`/`DESKTOP`/`SECURE_WIPE`,
+which still have no code to gate.
+
+Gated in R7: `CONFIG_TOOLS` selects the x86_64 `ping`/`nslookup`/`wget`
+shell commands (`kernel/src/shell/cmds_net.rs`); the clients themselves
+live in `kernel-net` behind `CONFIG_NET`, and a TOOLS-without-NET build
+gets one-line `not built (CONFIG_NET=n)` stubs in the `help` table.  The
+minimal profile (`TOOLS=n`) links neither the commands nor the clients.
 
 Heartbeat: the timers stop the 10 s `tick:` line as soon as the shell is
 ready (`kernel-core::heartbeat`, raised before the `shell: ready` line);

@@ -1,15 +1,10 @@
-//! kernel-net - the fantuan adaptation layer for the NetBSD rump slice
-//! (M11 R2-R4). The imported NetBSD sources plus the C shim live in this
-//! crate's build archive; this module owns the Rust<->C hook surface and
-//! the kernel tasks that drive softints, the IPv4 boot tests and the
-//! self-test.
-//!
-//! No kernel-core dependency: the kernel installs an `Env` of callbacks
-//! (log, frame pages, PIT ticks, cooperative sleep) before `init()`.
-
+//! kernel-net - fantuan's NetBSD rump adaptation layer (M11 R2-R7).  The
+//! imported sources plus the C shim live in this crate's build archive; this
+//! module owns the Rust<->C surface and the kernel tasks.  No kernel-core
+//! dependency: the kernel installs an `Env` of callbacks before `init()`.
 #![no_std]
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -96,6 +91,18 @@ extern "C" {
     fn rump_softint_dispatch();
     fn rump_net_poll() -> i32;
     fn rump_selftest_poll() -> i32;
+    fn rump_dns_default_server() -> u32;
+    fn rump_tool_begin_dns(name: *const u8, len: usize, server: u32, port: u16);
+    fn rump_tool_begin_ping(addr: u32);
+    fn rump_tool_begin_wget(host: *const u8, hostlen: usize, addr: u32, port: u16, lport: u16);
+    fn rump_tool_status() -> i32;
+    fn rump_tool_error() -> *const u8;
+    fn rump_tool_result_addr() -> u32;
+    fn rump_tool_result_rtt() -> i32;
+    fn rump_tool_result_http() -> i32;
+    fn rump_tool_result_bytes() -> usize;
+    fn rump_tool_result_hash() -> u32;
+    fn rump_net_selftest_busy() -> i32;
 }
 
 /// Bring up the imported slice; call once, after the frame allocator and
@@ -122,13 +129,13 @@ pub fn softintd() -> ! {
     }
 }
 
-/// Loopback ping task: drains the packet queue and runs the ping state
-/// machine until it reports completion.
+/// Network poll task: drains the driver RX ring and every packet queue and
+/// runs the boot test state machine.  Stays alive after the boot sequence
+/// (returning 1) because the R7 shell tools share the same stack: they need
+/// the queues drained while they poll their own clients.
 pub fn loopback_task() -> ! {
     loop {
-        if unsafe { rump_net_poll() } != 0 {
-            (env().exit)();
-        }
+        let _ = unsafe { rump_net_poll() };
         (env().sleep_ms)(10);
     }
 }
@@ -143,6 +150,91 @@ pub fn selftest_task() -> ! {
     }
 }
 
+// --- M11 R7: shell tool clients: the request slot (rump_toolreq.c) ------
+// is stepped by the net task; the shell only waits (cooperative sleeps).
+fn wait_selftest() {
+    let start = (env().ticks)();
+    while unsafe { rump_net_selftest_busy() } != 0 {
+        if (env().ticks)().wrapping_sub(start) > 6000 {
+            break;
+        }
+        (env().sleep_ms)(100);
+    }
+}
+fn cstr(ptr: *const u8) -> &'static str {
+    if ptr.is_null() {
+        return "unknown";
+    }
+    let mut n = 0usize;
+    while unsafe { *ptr.add(n) } != 0 {
+        n += 1;
+    }
+    let bytes: &'static [u8] = unsafe { core::slice::from_raw_parts(ptr, n) };
+    core::str::from_utf8(bytes).unwrap_or("unknown")
+}
+
+/// Wait for the net task to finish the request (safety net only).
+fn run_request(timeout_ticks: u64) -> Result<(), &'static str> {
+    let start = (env().ticks)();
+    loop {
+        match unsafe { rump_tool_status() } {
+            0 => {
+                if (env().ticks)().wrapping_sub(start) > timeout_ticks {
+                    return Err("timeout");
+                }
+                (env().sleep_ms)(100);
+            }
+            1 => return Ok(()),
+            _ => return Err(cstr(unsafe { rump_tool_error() })),
+        }
+    }
+}
+
+/// DHCP-provided resolver address (host byte order); 0 without a lease.
+pub fn dns_default_server() -> u32 {
+    unsafe { rump_dns_default_server() }
+}
+
+/// Resolve NAME (A record) against SERVER:PORT (host byte order address).
+pub fn dns_lookup(name: &[u8], server: u32, port: u16) -> Result<u32, &'static str> {
+    if name.is_empty() || name.len() > 63 {
+        return Err("name");
+    }
+    if server == 0 {
+        return Err("no server");
+    }
+    wait_selftest();
+    unsafe { rump_tool_begin_dns(name.as_ptr(), name.len(), server, port) };
+    run_request(3000)?;
+    Ok(unsafe { rump_tool_result_addr() })
+}
+
+/// One ICMP echo to ADDR (host byte order); returns the RTT in PIT ticks.
+pub fn ping_once(addr: u32) -> Result<u32, &'static str> {
+    wait_selftest();
+    unsafe { rump_tool_begin_ping(addr) };
+    run_request(3000)?;
+    Ok(unsafe { rump_tool_result_rtt() } as u32)
+}
+
+/// HTTP GET `http://HOST:PORT/` at the already-resolved ADDR; returns
+/// (status, body bytes, FNV-1a hash).  The local port walks a small range
+/// so back-to-back shell invocations do not collide in TIME_WAIT.
+pub fn wget(host: &[u8], addr: u32, port: u16) -> Result<(i32, usize, u32), &'static str> {
+    if host.is_empty() || host.len() > 63 {
+        return Err("host");
+    }
+    static NEXT_LPORT: AtomicU16 = AtomicU16::new(0);
+    wait_selftest();
+    let lport = 40002 + NEXT_LPORT.fetch_add(1, Ordering::Relaxed) % 80;
+    unsafe { rump_tool_begin_wget(host.as_ptr(), host.len(), addr, port, lport) };
+    run_request(3000)?;
+    Ok((
+        unsafe { rump_tool_result_http() },
+        unsafe { rump_tool_result_bytes() },
+        unsafe { rump_tool_result_hash() },
+    ))
+}
 #[no_mangle]
 pub extern "C" fn fantuan_rump_log(buf: *const u8, len: usize) {
     (env().log)(buf, len);

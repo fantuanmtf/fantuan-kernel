@@ -8,10 +8,19 @@ use kernel_core::vfs::Vfs;
 
 pub use kernel_core::shell::{cat, cmds as shared_cmds};
 
+#[cfg(kconfig_tools)]
+pub mod cmds_net;
 pub mod cmds;
 
+/// Command slots: the shared x86 set plus the CONFIG_TOOLS network tools.
+const BASE_COMMANDS: usize = 12;
+#[cfg(kconfig_tools)]
+pub const N_COMMANDS: usize = BASE_COMMANDS + 3;
+#[cfg(not(kconfig_tools))]
+pub const N_COMMANDS: usize = BASE_COMMANDS;
+
 /// The x86 command table: shared commands plus the hardware-specific ones.
-pub static COMMANDS: [Command; 12] = [
+pub static COMMANDS: [Command; N_COMMANDS] = [
     Command { name: "help", help: "this table", run: shared_cmds::cmd_help },
     Command { name: "hwdiag", help: "re-run hardware + storage diagnostics", run: cmds::cmd_hwdiag },
     Command { name: "lsdev", help: "list PCI storage/display devices + drive ID", run: cmds::cmd_lsdev },
@@ -24,6 +33,12 @@ pub static COMMANDS: [Command; 12] = [
     Command { name: "diskhealth", help: "disk health [--scan]", run: shared_cmds::cmd_diskhealth },
     Command { name: "grub-fix", help: "boot repair [diagnose|repair|install]", run: shared_cmds::cmd_grubfix },
     Command { name: "crypto-selftest", help: "run the SHA-256/RSA known-answer tests", run: cmds::cmd_crypto },
+    #[cfg(kconfig_tools)]
+    Command { name: "ping", help: "ping <host> [count] — ICMP echo (count 1-5)", run: cmds_net::cmd_ping },
+    #[cfg(kconfig_tools)]
+    Command { name: "nslookup", help: "nslookup <name> [server[:port]] — resolve A record", run: cmds_net::cmd_nslookup },
+    #[cfg(kconfig_tools)]
+    Command { name: "wget", help: "wget http://host[:port]/ — HTTP GET status/bytes", run: cmds_net::cmd_wget },
 ];
 
 /// Enter the interactive shell with the x86 table.

@@ -155,7 +155,20 @@ external phase; **owner pushes between R batches**).
       `10.0.2.2:18080`, exact byte/hash assertion); the `workqueue(9)` shim
       became genuinely deferred. virtio-net is deferred to R9 with the MMIO
       transport (documented) - R7 adds the DNS resolver + tools
-- [ ] M11-6 DNS resolver + `ping`/`nslookup`/`wget`
+- [x] M11-6 DNS resolver + `ping`/`nslookup`/`wget`: R7 added a bounded
+      DNS A-query client over the real UDP socket layer (id + question-echo
+      verification, three 1 s retries, DHCP resolver or explicit override;
+      `rump_dns.c`/`rump_dns_pkt.c`), the x86_64 shell commands
+      `ping`/`nslookup`/`wget` behind `CONFIG_TOOLS` (one-line stubs when
+      `CONFIG_NET=n`, minimal links neither) whose requests the net task
+      runs through `rump_toolreq.c`, the boot `dns -> ping -> wget`
+      self-test (`rump_tools.c`) and the `phase_dns_tools` offline gate:
+      python-stdlib UDP DNS on 127.0.0.1:5353 reachable as 10.0.2.2 plus
+      the R6 HTTP fixture, with the shell commands fed over the serial
+      console after the boot self-test.  It also fixed two latent bugs the
+      second task exposed: the x86_64 context switch now saves/restores
+      RFLAGS (IF=0 resume froze the PIT) and the R5 TCP test timeout is
+      wall-clock based - R8 adds mbedTLS + HTTPS
 - [ ] M11-7 mbedTLS port + HTTPS + TLS KATs
 - [ ] M11-8 aarch64 port bring-up; smoke phases; THIRD_PARTY entry
 
@@ -250,6 +263,7 @@ Design: `M14_LINUXUSERS.md`.
 | 2026-09 | M11 R4 real ip_input/ip_output ping, UDP PCB exchange, ARP self-test (`smoke-net.sh`, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3) | PASS |
 | 2026-09 | M11 R5 real socket/TCP on loopback: handshake, 64 KiB hash-checked transfer, close, drop/retransmit (`smoke-net.sh`; 3-target builds zero warnings) | PASS |
 | 2026-09 | M11 R6 e1000 + DHCP lease + SLIRP HTTP fetch (`smoke-net.sh` LOOPBACK+SLIRP; `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3; 3-target builds zero warnings) | PASS |
+| 2026-09 | M11 R7 DNS resolver + `ping`/`nslookup`/`wget` + offline DNS gate (`smoke-net.sh` LOOPBACK+SLIRP+DNS/TOOLS, shell commands over serial; `smoke-config.sh`; `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3; 3-target builds zero warnings) | PASS |
 | 2026-09 | x86 full suite `tools/smoke.sh` 13/13 | PASS (at v0.0.1) |
 
 ## Known issues

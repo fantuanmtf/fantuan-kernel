@@ -35,6 +35,31 @@ static int ping_sent_ticks;
 static int ping_rtt;
 static int ping_reply_ok;
 static uint8_t ping_payload[PING_PAYLOAD];
+static uint32_t ping_target = 0;	/* network byte order, set on begin */
+static const char *ping_label = "127.0.0.1";
+static int ping_verbose;		/* print the R4 boot markers */
+static const char *ping_step;
+
+const char *
+rump_ping_error(void)
+{
+
+	return ping_step != NULL ? ping_step : "unknown";
+}
+
+int
+rump_ping_rtt(void)
+{
+
+	return ping_rtt;
+}
+
+int
+rump_ping_seq(void)
+{
+
+	return ping_last_seq;
+}
 
 static int
 ping_fill(int seq)
@@ -59,7 +84,7 @@ ping_fill(int seq)
 	ip->ip_ttl = IPDEFTTL;
 	ip->ip_p = IPPROTO_ICMP;
 	ip->ip_src.s_addr = 0;
-	ip->ip_dst.s_addr = htonl(INADDR_LOOPBACK);
+	ip->ip_dst.s_addr = ping_target;
 	ic = (struct icmp *)((uint8_t *)ip + iplen);
 	ic->icmp_type = ICMP_ECHO;
 	ic->icmp_code = 0;
@@ -82,8 +107,10 @@ ping_send(void)
 
 	ping_seq++;
 	ping_tries++;
-	if (ping_fill(ping_seq) != 0)
+	if (ping_fill(ping_seq) != 0) {
+		ping_step = "send";
 		return -1;
+	}
 	return 0;
 }
 
@@ -92,11 +119,13 @@ ping_report(void)
 {
 	struct if_data ifd;
 
+	if (!ping_verbose)
+		return;
 	if_stats_to_if_data(rump_loopback_ifp(), &ifd, false);
 	printf("net: ip4 input ok (pkts_in=%llu)\n",
 	    (unsigned long long)ifd.ifi_ipackets);
-	printf("net: ping 127.0.0.1 ok (seq=%d rtt=%d ticks)\n", ping_last_seq,
-	    ping_rtt);
+	printf("net: ping %s ok (seq=%d rtt=%d ticks)\n", ping_label,
+	    ping_last_seq, ping_rtt);
 	printf("net: icmp echo reply ok\n");
 }
 
@@ -104,11 +133,32 @@ void
 rump_ping_begin(void)
 {
 
+	ping_target = htonl(INADDR_LOOPBACK);
+	ping_label = "127.0.0.1";
+	ping_verbose = 1;
 	ping_phase = 1;
 	ping_tries = 0;
 	ping_seq = 0;
 	ping_rtt = 0;
 	ping_reply_ok = 0;
+	ping_step = NULL;
+}
+
+/* M11 R7 tools: echo ADDR (host byte order) without the R4 boot markers;
+ * the caller reads rump_ping_seq()/rump_ping_rtt() and prints its line. */
+void
+rump_ping_begin_addr(uint32_t addr)
+{
+
+	ping_target = htonl(addr);
+	ping_label = "";
+	ping_verbose = 0;
+	ping_phase = 1;
+	ping_tries = 0;
+	ping_seq = 0;
+	ping_rtt = 0;
+	ping_reply_ok = 0;
+	ping_step = NULL;
 }
 
 int
@@ -132,8 +182,10 @@ rump_ping_poll(void)
 			return 1;
 		}
 		if (getticks() - ping_sent_ticks > PING_TIMEOUT) {
-			if (ping_tries >= PING_TRIES)
+			if (ping_tries >= PING_TRIES) {
+				ping_step = "timeout";
 				return -1;
+			}
 			if (ping_send() != 0)
 				return -1;
 		}
