@@ -17,6 +17,9 @@ one starts (small, archived deltas instead of one big drop).
 - ARM64: **both boot paths** - direct FDT boot on QEMU `virt` first
   (riscv-like, no firmware), then the UEFI loader path under AAVMF
   (verify `aarch64-unknown-uefi` availability during the R8 spike).
+  R9b outcome: the direct-FDT path shipped in 0.0.3; the UEFI loader was
+  deferred to M14 (the target is available on stable, the loader port is
+  the work - see the R9b outcome below).
 - Network verification: **offline gate always**, plus **optional external
   checks via the host's Tor SOCKS proxy** at `127.0.0.1:9050`. A host-side
   TCP->SOCKS5 relay (`tools/tor_relay.py`, stdlib only) lets the guest
@@ -33,7 +36,9 @@ one starts (small, archived deltas instead of one big drop).
 - `tools/smoke-net.sh` offline gate PASS on x86_64 and aarch64; existing
   smokes (`smoke.sh`, `smoke-bios.sh`, `smoke-riscv.sh`, `smoke-iso.sh`)
   stay green.
-- aarch64 smoke phases for both boot paths (direct FDT + UEFI).
+- aarch64 smoke phases for both boot paths (direct FDT + UEFI); 0.0.3
+  ships the direct-FDT phase only, UEFI moved to M14 with the loader-port
+  reason recorded in the R9b outcome.
 - `THIRD_PARTY.md` register complete for the rump import and mbedTLS;
   docs/version strings at 0.0.3; owner pushes and tags v0.0.3 locally.
 
@@ -277,13 +282,68 @@ transcripts (`help`, `bootinfo`) and the no-unexpected-trap negative check.
 Network/TLS on aarch64, virtio-net MMIO, the UEFI/AAVMF path and the 0.0.3
 release stay in R9b.
 
-### R9 - aarch64 bring-up + final docs (R9b = the remainder)
+### R9b outcome - aarch64 network/TLS, the smoke matrix and 0.0.3
 
-Scope: direct FDT boot on QEMU `virt` (done in R9a); UEFI loader path under
-AAVMF; the full stack on aarch64; smoke phases; docs/matrices/THIRD_PARTY;
-0.0.3.
-- Verify: aarch64 direct (R9a: `smoke-aarch64.sh` PASS) + UEFI smokes;
-  smoke-net offline gate; all other smokes green; version strings at 0.0.3.
+R9b (2026-09) completed the batch. `kernel-net` now compiles and links for
+`aarch64-unknown-none`: `build.rs` picks the clang flags per target (x86_64
+keeps the soft-float/large-model set; aarch64 gets `-mno-outline-atomics`
+and no unwind tables), the adapter C is shared, and `kernel-aarch64/src/net.rs`
+supplies the `Env` hooks - log/panic, contiguous frame pages through the
+TTBR1 direct map, generic-timer ticks, cooperative sleep and a yield hook,
+identity `mmio_map` with a TLB flush, PCI stubs. The **virtio-net MMIO
+driver** (`rump_virtio_net*.c`, ours, arch-neutral C) scans the QEMU `virt`
+slots at 0x0a000000+0x200*n for a modern (version 2) net device, negotiates
+`VIRTIO_F_VERSION_1` + MAC/STATUS, uses the 12-byte modern virtio-net header
+(QEMU uses it for version-1 devices even without MRG_RXBUF), one 16-entry RX
+and TX split virtqueue, RX recycling and TX reclaim, all polled from the net
+task. The shared `rump_ether_if` core now owns the ifnet/ether_output/demux
+logic for both the e1000 and virtio-net; `rump_nic.*` keeps the DHCP, HTTP
+and tool code arch-neutral, so the x86_64 marker set is unchanged. The
+aarch64 command table gained the `CONFIG_TOOLS` ping/nslookup/wget commands
+(shared source with x86 via `#[path]`), `CONFIG_TLS` builds the same mbedTLS
+subset, and `tools/run.sh --arch aarch64 --net` attaches
+`virtio-net-device` with `-global virtio-mmio.force-legacy=false`.
+
+Three latent bugs that x86 had masked (address 0 is mapped there) were fixed
+on the way: the aarch64 `splraise` cookie tested the wrong DAIF.I polarity,
+`sockaddr_dup(NULL)` faulted for routes without keys/gateways, and the DHCP
+UDP pseudo-header used 0.0.0.0 (so the on-wire checksum did not match the
+filled-in `ip_src`; the socket now carries a prefsrcip). The pre-SMP lock
+shim also yields in `turnstile_block` instead of aborting when the shared
+`lwp0` makes cross-task contention look recursive.
+
+`tools/smoke-aarch64.sh` now runs two phases: R9a (direct FDT boot, the
+previous assertions) and R9b on SLIRP + the offline fixtures, asserting
+`net: virtio-net up mac=...`, the DHCP lease, the IPv4/TCP suite (including
+the rump self-tests), HTTP/DNS/ping/wget, `tls: KATs ok`, pinned-CA
+`net: https get ok`, `net: udp host ok`, `net: ext skip` and the shell tool
+transcripts. `tools/smoke-config.sh` covers the aarch64 profile/dependency
+invariants; docs (`OPERATIONS.md`, `USAGE.md`, `HANDOVER.md`, `README.md`,
+`PROGRESS.md`) carry the aarch64 rows and the 0.0.3 version. riscv64 and
+i686 stay without `kernel-net` (documented; no NIC adapter there yet).
+
+**UEFI/AAVMF verdict**: deferred to M14. The toolchain is not the blocker -
+`aarch64-unknown-uefi` is available precompiled on the installed stable
+toolchain (`rustup target add aarch64-unknown-uefi` works, so no
+nightly/build-std conflict) and AAVMF/edk2-aarch64 is present. The blocker
+is the loader port itself: the direct-FDT `_start` assumes MMU-off entry at
+0x40080000 with the DTB in x0, while a UEFI application must allocate its
+image at the exact load address, read the DTB from the EFI FDT configuration
+table, exit boot services with the final memory map and drop the MMU/caches
+in an aarch64 trampoline. That is a batch on its own (with the x86 `boot/`
+crate as the reference); v0.0.3 keeps the direct-FDT path as the supported
+aarch64 boot and records this in `OPERATIONS.md`/`HANDOVER.md`.
+
+- Verify: `smoke-aarch64.sh` 2/2; `smoke-net.sh` PASS; `smoke-config.sh`
+  PASS; `smoke-bios.sh` 2/2; `smoke-riscv.sh` 3/3; x86_64
+  minimal/net/tls, riscv64, i686 and aarch64 minimal/net/tls zero-warning
+  builds; all version strings at 0.0.3.
+
+### R9 - aarch64 bring-up + final docs (closed by R9a + R9b)
+
+Scope: direct FDT boot on QEMU `virt` (R9a); the full stack on aarch64
+(R9b); smoke phases; docs/matrices/THIRD_PARTY; 0.0.3. The UEFI loader path
+under AAVMF was deferred to M14 with the loader-port reason above.
 
 ## Checkpoint protocol
 

@@ -106,12 +106,25 @@ turnstile_exit(wchan_t chan)
 void
 turnstile_block(turnstile_t *ts, int q, wchan_t chan, syncobj_t *sobj)
 {
+	kmutex_t *mtx = (kmutex_t *)(uintptr_t)chan;
+	int i;
 
 	(void)ts;
 	(void)q;
-	(void)chan;
 	(void)sobj;
-	panic("turnstile_block: contended lock would block (R2 stub)");
+	/*
+	 * Cooperative single-lwp model: the "contended" lock is owned by
+	 * another kernel task (which the scheduler may have switched out).
+	 * Yield until it is released; the mutex_enter loop re-checks the
+	 * owner after every return.  A genuinely recursive acquisition
+	 * never releases, so the bound turns that deadlock into a panic.
+	 */
+	for (i = 0; i < 1000; i++) {
+		if (mtx == NULL || mtx->u.mtxa_owner == 0)
+			return;
+		fantuan_rump_yield();
+	}
+	panic("turnstile_block: lock %p still held after 1000 yields", chan);
 }
 
 void

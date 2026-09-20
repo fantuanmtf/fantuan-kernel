@@ -48,7 +48,9 @@ const NETBSD_CSRCS: &[&str] = &[
     "sys/netinet/udp_usrreq.c",
 ];
 
-const SHIM_CSRCS: &[&str] = &[
+/// Adapter files compiled for every arch (the shared ethernet ifnet core,
+/// the stack glue and the boot tests).
+const SHIM_CSRCS_COMMON: &[&str] = &[
     "rump_shim_lib.c",
     "rump_shim_mem.c",
     "rump_shim_time.c",
@@ -69,6 +71,8 @@ const SHIM_CSRCS: &[&str] = &[
     "rump_domain.c",
     "rump_loss.c",
     "rump_loopback.c",
+    "rump_ether_if.c",
+    "rump_ether_ops.c",
     "rump_ip4.c",
     "rump_ping.c",
     "rump_udp.c",
@@ -77,10 +81,6 @@ const SHIM_CSRCS: &[&str] = &[
     "rump_tcp_io.c",
     "rump_tcp_conn.c",
     "rump_arp.c",
-    "rump_e1000.c",
-    "rump_e1000_dma.c",
-    "rump_e1000_if.c",
-    "rump_e1000_ops.c",
     "rump_dhcp.c",
     "rump_dhcp_pkt.c",
     "rump_dhcp_if.c",
@@ -93,6 +93,20 @@ const SHIM_CSRCS: &[&str] = &[
     "rump_toolreq.c",
     "rump_selftest.c",
     "rump_md5.c",
+];
+
+/// x86_64 NIC: the QEMU e1000 behind the PCI hooks.
+const SHIM_CSRCS_X86: &[&str] = &[
+    "rump_e1000.c",
+    "rump_e1000_dma.c",
+    "rump_e1000_if.c",
+];
+
+/// aarch64 NIC: virtio-net over the modern MMIO transport.
+const SHIM_CSRCS_AARCH64: &[&str] = &[
+    "rump_virtio_net.c",
+    "rump_virtio_net_dma.c",
+    "rump_virtio_net_if.c",
 ];
 
 /// TLS adapter files, compiled only under CONFIG_TLS with FANTUAN_TLS=1.

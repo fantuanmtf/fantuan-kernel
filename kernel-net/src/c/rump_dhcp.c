@@ -28,7 +28,7 @@
 #include <netinet/in_var.h>
 #include "rump_shim.h"
 #include "rump_dhcp.h"
-#include "rump_e1000.h"
+#include "rump_nic.h"
 
 #define DHCP_PORT	68
 #define DHCP_SERVER_PORT 67
@@ -36,6 +36,7 @@
 #define DHCP_TIMEOUT	120	/* PIT ticks (100 Hz): 1.2 s per try */
 #define DHCP_XID	0x46544e36u	/* "FTN6" */
 #define LHOST_ADDR	0x0a000202u	/* 10.0.2.2 */
+#define PROV_ADDR	0xa9fe0101u	/* 169.254.1.1 provisional address */
 
 enum dhcp_phase {
 	DHCP_IDLE, DHCP_PH_DISCOVER, DHCP_WAIT_OFFER, DHCP_WAIT_ACK,
@@ -78,9 +79,12 @@ dhcp_sock_open(void)
 	if (error != 0)
 		return error;
 	/* The server broadcasts its replies; a wildcard local address is
-	 * what udp_input's broadcast delivery matches.  The route cached by
-	 * soconnect still supplies the provisional source address. */
+	 * what udp_input's broadcast delivery matches.  Keep the provisional
+	 * source for the UDP pseudo-header checksum through prefsrcip (with
+	 * only the laddr wildcard the pseudo sum would use 0.0.0.0 and the
+	 * outbound checksum would not match the filled-in ip_src). */
 	in4p_laddr(sotoinpcb(dhcp_so)).s_addr = INADDR_ANY;
+	in4p_prefsrcip(sotoinpcb(dhcp_so)).s_addr = htonl(PROV_ADDR);
 	return 0;
 }
 
@@ -148,7 +152,7 @@ void
 rump_dhcp_begin(void)
 {
 
-	e1000_hw_mac(dhcp_mac);
+	rump_nic_mac(dhcp_mac);
 	dhcp_phase = DHCP_PH_DISCOVER;
 	dhcp_tries = 0;
 }

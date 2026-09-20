@@ -11,15 +11,15 @@
 |---|---|---|---|
 | v0.0.1 | M0-M9 (x86_64 rescue + RISC-V port) | `[##########] 100%` | tag `v0.0.1` (local) |
 | v0.0.2 | M10 legacy BIOS boot + i686 | `[##########] 100%` | released as 0.0.2: `smoke.sh` 13/13, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3, `smoke-iso.sh` 2/2 |
-| v0.0.3 | M11 ARM64 + full TCP/HTTPS | `[#########-] 90%` | R1-R8 verified; C5 minimal/tools/bash-prep; R9a aarch64 direct-FDT boot (`smoke-aarch64.sh` PASS); R9b (aarch64 net/UEFI/0.0.3) next |
+| v0.0.3 | M11 ARM64 + full TCP/HTTPS | `[##########] 100%` | released as 0.0.3: R1-R8 verified; C5 minimal/tools/bash-prep; R9a direct-FDT boot + R9b virtio-net/TLS (`smoke-aarch64.sh` 2/2), `smoke-net.sh` PASS, `smoke-config.sh` PASS, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3; aarch64 UEFI/AAVMF deferred to M14 |
 | v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[#---------] 10%` | design only |
 | v0.0.5 | M13 graphics/input + interface freeze | `[#---------] 10%` | design only |
 | v0.1.0 | M14 Linux userspace + bootstrap + hypervisor V2 | `[#---------] 10%` | design only |
 | v0.1.5 | M15 desktop + isolation + MinGW | `[----------] 0%` | - |
 | v0.5.0/1.0.0 | M16 finalize | `[----------] 0%` | - |
 
-To v0.0.5: roughly **25%** (M10 is released; M11-M13 have their designs
-done).
+To v0.0.5: roughly **35%** (M10 and M11 are released; M12-M13 have
+their designs done).
 
 ## v0.0.2 - M10 (BIOS boot + i686)
 
@@ -194,25 +194,36 @@ external phase; **owner pushes between R batches**).
       POST answered 418 with a 75-byte body).  `tools/kconfig.py` gained the
       `tls` profile; net builds link no TLS code; `tools/smoke-gpl.sh`
       stays green
-- [~] M11-8 aarch64 port bring-up; smoke phases; THIRD_PARTY entry
-      R9a (2026-09): the direct FDT boot is up. `kernel-aarch64/` mirrors the
-      riscv layout (link.ld, `_start`, rust_entry, module split) and boots on
-      QEMU `virt` as a raw `Image`: QEMU's Linux-compatible protocol loads it
-      at 0x40080000 and passes the DTB in x0 (`tools/build.sh --arch aarch64`
-      flattens with `llvm-objcopy`; the ELF path passes x0 = 0, verified).
-      FDT-lite takes memory/memreserve/model and sanity-checks the pl011
-      node; GICv2 and the generic-timer PPI 30 are hardcoded to the QEMU
-      virt map (0x0800_0000/0x0801_0000). The MMU is 4K-granule (TCR
-      T0SZ/T1SZ=16) with TTBR0 identity + TTBR1 direct map at
-      `0xffff000000000000`; the 16-entry VBAR_EL1 stubs save a full frame and
-      restore ELR/SPSR from the per-task frame, with a `brk #0` resume demo.
-      The context switch saves v8-v15 + x19-x30. The shared frame allocator,
-      heartbeat, scheduler and shell run unchanged (aarch64 command table =
-      x86/riscv shape, minimal links only help/bootinfo).
-      `tools/smoke-aarch64.sh` asserts the markers, the BRK resume, the two
-      demo tasks, the shell transcripts and the no-unexpected-trap negative
-      check. R9b remains: network/TLS on aarch64, virtio-net MMIO, the
-      UEFI/AAVMF path, docs/THIRD_PARTY and the 0.0.3 release.
+- [x] M11-8 aarch64 port bring-up; smoke phases; release: R9a brought up
+      the direct FDT boot (R9a outcome in `M11_PLAN.md`); R9b (2026-09) adds
+      the full stack on aarch64. `kernel-net` now builds for
+      `aarch64-unknown-none` (the clang flags are per-target:
+      `-mno-outline-atomics`, no x86-only flags) and `kernel-aarch64/src/net.rs`
+      supplies the Env hooks (log/panic, frame-page DMA through the direct
+      map, generic-timer ticks, cooperative sleep/yield, identity `mmio_map`
+      with a TLB flush). The new polled virtio-net MMIO adapter
+      (`rump_virtio_net*.c`, ours) drives the QEMU `virt` slots at
+      0x0a000000+0x200*n: modern version-2 transport, VERSION_1 + MAC/STATUS
+      negotiation, 12-byte modern headers, one 16-descriptor RX and TX
+      virtqueue, RX/TX ring reclaim and the full-frame (no MRG_RXBUF) mode
+      behind the same `net_ops` contract as the e1000; the shared
+      `rump_ether_if` ifnet core is used by both drivers now. `rump_nic.*`
+      keeps the DHCP/HTTP/tools code arch-neutral. The offline gate runs on
+      aarch64 via SLIRP + `-device virtio-net-device`; the full marker set
+      passes (virtio-net up, lease, IPv4/TCP, HTTP/DNS/ping/wget, TLS KATs +
+      HTTPS, host UDP, external skip, shell tools). Three latent
+      x86-masked bugs were fixed on the way: the aarch64 `splraise` cookie
+      polarity (DAIF.I is inverted vs x86 IF), `sockaddr_dup(NULL)` (route
+      keys/gateways) and the DHCP pseudo-header source (prefsrcip, else the
+      UDP checksum used 0.0.0.0). The cooperative lock shim yields in
+      `turnstile_block` instead of aborting when the shared lwp0 makes
+      cross-task contention look recursive. `tools/smoke-aarch64.sh` now has
+      the R9a + R9b phases; `smoke-config.sh` covers aarch64; the aarch64
+      UEFI/AAVMF path is deferred to M14 (stable `aarch64-unknown-uefi` is
+      installable and AAVMF is present, but the loader port - exact load
+      address, ExitBootServices, MMU/cache-off trampoline, DTB from the FDT
+      config table - is a batch of its own and the direct-FDT path is the
+      supported one). Workspace/banners/locks/docs are at 0.0.3.
 
 ## v0.0.4 - M12 (tools + hardware)
 
@@ -272,6 +283,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | M11 R9b aarch64 network + TLS + 0.0.3: `kernel-net` built and run for `aarch64-unknown-none` (per-arch clang flags; `kernel-aarch64/src/net.rs` Env; polled virtio-net MMIO at 0x0a000000+0x200*n with modern negotiation, 12-byte headers, RX/TX virtqueues behind the e1000's `net_ops`); the aarch64 smoke network phase on SLIRP asserts `net: virtio-net up mac=...`, DHCP lease, the IPv4/TCP suite (64 KiB transfer + retransmit + rump self-tests), HTTP/DNS/ping/wget, `tls: KATs ok`, pinned-CA `net: https get ok`, `net: udp host ok`, `net: ext skip` and the shell `nslookup`/`ping`/`wget` transcripts; `smoke-aarch64.sh` 2/2, `smoke-net.sh` PASS (x86_64 gate unchanged), `smoke-config.sh` PASS (aarch64 rows), `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3; x86_64 minimal/net/tls, riscv64, i686 and aarch64 minimal/net/tls builds zero warnings; version transition to 0.0.3; aarch64 UEFI/AAVMF deferred to M14 (documented blocker: the loader port, not the toolchain) | PASS |
 | 2026-09 | M11 R9a aarch64 direct FDT boot: `kernel-aarch64/` raw-`Image` boot on QEMU `virt` (DTB in x0, PL011, 4K-granule TTBR0 identity + TTBR1 direct map, GICv2 + PPI 30 at 100 Hz, BRK resume, shared scheduler/heartbeat/shell); `tools/smoke-aarch64.sh` PASS; `smoke-config.sh` PASS; `smoke-bios.sh` 2/2; `smoke-riscv.sh` 3/3 (second run after the documented riscv serial-input flake dropped the first command byte); x86_64 minimal boot reaches `shell: ready`; aarch64/x86_64/i686 builds zero warnings | PASS |
 | 2026-09 | C5 minimal default + tools' catalog home + bash early start: default `.config` absent -> `minimal` = SHELL only (plus the declared `BASH` symbol); minimal ELF free of net/rump/tls/rescue/tool command strings; typed `help` lists only `help`/`bootinfo`; `smoke-config.sh` PASS (net links tools without rescue commands, rescue links commands without tools, 2.6 MB budget, incrementality); `smoke-net.sh` PASS all phases; `smoke.sh` 13/13; `smoke-bios.sh` 2/2; `smoke-riscv.sh` 3/3; `smoke-iso.sh` 2/2; `smoke-gpl.sh`/`smoke-apps.sh` PASS; `build-bash-spike.sh` records configure `cannot compute sizeof (size_t)` + 39/43 headers + 102/102 POSIX symbols missing (bash does not run); x86_64 minimal/net/tls, riscv64 minimal/rescue, i686 minimal/rescue builds zero warnings | PASS |
 | 2026-09 | C4 kernel subsystem isolation: default `.config` absent -> `minimal` (shell + `root@Fantuan-MTF> ` prompt, zero `net:`/`rump:` and zero `tick:` lines, typed commands clean); `smoke-config.sh` PASS (minimal/net cargo-tree edge invariants, 2.7 MB budget, incrementality); `smoke-net.sh` PASS; `smoke.sh` 13/13; `smoke-bios.sh` 2/2; `smoke-riscv.sh` 3/3 (third run after the documented uart flake); three-target builds zero warnings. Includes the bootloader SFS fix (kernel loaded from the loaded-image volume instead of the first SFS) that made the SMM Secure Boot phase deterministic | PASS |
@@ -468,15 +480,15 @@ then R9.
 
 ## Next action
 
-**R9b** (M11-8 second half + release) on the C5 base — the next batch: the
-full network stack/TLS on aarch64 (virtio-net MMIO), the UEFI loader path
-under AAVMF (`aarch64-unknown-uefi` availability still to verify), smoke
-phases for both boot paths, docs/matrices/THIRD_PARTY final update and the
-workspace/banner version bump to 0.0.3. R9a (the aarch64 direct FDT boot) is
-done and verified by `tools/smoke-aarch64.sh`. The aarch64 boot set
-stays the minimal kernel + boot + shell; the rescue/net profiles and the
-catalog skeletons carry over unchanged. bash stays pinned
-behind
+**M12 W-a** (M11 released as 0.0.3): the owner pushes the R9b/0.0.3
+transition, then M12 starts with the disk imager (`clone`) and the NTFS
+read path; the remaining M12 checkboxes are listed above and the design is
+`docs/M12_TOOLS_HW.md`. M11-8 is closed: aarch64 direct FDT + virtio-net
+MMIO + TLS verified by `tools/smoke-aarch64.sh` (2 phases), the x86_64
+offline gate by `tools/smoke-net.sh`. The aarch64 UEFI/AAVMF path is
+deferred to M14 with the loader-port reason recorded in `M11_PLAN.md`; the
+direct-FDT path is the supported aarch64 boot for 0.0.3. riscv/i686 stay
+without `kernel-net` (documented). bash stays pinned behind
 `requires = ["posix-libc"]`: the M14-4 musl port and M14-8 shell flip
 `app_manifest.AVAILABLE_REQUIRES` and add the in-image `/usr/src/bash`
 sources bundle. Stop after each batch so the owner can push.

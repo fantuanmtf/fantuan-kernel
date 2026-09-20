@@ -18,28 +18,33 @@ as product: the same portable core now runs on two architectures.
 - **Primary target**: x86_64 UEFI Live kernel (the product).
 - **Second target**: riscv64 under OpenSBI on QEMU `virt` (portability
   proof of the arch split, not a hardware-support claim).
-- **v0.0.2 adds**: a self-written legacy-BIOS boot chain for x86_64 plus a
-  32-bit i686 kernel (paging, scheduler, ring 3/ELF32, read-only PIO ATA
-  VFS, VBE text console) and a hybrid BIOS+UEFI ISO.
-- **Out of v0.0.2 scope**: SMP, networking, USB, PAE / >1 GiB on i686,
-  graphics beyond the text consoles, real RISC-V boards.
+- **v0.0.3 adds**: the NetBSD-derived IPv4/TCP stack (DHCP, DNS, ICMP,
+  HTTP) on x86_64 (e1000) and aarch64 (polled virtio-net MMIO on QEMU
+  `virt`), pinned-CA HTTPS through mbedTLS, the aarch64 direct-FDT boot and
+  its network/TLS smoke phase. riscv64/i686 stay without kernel-net.
+- **Previous releases**: v0.0.2 = self-written legacy-BIOS chain + i686
+  (paging, scheduler, ring 3/ELF32, read-only PIO ATA VFS, VBE console) +
+  hybrid ISO; v0.0.1 = x86_64 UEFI + riscv64.
+- **Out of v0.0.3 scope**: SMP, USB, PAE / >1 GiB on i686, graphics beyond
+  the text consoles, real RISC-V/aarch64 boards, aarch64 UEFI (AAVMF;
+  deferred to M14 with the loader port).
 
 ## 2. Release status
 
-- **Version**: v0.0.2 (workspace + banners). The annotated `v0.0.2` tag is
+- **Version**: v0.0.3 (workspace + banners). The annotated `v0.0.3` tag is
   prepared for the owner and stays **local only** — nothing has been
   pushed; this repository does not create tags.
-- **Verified at release**: `tools/smoke.sh` 13/13 PASS (incl. SMM NVRAM
-  repair), `tools/smoke-bios.sh` 2/2 (x86_64 MBR chain, i686 + PIO ATA
-  VFS), `tools/smoke-riscv.sh` 3/3 (read-only, repair YES, repair NO),
-  `tools/smoke-iso.sh` 2/2 (El Torito BIOS + OVMF 0xEF); zero warnings on
-  the x86_64, riscv64 and i686 builds; no source file > 300 lines.
-- **Audit**: `docs/M9_AUDIT.md` (v0.0.1, 18 checks); M10 open items are
+- **Verified at R9b**: `tools/smoke-aarch64.sh` PASS (direct FDT boot +
+  virtio-net/TLS phase), `tools/smoke-net.sh` PASS (x86_64 offline gate),
+  `tools/smoke-config.sh` PASS, `tools/smoke-bios.sh` 2/2,
+  `tools/smoke-riscv.sh` 3/3; zero warnings on the x86_64 minimal/net/tls,
+  riscv64, i686 and aarch64 minimal/net/tls builds; no source file > 300
+  lines. The full matrix is in `docs/PROGRESS.md` snapshots.
+- **Audit**: `docs/M9_AUDIT.md` (v0.0.1, 18 checks); open items are
   tracked under "Known issues" in `docs/PROGRESS.md`.
-- **Milestone plans**: `docs/M10_PLAN.md` (W1–W6 closed) and
-  `docs/M10_BOOT_32BIT.md` (M10 design of record); the v0.0.1 plan is
-  `docs/M9_KERNEL_v0.0.1.md`; M11 batches are in `docs/M11_PLAN.md`
-  (next: R9, aarch64 + 0.0.3).
+- **Milestone plans**: `docs/M11_PLAN.md` (R9b closed; next M12 W-a) and
+  `docs/M11_NET.md` (M11 design of record); the v0.0.1 plan is
+  `docs/M9_KERNEL_v0.0.1.md`; M10 is `docs/M10_PLAN.md`.
 - **Current direction (C5, 2026-09)**: the default `minimal` profile is the
   kernel + boot + shell only; the diagnostic commands and boot repair live
   behind the `rescue` profile, the network tools are the non-default interim
@@ -52,11 +57,13 @@ as product: the same portable core now runs on two architectures.
 ```
                     abi (BootInfo, PHYS_OFFSET, syscall numbers)
                    /    \
-      boot/ (UEFI)        OpenSBI
-          |                  |
-   kernel/ (x86_64)     kernel-riscv/ (riscv64)
-          \                /
-           kernel-core (portable half)
+      boot/ (UEFI)        OpenSBI        QEMU raw Image
+          |                  |                |
+   kernel/ (x86_64)    kernel-riscv/    kernel-aarch64/
+          \                |               /
+           \____________ kernel-core (portable half)
+                        |
+              kernel-net (opt-in, x86_64 + aarch64)
      frame | task | syscall | elf | user | log | input | time | mem
      drv   | vfs  | diag    | bootrepair | shell | runtime(UEFI FFI)
                         |
@@ -72,6 +79,11 @@ as product: the same portable core now runs on two architectures.
 - **Boot (riscv)**: OpenSBI enters S-mode with `a0=hartid, a1=DTB`; the
   kernel parses the FDT, synthesizes a BootInfo, builds Sv39 tables
   (identity + `PHYS_OFFSET` alias) and enters the high half.
+- **Boot (aarch64)**: QEMU's Linux-compatible raw-`Image` protocol enters
+  EL1 with `x0=DTB`; the kernel parses the FDT, builds 4K-granule tables
+  (TTBR0 identity + TTBR1 direct map), GICv2 + the EL1 timer at 100 Hz and
+  runs the shared scheduler/shell. Network is the polled virtio-net MMIO
+  device (no PCI on the QEMU `virt` machine).
 - **Memory**: a bitmap frame allocator over the firmware/FDT map; no heap;
   `PHYS_OFFSET` is cfg-per-arch (`0xFFFF_8000...` / `0xFFFF_FFC0...`).
 - **Tasks**: 16 slots, 16 KiB kernel stacks, round-robin at 100 Hz,

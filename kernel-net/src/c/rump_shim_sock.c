@@ -78,7 +78,18 @@ struct sockaddr *
 sockaddr_dup(const struct sockaddr *sa, int flags)
 {
 	struct sockaddr *nsa;
+	socklen_t len;
 
+	if (sa == NULL) {
+		/* rt_setgate() takes a NULL gateway for local routes.  The
+		 * x86 build only survived the dereference because address 0 is
+		 * mapped; aarch64 faults.  Use an empty sockaddr instead. */
+		len = sizeof(struct sockaddr);
+		nsa = malloc(len, M_IFADDR, flags);
+		if (nsa != NULL)
+			memset(nsa, 0, len);
+		return nsa;
+	}
 	nsa = malloc(sa->sa_len, M_IFADDR, flags);
 	if (nsa != NULL)
 		memcpy(nsa, sa, sa->sa_len);

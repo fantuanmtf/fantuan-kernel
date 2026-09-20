@@ -25,7 +25,7 @@ writes after an explicit `YES`. The main paths:
 | UEFI/NVRAM repair | yes (Runtime Services) | no (diagnosis only, honest degrade) |
 | Shell commands | 2 core; `rescue` adds 10; `net`/`tls` add 3 tools | 2 core; `rescue` adds 7 |
 
-Current release: **v0.0.2** (see [HANDOVER.md](HANDOVER.md) for status).
+Current release: **v0.0.3** (see [HANDOVER.md](HANDOVER.md) for status).
 The release adds a self-written legacy-BIOS boot chain (x86_64 and i686)
 that works on machines without UEFI; the i686 kernel is read-only against
 disks. See §9 for the support matrix.
@@ -47,7 +47,7 @@ x86: bootloader banner -> `handshake ok` -> memory map summary ->
 hardware diagnostics (the storage stage is part of the `rescue` profile) ->
 VFS mount -> userland demo tasks -> the shell prompt `root@Fantuan-MTF> `.
 
-riscv: OpenSBI banner -> `fantuan v0.0.2 (riscv64)` -> FDT memory/CPU
+riscv: OpenSBI banner -> `fantuan v0.0.3 (riscv64)` -> FDT memory/CPU
 report -> Sv39 tables -> `blk: virtio registered` -> VFS + read-only
 boot-repair diagnosis -> scheduler and user tasks -> `root@Fantuan-MTF> `.
 
@@ -55,7 +55,7 @@ BIOS (x86_64): `fantuan-bios stage2 (M10-3)` -> E820 -> `handshake ok` ->
 long-mode kernel -> tasks, userland, `root@Fantuan-MTF> ` on serial only (the BIOS
 path has no GOP console).
 
-BIOS (i686): `fantuan v0.0.2 (i686) - BIOS handoff` -> VBE text console
+BIOS (i686): `fantuan v0.0.3 (i686) - BIOS handoff` -> VBE text console
 (serial mirror) or `fb: unavailable (serial console)` -> memmap, frame
 allocator, IDT/PIC/PIT, scheduler, ELF32 user tasks and the read-only VFS
 -> the kernel halts after the demo lines; there is no interactive shell on
@@ -165,15 +165,15 @@ the vendor's **WinPE** / installation media and `bootrec`/`bcdboot`; the
 read-only NTFS tooling planned for M12 never writes to Windows volumes.
 Full rationale and commands: [WINDOWS.md](WINDOWS.md).
 
-## 9. Support matrix (v0.0.2)
+## 9. Support matrix (v0.0.3)
 
-| Area | now (v0.0.2) | planned |
+| Area | now (v0.0.3) | planned |
 |---|---|---|
-| Firmware / boot | UEFI (x86_64), legacy BIOS (x86_64 + i686), OpenSBI (riscv64) | arm64 (v0.0.3) |
-| Architecture | x86_64, i686 (32-bit, nightly toolchain), riscv64 | arm64 (v0.0.3) |
+| Firmware / boot | UEFI (x86_64), legacy BIOS (x86_64 + i686), OpenSBI (riscv64), direct FDT (aarch64) | aarch64 UEFI/AAVMF deferred to M14 |
+| Architecture | x86_64, i686 (32-bit, nightly toolchain), riscv64, aarch64 (stable) | more boards (M14+) |
 | Storage | AHCI, NVMe, virtio-mmio; i686 legacy PIO ATA (read-only) | more drivers (v0.0.4) |
 | Filesystems | FAT32 (write-gated on x86_64/riscv), ext4 (ro), others probe-only; i686 read-only | NTFS read-only (v0.0.4) |
-| Network | none | full TCP/HTTPS (v0.0.3) |
+| Network | NetBSD-derived IPv4/TCP on x86_64 (e1000) + aarch64 (virtio-net MMIO); DHCP/DNS/ping/wget, HTTP and pinned-CA HTTPS (mbedTLS); riscv/i686 have no NIC yet | user sockets (M14), IPv6/IPsec later |
 | Graphics | serial + GOP console; VBE text console (i686, serial mirror) | framebuffer/KMS API (v0.0.5), XFCE/Qt (v0.1.5) |
 | Virtualization | none | detect (v0.0.4), minimal hypervisor (v0.1.0), isolated mounting (v0.1.5) |
 | Windows boot repair | not supported | not supported — use WinPE |
@@ -185,7 +185,8 @@ Boot paths and their repair capability:
 | x86_64 UEFI | GOP + serial | FAT + NVRAM (Runtime Services) | none for the rescue scope |
 | x86_64 BIOS | serial only | FAT only (no NVRAM) | no GOP/ACPI/SMBIOS in the BIOS boot yet |
 | i686 BIOS | VBE text + serial | none (read-only block layer) | 1 GiB direct-map cap, no PAE, no shell yet |
-| riscv64 (OpenSBI) | NS16550 UART | FAT only (no NVRAM) | no UEFI, SMART unsupported on virtio |
+| riscv64 (OpenSBI) | NS16550 UART | FAT only (no NVRAM) | no UEFI, SMART unsupported on virtio, no network driver |
+| aarch64 (QEMU virt, direct FDT) | PL011 UART | none (no block driver yet) | no storage/user mode/UEFI yet; network is virtio-net MMIO only |
 | Hybrid ISO | as the firmware path | as the firmware path | CD-ROM only (no isohybrid/USB `dd`), 1 GiB budget |
 
 The test evidence behind each row lives in

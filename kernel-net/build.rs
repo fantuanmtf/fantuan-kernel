@@ -1,10 +1,13 @@
 //! Build the NetBSD rump slice + the fantuan adaptation layer as one static
-//! archive, compiled with clang for x86_64-unknown-none against the R1 shim
-//! headers. The crate is only wired into the x86_64 kernel for now; other
-//! build targets skip the C compile entirely.
+//! archive, compiled with clang against the R1 shim headers. The crate is
+//! wired into the x86_64 and aarch64 kernels (M11 R9b); other build targets
+//! skip the C compile entirely.
 //!
 //! The imported sources keep upstream warnings (exempt from the repo's
 //! zero-warning rule); the adapter files are compiled with -Wall -Wextra.
+//! The clang flags are per-target: x86_64 needs the freestanding soft-float
+//! set (no SSE/red-zone/large-model), aarch64 needs `-mno-outline-atomics`
+//! (no lse helper calls) and no x86-only flags.
 
 use std::env;
 use std::path::Path;
@@ -54,13 +57,20 @@ fn main() {
     for f in NETBSD_CSRCS {
         println!("cargo:rerun-if-changed={netbsd}/{f}");
     }
-    for f in SHIM_CSRCS {
+    for f in SHIM_CSRCS_COMMON.iter().chain(SHIM_CSRCS_X86).chain(SHIM_CSRCS_AARCH64) {
         println!("cargo:rerun-if-changed={dir}/src/c/{f}");
     }
     for f in TLS_CSRCS {
         println!("cargo:rerun-if-changed={dir}/src/c/{f}");
     }
     println!("cargo:rerun-if-changed={dir}/src/c/rump_shim.h");
+    println!("cargo:rerun-if-changed={dir}/src/c/rump_nic.h");
+    println!("cargo:rerun-if-changed={dir}/src/c/rump_ether_if.h");
+    println!("cargo:rerun-if-changed={dir}/src/c/rump_e1000.h");
+    println!("cargo:rerun-if-changed={dir}/src/c/rump_virtio_net.h");
+    println!("cargo:rerun-if-changed={dir}/src/c/rump_virtio_net_var.h");
+    println!("cargo:rerun-if-changed={dir}/src/c/rump_ether_ops.c");
+    println!("cargo:rerun-if-changed={dir}/src/c/rump_virtio_net_hw.h");
     println!("cargo:rerun-if-changed={dir}/src/c/rump_dhcp.h");
     println!("cargo:rerun-if-changed={dir}/src/c/rump_dns.h");
     println!("cargo:rerun-if-changed={dir}/src/c/rump_http.h");
@@ -71,6 +81,9 @@ fn main() {
     for h in ["assert.h", "string.h", "stdlib.h", "stdio.h", "time.h", "inttypes.h"] {
         println!("cargo:rerun-if-changed={dir}/src/c/mbedtls_shim/{h}");
     }
+    /* Watch the whole shim header tree: the opt_* stubs change the
+     * compiled-in configuration and must retrigger the C build. */
+    println!("cargo:rerun-if-changed={shim}");
     println!("cargo:rerun-if-changed={shim}/machine/mutex.h");
     println!("cargo:rerun-if-changed={shim}/machine/cpu.h");
     println!("cargo:rerun-if-changed={shim}/ether.h");
@@ -106,7 +119,9 @@ fn main() {
         println!("cargo:rerun-if-changed={shim}/{h}");
     }
 
-    if target != "x86_64-unknown-none" {
+    let is_x86 = target == "x86_64-unknown-none";
+    let is_arm = target == "aarch64-unknown-none";
+    if !is_x86 && !is_arm {
         return;
     }
 
@@ -129,18 +144,10 @@ fn main() {
             .flag("-nostdinc")
             .flag("-isystem")
             .flag(format!("{resource}/include"))
-            .flag("-mno-red-zone")
-            /* Match the Rust kernel's soft-float ABI: the BIOS boot path
-             * does not enable CR4.OSFXSR, so SSE would fault with #UD. */
-            .flag("-mno-sse")
-            .flag("-mno-sse2")
-            .flag("-mno-mmx")
-            .flag("-msoft-float")
             .flag("-fno-stack-protector")
             .flag("-fno-builtin")
             .flag("-fno-pic")
             .flag("-fno-pie")
-            .flag("-mcmodel=large")
             .flag("-ffunction-sections")
             .flag("-fdata-sections")
             .flag("-D_KERNEL")
@@ -153,6 +160,25 @@ fn main() {
             .include(format!("{netbsd}/sys"))
             .include(format!("{netbsd}/common/include"))
             .include(format!("{dir}/src/c"));
+        if is_x86 {
+            build
+                .flag("-mno-red-zone")
+                /* Match the Rust kernel's soft-float ABI: the BIOS boot path
+                 * does not enable CR4.OSFXSR, so SSE would fault with #UD. */
+                .flag("-mno-sse")
+                .flag("-mno-sse2")
+                .flag("-mno-mmx")
+                .flag("-msoft-float")
+                .flag("-mcmodel=large");
+        } else {
+            /* AArch64: no lse outline-atomic helper calls (the kernel
+             * links no aarch64 runtime), no unwind tables. */
+            build
+                .flag("-mno-outline-atomics")
+                .flag("-fno-unwind-tables")
+                .flag("-fno-asynchronous-unwind-tables")
+                .flag("-DFANTUAN_ARCH_AARCH64=1");
+        }
         build
     };
 
@@ -170,7 +196,8 @@ fn main() {
     if tls {
         adapter.flag("-DFANTUAN_TLS=1");
     }
-    for f in SHIM_CSRCS {
+    let nic_lists = if is_x86 { SHIM_CSRCS_X86 } else { SHIM_CSRCS_AARCH64 };
+    for f in SHIM_CSRCS_COMMON.iter().chain(nic_lists) {
         adapter.file(format!("{dir}/src/c/{f}"));
     }
     adapter.compile("rumpobj_shim");
@@ -209,16 +236,10 @@ fn main() {
             .flag("-nostdinc")
             .flag("-isystem")
             .flag(format!("{resource}/include"))
-            .flag("-mno-red-zone")
-            .flag("-mno-sse")
-            .flag("-mno-sse2")
-            .flag("-mno-mmx")
-            .flag("-msoft-float")
             .flag("-fno-stack-protector")
             .flag("-fno-builtin")
             .flag("-fno-pic")
             .flag("-fno-pie")
-            .flag("-mcmodel=large")
             .flag("-ffunction-sections")
             .flag("-fdata-sections")
             .flag("-D_KERNEL")
@@ -226,6 +247,20 @@ fn main() {
             .include(format!("{mb_root}/include"))
             .include(format!("{dir}/src/c/mbedtls_shim"))
             .include(format!("{dir}/src/c"));
+        if is_x86 {
+            mbed
+                .flag("-mno-red-zone")
+                .flag("-mno-sse")
+                .flag("-mno-sse2")
+                .flag("-mno-mmx")
+                .flag("-msoft-float")
+                .flag("-mcmodel=large");
+        } else {
+            mbed
+                .flag("-mno-outline-atomics")
+                .flag("-fno-unwind-tables")
+                .flag("-fno-asynchronous-unwind-tables");
+        }
         for f in MBEDTLS_CSRCS {
             mbed.file(format!("{mb_root}/library/{f}"));
         }

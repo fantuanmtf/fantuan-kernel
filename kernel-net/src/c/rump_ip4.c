@@ -23,7 +23,7 @@
 #include <netinet/in_var.h>
 #include <netinet/ip_var.h>
 #include "rump_shim.h"
-#include "rump_e1000.h"
+#include "rump_nic.h"
 
 extern struct domain inetdomain;
 extern struct domain arpdomain;
@@ -133,10 +133,11 @@ rump_ip4_up(void)
 		ip4_state = IP4_FAILED;
 		return;
 	}
-	/* M11 R6: probe and attach the e1000.  ENXIO (no device) is not a
-	 * failure: the loopback tests still run and the DHCP/HTTP phases are
-	 * skipped.  A present-but-broken NIC prints its own marker. */
-	(void)rump_e1000_up();
+	/* M11 R6/R9b: probe and attach the port's NIC (e1000 or
+	 * virtio-net).  ENXIO (no device) is not a failure: the loopback
+	 * tests still run and the DHCP/HTTP phases are skipped.  A
+	 * present-but-broken NIC prints its own marker. */
+	(void)rump_nic_up();
 	printf("net: lo0 up 127.0.0.1/8\n");
 	rump_ping_begin();
 	ip4_bringup_ok = 1;
@@ -156,10 +157,10 @@ rump_net_poll(void)
 	unsigned long long in, out;
 	int r;
 
-	/* M11 R6: drain the e1000 RX ring into ip_pktq/arp_pktq first (this
-	 * is ether_input's ethertype demux for the real NIC), then run the
-	 * stack input callbacks. */
-	rump_e1000_poll();
+	/* M11 R6/R9b: drain the NIC RX ring into ip_pktq/arp_pktq first
+	 * (this is ether_input's ethertype demux for the real NIC), then run
+	 * the stack input callbacks. */
+	rump_nic_poll();
 	rump_pktq_drain();
 	/* M11 R7: shell tool requests are stepped here, in the net task; the
 	 * shell only waits for rump_tool_status(). */
@@ -204,7 +205,7 @@ rump_net_poll(void)
 		if (r < 0)
 			return ip4_fail("tcp");
 		if (r > 0) {
-			if (rump_e1000_ready()) {
+			if (rump_nic_ready()) {
 				rump_dhcp_begin();
 				ip4_state = IP4_NIC;
 			} else {
@@ -230,7 +231,7 @@ rump_net_poll(void)
 			/* M11 R7: with a NIC the DNS/ping/wget self-test runs
 			 * after the R6 HTTP check (the tools sequence prints
 			 * its own markers); without one there is no path. */
-			if (rump_e1000_ready()) {
+			if (rump_nic_ready()) {
 				rump_tools_begin();
 				ip4_state = IP4_TOOLS;
 			} else {
@@ -250,8 +251,8 @@ rump_net_poll(void)
 			ip4_state = IP4_DONE;
 		break;
 	case IP4_DONE:
-		if (rump_e1000_ready()) {
-			rump_e1000_counters(&in, &out);
+		if (rump_nic_ready()) {
+			rump_nic_counters(&in, &out);
 			printf("net: eth counters pkts_in=%llu pkts_out=%llu\n",
 			    in, out);
 		}

@@ -42,7 +42,7 @@ fi
 
 if [ "$ARCH" = "aarch64" ]; then
   echo "[aarch64] building kernel-aarch64..."
-  cargo build -p kernel-aarch64 --target aarch64-unknown-none --release
+  cargo build -p kernel-aarch64 --target aarch64-unknown-none --release "${KERNEL_FEATURES[@]}"
   # QEMU only passes the DTB in x0 through its raw-Image boot protocol; the
   # ELF is the cargo artifact and this flat image is what run.sh boots.
   OBJCOPY="$(command -v llvm-objcopy || command -v aarch64-linux-gnu-objcopy || true)"

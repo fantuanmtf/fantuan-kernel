@@ -241,6 +241,12 @@ pub fn wget(host: &[u8], addr: u32, port: u16) -> Result<(i32, usize, u32), &'st
         unsafe { rump_tool_result_hash() },
     ))
 }
+/// Cooperative yield for the pre-SMP lock shim (turnstile_block).
+#[no_mangle]
+pub extern "C" fn fantuan_rump_yield() {
+    (env().sleep_ms)(0);
+}
+
 #[no_mangle]
 pub extern "C" fn fantuan_rump_log(buf: *const u8, len: usize) {
     (env().log)(buf, len);

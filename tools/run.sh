@@ -4,8 +4,10 @@
 #                     [--broken-shim] [--smm] [--no-smbios] [--two-fs]
 #                     [--keys] [--shell-repair] [--nvme] [--bigcluster]
 #                     [--liar] [--grub-regen] [--net]
-#   --net:    attach the M11 R6 e1000 NIC on QEMU user networking (SLIRP);
-#             without it the default QEMU NIC is disabled (-nic none) so the
+#   --net:    attach the kernel-net NIC on QEMU user networking (SLIRP):
+#             the e1000 on x86_64, the virtio-net-device MMIO transport on
+#             aarch64 (with -global virtio-mmio.force-legacy=false); without
+#             it the default QEMU NIC is disabled (-nic none) so the
 #             loopback phases run on a NIC-less machine.
 #   --broken:      build the test disk with a missing EFI/BOOT/BOOTX64.EFI so
 #                  the boot-repair fallback copy can be exercised (M7.5b).
@@ -27,6 +29,7 @@ RISC_TWO_FS=0
 RISC_BROKEN=0
 RISC_NOSHIM=0
 RISC_KEYS=0
+AARCH64_NET=0
 prev=""
 for a in "$@"; do
   if [ "$prev" = "--arch" ]; then ARCH="$a"; fi
@@ -35,6 +38,7 @@ for a in "$@"; do
   if [ "$a" = "--broken" ]; then RISC_BROKEN=1; fi
   if [ "$a" = "--broken-shim" ]; then RISC_BROKEN=1; RISC_NOSHIM=1; fi
   if [ "$a" = "--shell-repair" ] || [ "$a" = "--keys" ]; then RISC_KEYS=1; fi
+  if [ "$a" = "--net" ]; then AARCH64_NET=1; fi
   prev="$a"
 done
 if [ "$ARCH" = "riscv64" ]; then
@@ -71,11 +75,19 @@ if [ "$ARCH" = "aarch64" ]; then
   # `Image` boots through QEMU's Linux-compatible protocol, which is what
   # passes the DTB in x0; gic-version=2 pins the GICD/GICC MMIO map the
   # kernel hardcodes (0x0800_0000 / 0x0801_0000). No console disk yet.
+  # --net attaches virtio-net-device on SLIRP through the modern virtio-mmio
+  # transports (force-legacy=false makes the version-2 window visible);
+  # without it the NIC is disabled.
+  AARCH64_DEV="-nic none"
+  if [ "$AARCH64_NET" = "1" ]; then
+    AARCH64_DEV="-netdev user,id=n0 -device virtio-net-device,netdev=n0"
+  fi
   echo "[1/2] building kernel-aarch64..."
   ./tools/build.sh --arch aarch64
   echo "[2/2] starting qemu-system-aarch64..."
   exec qemu-system-aarch64 -machine virt,gic-version=2 -cpu cortex-a72 \
-    -nographic -m 512M -nic none -kernel build/kernel-aarch64.bin
+    -nographic -m 512M -global virtio-mmio.force-legacy=false \
+    $AARCH64_DEV -kernel build/kernel-aarch64.bin
 fi
 
 GRAPHICS=0

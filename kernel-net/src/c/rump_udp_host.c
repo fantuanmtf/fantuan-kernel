@@ -16,7 +16,7 @@
 #include <netinet/in.h>
 #include "rump_shim.h"
 #include "rump_dhcp.h"
-#include "rump_e1000.h"
+#include "rump_nic.h"
 #include "rump_udp_host.h"
 
 #define UDPH_HOST	0x0a000202u	/* 10.0.2.2 */
@@ -172,7 +172,7 @@ rump_udp_host_run(void)
 	t0 = fantuan_rump_ticks();
 	while (udph_rx < udph_tx &&
 	    fantuan_rump_ticks() - t0 < UDPH_TIMEOUT) {
-		rump_e1000_poll();
+		rump_nic_poll();
 		rump_pktq_drain();
 		if (udph_recv_all(so) != 0) {
 			soclose(so);

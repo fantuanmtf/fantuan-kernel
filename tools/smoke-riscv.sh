@@ -36,7 +36,7 @@ rm -f "$LOG"
 # no-shell fallback and is asserted by the absence of late ticks).
 TICKS_AFTER_SHELL=$(awk '/shell: ready/{seen=1} seen && /^tick: /{n++} END{print n+0}' "$LOG")
 
-if grep -q "fantuan v0.0.2 (riscv64)" "$LOG" \
+if grep -q "fantuan v0.0.3 (riscv64)" "$LOG" \
    && grep -q "boot: hartid=" "$LOG" \
    && grep -q "dtb=0x" "$LOG" \
    && grep -q "fdt: memory 0x80000000" "$LOG" \
@@ -68,7 +68,7 @@ if grep -q "fantuan v0.0.2 (riscv64)" "$LOG" \
    && grep -q "Hello from the fantuan-kernel VFS!" "$LOG" \
    && ! grep -q "repair: FIXED.TXT write" "$LOG"; then
   echo "SMOKE PASS (riscv64 phase A: boot, Sv39, traps, timer, userland+X, virtio-blk, VFS, shell, read-only boot)"
-  grep -aE "fantuan v0.0.2 \(riscv64|mm: frame self-test|trap: |timer: |tick: |sched: |task [12] |user: |userland: |cpu: |^exc |blk: |vfs: |ext4: |probe: |bootrepair: |shell|SMART|Hello from" "$LOG" | head -40 || true
+  grep -aE "fantuan v0.0.3 \(riscv64|mm: frame self-test|trap: |timer: |tick: |sched: |task [12] |user: |userland: |cpu: |^exc |blk: |vfs: |ext4: |probe: |bootrepair: |shell|SMART|Hello from" "$LOG" | head -40 || true
 else
   echo "SMOKE FAIL (riscv64 phase A) — log tail:"
   tail -20 "$LOG"

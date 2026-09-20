@@ -64,5 +64,8 @@ pub fn tick() {
         put_dec(unsafe { FREQ / 1_000_000 });
         puts(" MHz, interrupts on)\n");
     }
+    // M11 R9b: drive the NetBSD callout wheel when CONFIG_NET is on.
+    #[cfg(kconfig_net)]
+    crate::net::tick();
     kernel_core::task::schedule();
 }

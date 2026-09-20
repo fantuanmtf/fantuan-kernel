@@ -86,9 +86,31 @@ cpu_softintr_p(void)
 }
 
 /*
- * Interrupt masking. The cookie's bit 8 records whether IF was set, so a
- * nested splx() only re-enables when the outermost mask has been dropped.
+ * Interrupt masking. The cookie's bit 8 records whether interrupts were
+ * enabled, so a nested splx() only re-enables when the outermost mask has
+ * been dropped.  x86 tests IF (RFLAGS bit 9; set = enabled); aarch64 tests
+ * DAIF.I (bit 7; clear = enabled) - the polarity is inverted.
  */
+#if defined(__aarch64__)
+int
+splraise(int ipl)
+{
+	unsigned long flags;
+
+	(void)ipl;
+	__asm__ volatile("mrs %0, daif; msr daifset, #2" : "=r"(flags) ::
+	    "memory");
+	return (flags & 0x80ul) == 0 ? 0x100 : 0;
+}
+
+void
+spllower(int s)
+{
+
+	if ((s & 0x100) != 0)
+		__asm__ volatile("msr daifclr, #2" ::: "memory");
+}
+#else
 int
 splraise(int ipl)
 {
@@ -106,3 +128,4 @@ spllower(int s)
 	if ((s & 0x100) != 0)
 		__asm__ volatile("sti" ::: "memory");
 }
+#endif

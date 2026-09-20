@@ -126,6 +126,18 @@ pub fn map_mmio(base: u64) {
     map_2m(unsafe { ROOT_LOW }, pa, pa, mmio_flags());
 }
 
+/// Invalidate the stage-1 TLBs after a post-enable mapping change (the
+/// kernel-net Env's `mmio_map` maps device blocks after the MMU is on).
+#[cfg(kconfig_net)]
+pub fn flush_tlb() {
+    unsafe {
+        asm!("dsb ishst", options(nostack));
+        asm!("tlbi vmalle1", options(nostack));
+        asm!("dsb ish", options(nostack));
+        asm!("isb", options(nostack));
+    }
+}
+
 /// Write MAIR/TCR/TTBR/SCTLR and flush the TLBs.
 pub fn enable() {
     let mair: u64 = 0xFF | (0x04 << 8);

@@ -15,6 +15,12 @@ SECTIONS
     }
     .rodata : ALIGN(8) {
         *(.rodata .rodata.*)
+        /* NetBSD libkern-style link sets (kernel-net event counters), as in
+         * the x86_64 script: the section name is not a C identifier, so the
+         * __start/__stop symbols must be defined here. */
+        __start_link_set_evcnts = .;
+        KEEP(*(link_set_evcnts))
+        __stop_link_set_evcnts = .;
     }
     .data : ALIGN(8) {
         *(.data .data.*)

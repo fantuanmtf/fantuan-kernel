@@ -39,6 +39,33 @@ strchr(const char *s, int c)
 	return (c == 0) ? (char *)(uintptr_t)s : NULL;
 }
 
+#if defined(__aarch64__)
+/* arm64: the generic virtual counter is the timing source; cortex-a72/QEMU
+ * expose no RNDR, so the CSPRNG falls back to the timing-derived seed. */
+static uint64_t
+tls_rdtsc(void)
+{
+	uint64_t v;
+
+	__asm__ volatile("mrs %0, cntvct_el0" : "=r"(v));
+	return v;
+}
+
+static int
+tls_have_rdrand(void)
+{
+
+	return 0;
+}
+
+static int
+tls_rdrand64(uint64_t *out)
+{
+
+	(void)out;
+	return 0;
+}
+#else
 static uint64_t
 tls_rdtsc(void)
 {
@@ -66,6 +93,7 @@ tls_rdrand64(uint64_t *out)
 	__asm__ volatile("rdrand %0; setc %1" : "=r"(*out), "=qm"(ok));
 	return ok;
 }
+#endif
 
 static void
 tls_mix(uint8_t *state, const void *data, size_t len, uint64_t counter)

@@ -21,6 +21,8 @@ mod drivers;
 mod fdt;
 mod gic;
 mod mmu;
+#[cfg(kconfig_net)]
+mod net;
 mod shell;
 mod task;
 mod timer;
@@ -88,7 +90,7 @@ pub extern "C" fn rust_entry(dtb: usize) -> ! {
     uart::init();
     kernel_core::log::set_sink(uart::log_bytes);
     puts(uart::LOGO);
-    puts("fantuan v0.0.2 (aarch64) - QEMU virt\n");
+    puts("fantuan v0.0.3 (aarch64) - QEMU virt\n");
     // The boot protocol (QEMU raw `Image` path) passes the DTB in x0; the
     // ELF path does not, so a missing pointer is a usage error, not a fault.
     if dtb == 0 {
@@ -188,6 +190,11 @@ pub extern "C" fn rust_entry(dtb: usize) -> ! {
     kernel_core::task::spawn(demo::demo_1);
     kernel_core::task::spawn(demo::demo_2);
     puts("sched: 2 aarch64 kernel tasks spawned\n");
+
+    // M11 R9b: NetBSD rump adaptation layer (pools, callouts, mbufs) and
+    // the polled virtio-net MMIO driver (CONFIG_NET).
+    #[cfg(kconfig_net)]
+    net::init();
 
     shell::enter(bi)
 }

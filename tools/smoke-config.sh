@@ -19,8 +19,8 @@
 #                  "Compiling" list is a proper subset of the full crate set
 #                  (fantuan-abi has no kconfig build.rs and must not rebuild).
 #
-# Optional: SMOKE_CONFIG_EXTRA=1 also builds the minimal profile for riscv64
-# and i686. The script restores (or removes) .config on exit.
+# Optional: SMOKE_CONFIG_EXTRA=1 also builds the minimal profile for riscv64,
+# i686 and aarch64. The script restores (or removes) .config on exit.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -85,6 +85,12 @@ if cargo tree -p fantuan-kernel --target x86_64-unknown-none -e normal --offline
   ok "net profile: cargo tree has the kernel-net edge"
 else
   fail "net profile: cargo tree has no kernel-net edge"
+fi
+if cargo tree -p kernel-aarch64 --target aarch64-unknown-none -e normal --offline \
+     --features kconfig-net 2>/dev/null | grep -q "kernel-net"; then
+  ok "net profile: aarch64 cargo tree has the kernel-net edge"
+else
+  fail "net profile: aarch64 cargo tree has no kernel-net edge"
 fi
 NET_LOG="build/smoke-config-net.log"
 boot "$NET_LOG" "${SMOKE_CONFIG_TIMEOUT:-90}"
@@ -222,12 +228,14 @@ COUNT="$(printf '%s\n' "$REBUILT" | grep -c .)"
 ok "incrementality: rebuild set {$(echo $REBUILT | tr '\n' ' ')} is a proper subset (fantuan-abi untouched)"
 
 if [ "${SMOKE_CONFIG_EXTRA:-0}" = "1" ]; then
-  echo "[extra] minimal builds for riscv64 and i686..."
+  echo "[extra] minimal builds for riscv64, i686 and aarch64..."
   python3 tools/kconfig.py --profile minimal >/dev/null || fail "minimal before extras"
   cargo build -p kernel-riscv --target riscv64gc-unknown-none-elf --release \
     > build/smoke-config-riscv.log 2>&1 || fail "riscv64 minimal build"
   ./tools/build-i686.sh > build/smoke-config-i686.log 2>&1 || fail "i686 minimal build"
-  ok "extra arches: riscv64 + i686 minimal builds"
+  cargo build -p kernel-aarch64 --target aarch64-unknown-none --release \
+    > build/smoke-config-aarch64.log 2>&1 || fail "aarch64 minimal build"
+  ok "extra arches: riscv64 + i686 + aarch64 minimal builds"
 fi
 
 ok "offline gate (profiles + budget + incrementality)"

@@ -46,35 +46,29 @@ All repository artifacts are in English. The authoritative design lives in
 | [THIRD_PARTY.md](THIRD_PARTY.md) | third-party components, licenses and origin register |
 | [docs/PROGRESS.md](docs/PROGRESS.md) | live progress tracker for v0.0.2 -> v0.1.5 |
 
-## Current state: v0.0.2 — M10 complete (legacy BIOS + i686)
+## Current state: v0.0.3 — M11 complete (ARM64 + network)
 
-M10 makes the Live kernel reachable on machines without UEFI and on
-32-bit x86 CPUs. A self-written BIOS chain (`boot-bios/` stage1 in the MBR
-plus stage2) collects E820, sets a VBE mode when available, loads the flat
-kernel and hands over a `BootInfo arch=3`. The x86_64 kernel boots from it
-with a serial-only console and the full shell; the new `kernel-i686/` port
-brings up 32-bit PSE paging, a 3G/1G memory split capped at 1 GiB, frame
-allocator, IDT/PIC/PIT, round-robin scheduling, ring 3 with ELF32 user
-tasks over `int 0x80`, a VBE text console with serial fallback, and a
-read-only PIO ATA + shared-VFS path to the test disk. M10 also ships
-`tools/mkiso.py` (a self-written ISO9660 + El Torito builder) for a hybrid
-BIOS+UEFI ISO under the 1 GiB budget. This is the v0.0.2 release; the full
-verification is `smoke.sh` 13/13, `smoke-bios.sh` 2/2,
-`smoke-riscv.sh` 3/3, `smoke-iso.sh` 2/2 (see
-[PROGRESS.md](docs/PROGRESS.md) and [OPERATIONS.md](docs/OPERATIONS.md)
-§3). Windows boot repair stays permanently unsupported
+M11 adds the NetBSD-derived network stack and the aarch64 port. The stack
+(`kernel-net/`, built from the vendored `third_party/netbsd/` rump subset)
+runs real IPv4/ARP/ICMP/UDP/TCP and sockets on x86_64 and aarch64, with
+DHCP, DNS and the interim `ping`/`nslookup`/`wget` tools behind
+`CONFIG_TOOLS`; `CONFIG_TLS` adds the mbedTLS 3.6.7 client and pinned-CA
+HTTPS. x86_64 uses the QEMU e1000, aarch64 the polled virtio-net MMIO
+device on QEMU `virt` (no PCI there). **R9a** brings up `kernel-aarch64/`
+as a direct FDT boot: the raw `Image` boots through QEMU's
+Linux-compatible protocol (DTB in x0), with PL011, 4K-granule stage-1
+tables (TTBR0 identity + TTBR1 direct map at `0xffff000000000000`), GICv2
++ the generic timer at 100 Hz and the shared frame
+allocator/scheduler/heartbeat/shell. Build/boot with
+`tools/build.sh --arch aarch64` / `tools/run.sh --arch aarch64 --net`;
+gate with `tools/smoke-aarch64.sh` (direct FDT + virtio-net/TLS phases)
+and `tools/smoke-net.sh` (x86_64 offline gate). The aarch64 UEFI/AAVMF
+path is deferred to M14 (the loader port is a batch of its own; the
+direct-FDT path is the supported one). This is the v0.0.3 release; the
+full verification is in [PROGRESS.md](docs/PROGRESS.md) and
+[OPERATIONS.md](docs/OPERATIONS.md)
+§3. Windows boot repair stays permanently unsupported
 ([WINDOWS.md](docs/WINDOWS.md)).
-
-M11 (in progress, v0.0.3) adds the NetBSD-derived network stack and the
-aarch64 port. **R9a** brings up `kernel-aarch64/` as a direct FDT boot on
-QEMU `virt`: the raw `Image` boots through QEMU's Linux-compatible protocol
-(DTB in x0), with PL011, 4K-granule stage-1 tables (TTBR0 identity + TTBR1
-direct map at `0xffff000000000000`), GICv2 + the generic timer at 100 Hz,
-the shared frame allocator/scheduler/heartbeat and the shared shell.
-Build/boot with `tools/build.sh --arch aarch64` or
-`tools/run.sh --arch aarch64`; gate it with `tools/smoke-aarch64.sh`.
-Network/TLS on aarch64, virtio-net MMIO, the UEFI/AAVMF path and the
-v0.0.3 release are R9b.
 
 M9 brings up a second architecture and splits the portable half of the
 kernel into `kernel-core`: the riscv64 kernel boots under OpenSBI (QEMU

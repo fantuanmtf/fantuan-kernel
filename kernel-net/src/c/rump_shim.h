@@ -144,6 +144,7 @@ void rump_arp_test_start(void);
 int rump_arp_test_poll(void);
 int rump_arp_entries(void);
 
+void fantuan_rump_yield(void);
 void fantuan_rump_log(const void *, size_t);
 void fantuan_rump_panic(const void *, size_t) __attribute__((noreturn));
 void *fantuan_rump_pages_alloc(size_t);

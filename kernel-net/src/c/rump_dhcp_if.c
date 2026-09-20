@@ -13,9 +13,8 @@
 #include <netinet/in_var.h>
 #include "rump_shim.h"
 #include "rump_dhcp.h"
-#include "rump_e1000.h"
+#include "rump_nic.h"
 
-#define DHCP_IFNAME	"e1000"
 #define PROV_ADDR	0xa9fe0101u	/* 169.254.1.1 */
 #define PROV_MASK	0xffff0000u
 #define LHOST_ADDR	0x0a000202u	/* 10.0.2.2 */
@@ -37,7 +36,7 @@ dhcp_alias(struct in_aliasreq *ifra)
 {
 
 	memset(ifra, 0, sizeof(*ifra));
-	strlcpy(ifra->ifra_name, DHCP_IFNAME, sizeof(ifra->ifra_name));
+	strlcpy(ifra->ifra_name, rump_nic_name(), sizeof(ifra->ifra_name));
 	ifra->ifra_addr.sin_len = sizeof(ifra->ifra_addr);
 	ifra->ifra_addr.sin_family = AF_INET;
 	ifra->ifra_mask.sin_len = sizeof(ifra->ifra_mask);
@@ -51,14 +50,14 @@ dhcp_if_provisional(void)
 	struct sockaddr_in dst, ifa;
 	struct rt_addrinfo info;
 
-	if (rump_e1000_ifp() == NULL)
+	if (rump_nic_ifp() == NULL)
 		return -1;
 	dhcp_alias(&ifra);
 	ifra.ifra_addr.sin_addr.s_addr = htonl(PROV_ADDR);
 	ifra.ifra_mask.sin_addr.s_addr = htonl(PROV_MASK);
-	if (in_control(NULL, SIOCAIFADDR, &ifra, rump_e1000_ifp()) != 0)
+	if (in_control(NULL, SIOCAIFADDR, &ifra, rump_nic_ifp()) != 0)
 		return -1;
-	/* Direct host route to the DHCP server through the e1000. */
+	/* Direct host route to the DHCP server through the NIC. */
 	dhcp_sin(&dst, LHOST_ADDR, 0);
 	dhcp_sin(&ifa, PROV_ADDR, 0);
 	memset(&info, 0, sizeof(info));
@@ -81,12 +80,12 @@ dhcp_if_apply(const struct dhcp_lease *lease)
 	dhcp_alias(&ifra);
 	ifra.ifra_addr.sin_addr = lease->addr;
 	ifra.ifra_mask.sin_addr = lease->mask;
-	if (in_control(NULL, SIOCAIFADDR, &ifra, rump_e1000_ifp()) != 0)
+	if (in_control(NULL, SIOCAIFADDR, &ifra, rump_nic_ifp()) != 0)
 		return -1;
 	/* Drop the provisional address now that the lease is live. */
 	dhcp_alias(&ifra);
 	ifra.ifra_addr.sin_addr.s_addr = htonl(PROV_ADDR);
-	(void)in_control(NULL, SIOCDIFADDR, &ifra, rump_e1000_ifp());
+	(void)in_control(NULL, SIOCDIFADDR, &ifra, rump_nic_ifp());
 
 	dhcp_sin(&dst, INADDR_ANY, 0);
 	dhcp_sin(&gw, ntohl(lease->gw.s_addr), 0);

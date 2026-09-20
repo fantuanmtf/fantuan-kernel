@@ -80,6 +80,16 @@ lockdebug_abort(const char *func, size_t line, const volatile void *lock,
     lockops_t *ops, const char *msg)
 {
 
+	/*
+	 * All kernel tasks share lwp0, so an adaptive mutex held by one
+	 * cooperative task looks like "locking against myself" when another
+	 * task runs.  Return to the caller, which falls into the turnstile
+	 * path; turnstile_block() yields until the lock is released.  A
+	 * genuine recursive acquisition stays held and panics after the
+	 * bounded yield loop.
+	 */
+	if (msg != NULL && strcmp(msg, "locking against myself") == 0)
+		return;
 	panic("%s:%zu %s lock %p: %s", func, line,
 	    ops != NULL ? ops->lo_name : "?", (const void *)lock, msg);
 }

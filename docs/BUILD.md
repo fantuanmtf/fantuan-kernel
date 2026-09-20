@@ -1,6 +1,6 @@
 # Build Guide
 
-How to build fantuan-kernel v0.0.2 (x86_64, i686, riscv64 and aarch64) from source.
+How to build fantuan-kernel v0.0.3 (x86_64, i686, riscv64 and aarch64) from source.
 For *running* what you built see [USAGE.md](USAGE.md); for the CI-style
 checks see [OPERATIONS.md](OPERATIONS.md).
 
@@ -49,7 +49,7 @@ tools/         build/run/smoke scripts + mkdisk.py + mkiso.py
 docs/          DESIGN.md (authoritative), milestone/award docs, this set
 ```
 
-All crates are version `0.0.2` (`panic = "abort"`, release `opt-level = "z"`).
+All crates are version `0.0.3` (`panic = "abort"`, release `opt-level = "z"`).
 
 ## 3. Build with the scripts (recommended)
 
@@ -180,10 +180,10 @@ python3 tools/mkdisk.py --grub-regen build/test.img    # autorun runs grub-fix i
 
 ## 8. Versioning
 
-The workspace version is the release version (`0.0.2` since the v0.0.2
-release; `0.0.1` was the M9 release). Banners print `fantuan v0.0.2` on
+The workspace version is the release version (`0.0.3` since the v0.0.3
+release; `0.0.2` was M10, `0.0.1` the M9 release). Banners print `fantuan v0.0.3` on
 every arch (i686 says `(i686)`, riscv says `(riscv64)`; the UEFI loader
-prints `fantuan-boot v0.0.2`). The BootInfo ABI carries its own
+prints `fantuan-boot v0.0.3`). The BootInfo ABI carries its own
 `BOOT_VERSION` (append-only), the syscall `ABI_VERSION` stays 1, and the
 syscall numbers live in `abi/src/lib.rs` (append-only, never renumber).
 See [DEVELOPMENT.md](DEVELOPMENT.md) for the release checklist.

@@ -78,7 +78,7 @@ fn kmain(bi: *const BootInfo) -> ! {
     if fb::init(bi) {
         serial::set_mirror(fb::putc);
     }
-    serial::puts("\nfantuan v0.0.2 (i686) - BIOS handoff\n");
+    serial::puts("\nfantuan v0.0.3 (i686) - BIOS handoff\n");
 
     if bi.magic != BOOT_MAGIC || bi.version != BOOT_VERSION {
         serial::puts("fatal: bad handshake\n");

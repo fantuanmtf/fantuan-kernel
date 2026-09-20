@@ -85,6 +85,7 @@ rump_tcp_connected(struct socket *so)
 int
 rump_tcp_accept(struct socket *cl, struct socket **sp)
 {
+	struct sockaddr_in peer;
 	struct socket *so;
 	int error;
 
@@ -96,7 +97,10 @@ rump_tcp_accept(struct socket *cl, struct socket **sp)
 	if (so == NULL)
 		return 0;
 	solock(so);
-	error = soaccept(so, NULL);
+	/* tcp_accept() fills the peer address unconditionally: pass a real
+	 * buffer (NULL wrote to address 0, which x86 mapped by accident). */
+	memset(&peer, 0, sizeof(peer));
+	error = soaccept(so, (struct sockaddr *)&peer);
 	sounlock(so);
 	if (error != 0)
 		return -1;
