@@ -40,7 +40,12 @@ pub fn cmd_sh(_sh: &mut Shell, s: &mut Log, args: &[&[u8]]) {
         let _ = writeln!(s, "sh: cannot spawn dash (no free task slot?)");
         return;
     };
+    // Job control handover: the spawned shell becomes the console's foreground
+    // process group (the kernel shell has no pgrp), so dash's setjobctl probe
+    // `tcgetpgrp(0) == getpgrp()` succeeds instead of spinning on SIGTTIN.
+    kernel_core::process::set_tty_pgrp(child);
     let _ = writeln!(s, "sh: dash pid {} on /dev/console ('exit' returns here)", child);
     let status = task::wait_for(child);
+    kernel_core::process::set_tty_pgrp(0);
     let _ = writeln!(s, "sh: dash pid {} exited, wait status={:#x}", child, status);
 }

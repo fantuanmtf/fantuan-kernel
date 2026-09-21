@@ -91,7 +91,9 @@ pub fn set_bin_lookup(f: fn(&[u8]) -> Option<&'static [u8]>) {
     unsafe { core::ptr::write(core::ptr::addr_of_mut!(BIN_LOOKUP), Some(f)) };
 }
 
-fn lookup_bin(path: &[u8]) -> Option<&'static [u8]> {
+/// Resolve a registered binary path (used by execve and the VFS registry
+/// that exposes /bin entries to stat/open without an on-disk file).
+pub fn lookup_bin(path: &[u8]) -> Option<&'static [u8]> {
     unsafe { core::ptr::addr_of!(BIN_LOOKUP).read()? (path) }
 }
 

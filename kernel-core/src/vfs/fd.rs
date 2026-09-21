@@ -11,8 +11,8 @@ use core::sync::atomic::AtomicBool;
 
 use fantuan_abi::{
     F_DUPFD, F_GETFD, F_GETFL, F_SETFD, F_SETFL, FD_CLOEXEC, O_APPEND, O_CLOEXEC, O_CREAT, O_EXCL,
-    O_NONBLOCK, O_RDONLY, O_TRUNC, O_WRONLY, SYS_ERR_BADF, SYS_ERR_EXIST, SYS_ERR_INVAL,
-    SYS_ERR_ISDIR, SYS_ERR_MFILE, SYS_ERR_NOENT, SYS_ERR_SPIPE,
+    O_NONBLOCK, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY, SYS_ERR_ACCES, SYS_ERR_BADF, SYS_ERR_EXIST,
+    SYS_ERR_INVAL, SYS_ERR_ISDIR, SYS_ERR_MFILE, SYS_ERR_NOENT, SYS_ERR_SPIPE,
 };
 
 use crate::arch::IrqLock;
@@ -44,10 +44,14 @@ pub(super) struct Open {
     pub offset: u64,
     pub refs: u8,
     pub pipe: u16, // pipe index + 1; 0 = not a pipe
+    /// P2 read-only binary registry: user-visible pointer + length of the
+    /// embedded ELF (`crate::process::lookup_bin`). 0 = tmpfs/pipe object.
+    pub rom: u64,
+    pub rom_len: u64,
 }
 
 pub(super) const EMPTY_OPEN: Open =
-    Open { used: false, node: 0, flags: 0, offset: 0, refs: 0, pipe: 0 };
+    Open { used: false, node: 0, flags: 0, offset: 0, refs: 0, pipe: 0, rom: 0, rom_len: 0 };
 
 static mut FDS: [[Fd; MAX_FDS]; MAX_TASKS] = [[EMPTY_FD; MAX_FDS]; MAX_TASKS];
 static mut OPENS: [Open; MAX_OPEN] = [EMPTY_OPEN; MAX_OPEN];
@@ -92,7 +96,8 @@ fn alloc_open() -> Option<usize> {
 
 fn install(slot: usize, open: usize, flags: u32, node: u16, pipe_id: u16) -> Option<u16> {
     let fd = (0..MAX_FDS).find(|&i| fds(slot)[i].open == 0)?;
-    opens()[open] = Open { used: true, node, flags, offset: 0, refs: 1, pipe: pipe_id };
+    opens()[open] =
+        Open { used: true, node, flags, offset: 0, refs: 1, pipe: pipe_id, rom: 0, rom_len: 0 };
     fds(slot)[fd] = Fd { open: open as u16 + 1, cloexec: flags & O_CLOEXEC as u32 != 0 };
     Some(fd as u16)
 }
@@ -173,6 +178,8 @@ pub fn init_task(slot: usize) {
         offset: 0,
         refs: 3,
         pipe: 0,
+        rom: 0,
+        rom_len: 0,
     };
     for fd in 0..3 {
         fds(slot)[fd] = Fd { open: open as u16 + 1, cloexec: false };
@@ -225,6 +232,25 @@ pub fn open(slot: usize, path: &[u8], flags: u32) -> Result<u16, u64> {
             let (dir, name) = split_parent(cwd, path)?;
             tmpfs::create(dir, name, Kind::File)?
         }
+        Err(e) if e == SYS_ERR_NOENT => {
+            // P2 read-only binary registry: /bin entries that exist only as
+            // embedded ELF images (dash, ls, cat) are openable and readable.
+            let Some(img) = crate::process::lookup_bin(path) else { return Err(e) };
+            if flags64 & O_CREAT != 0 && flags64 & O_EXCL != 0 {
+                return Err(SYS_ERR_EXIST);
+            }
+            if flags64 & (O_WRONLY | O_RDWR | O_TRUNC | O_APPEND) != 0 {
+                return Err(SYS_ERR_ACCES);
+            }
+            let Some(open) = alloc_open() else { return Err(SYS_ERR_MFILE) };
+            let Some(fd) = install(slot, open, flags, tmpfs::ROOT, 0) else {
+                opens()[open] = EMPTY_OPEN;
+                return Err(SYS_ERR_MFILE);
+            };
+            opens()[open].rom = img.as_ptr() as u64;
+            opens()[open].rom_len = img.len() as u64;
+            return Ok(fd);
+        }
         Err(e) => return Err(e),
     };
     let kind = tmpfs::kind(node);
@@ -236,6 +262,23 @@ pub fn open(slot: usize, path: &[u8], flags: u32) -> Result<u16, u64> {
     }
     let Some(open) = alloc_open() else { return Err(SYS_ERR_MFILE) };
     install(slot, open, flags, node, 0).ok_or(SYS_ERR_MFILE)
+}
+
+/// Synthetic stat for a read-only registry file of `len` bytes: regular,
+/// 0755, no tmpfs node. Shared by open/fstat/stat.
+pub(super) fn rom_open_stat(len: u64) -> fantuan_abi::Stat {
+    let mut st = tmpfs::stat(tmpfs::ROOT);
+    st.st_ino = 0;
+    st.st_mode = fantuan_abi::S_IFREG | 0o755;
+    st.st_size = len;
+    st.st_blocks = (len + 511) / 512;
+    st.st_nlink = 1;
+    st
+}
+
+/// Registry stat by path; None when the path is not an embedded binary.
+pub(super) fn rom_stat(path: &[u8]) -> Option<fantuan_abi::Stat> {
+    crate::process::lookup_bin(path).map(|img| rom_open_stat(img.len() as u64))
 }
 
 /// Split a path's last component for create/rename (missing files only).
@@ -289,6 +332,7 @@ pub fn lseek(slot: usize, fd: u16, off: i64, whence: u32) -> Result<u64, u64> {
     let base = match whence {
         0 => 0,
         1 => o.offset as i64,
+        2 if o.rom != 0 => o.rom_len as i64,
         2 => tmpfs::size(o.node) as i64,
         _ => return Err(SYS_ERR_INVAL),
     };

@@ -18,6 +18,11 @@ pub fn irq_restore(flags: u64) {
     unsafe { asm!("msr daif, {}", in(reg) flags, options(nomem, nostack)) };
 }
 
+/// Unconditional IRQ unmask (exited-task idle loop).
+pub fn irq_enable() {
+    unsafe { asm!("msr daifclr, #2", options(nomem, nostack)) };
+}
+
 /// Idle until the next interrupt; installed as the shared idle hook.
 pub fn idle() {
     unsafe { asm!("wfi", options(nomem, nostack)) };

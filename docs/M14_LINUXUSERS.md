@@ -50,18 +50,29 @@ order (numbers never renumber):
 **P1 first tranche (landed 2026-09):** `open/close/read/write-on-fd/lseek/
 stat/fstat/getdents/brk/pipe/dup/dup2/ioctl/clock_gettime/getpid/getppid/
 chdir/getcwd/unlink/mkdir/rmdir/rename` + a writable tmpfs and
-`/dev/console`/`/dev/null`; `mmap` is an ENOSYS stub; fork/exec/wait,
-signals and futex are P2. The execution ledger is `docs/POSIX_PLAN.md`,
-the libc is `libc-fantuan/` (MIT), and the proof is
-`tools/smoke-posix.sh` (a C hello runs, exits and is reaped). The built-in
-shell remains the default `sh` until P2 lands dash.
+`/dev/console`/`/dev/null`; the proof is `tools/smoke-posix.sh` (a C
+hello runs, exits and is reaped).
+
+**P2 (landed in the working tree, 2026-09):** `fork/execve/wait4`, process
+groups/sessions, `sigaction/sigprocmask/sigreturn/sigsuspend`, the VMA
+list with anonymous `mmap`/`munmap`/`mprotect`, a console line discipline
+and the append-only ABI additions (`SYS_FORK 29`..`SYS_FCNTL 47`). dash
+0.5.12 (BSD-3-Clause) is vendored, cross-built against libc-fantuan and
+embedded: **`sh` is now dash** (interactive `/dev/console` or pass-through
+`sh -c ...` / `sh FILE`), with first-party `/bin/ls` and `/bin/cat`; the
+built-in kernel shell remains the boot console and rescue fallback.
+`tools/smoke-dash.sh` is the gate; the fault root causes and the exact
+limits (no job-control stop, no file-backed mmap) are recorded in
+`docs/POSIX_PLAN.md` P2 outcome. `futex` and job-control
+stop/continue remain for P3/P4.
 
 Kernel-side work (F3/F4): demand paging, COW, a kernel heap for page-table
 and process structures, a VMA list per process, `fork/exec` cloning of
 address spaces, `tmpfs`, a minimal `/dev` (null/zero/tty/fb/input) and
-`/proc` (self/status/mounts). **P1 status:** the tmpfs and a minimal `/dev`
-(null/console) exist as fixed static tables (no kernel heap, no `/proc`
-yet); demand paging, COW and the VMA list remain for P2.
+`/proc` (self/status/mounts). **P1/P2 status:** the tmpfs, the minimal
+`/dev` (null/console) and the per-process VMA list (anonymous mappings,
+eager copy on fork) exist; demand paging, COW and the kernel heap remain
+for M14-1.
 
 ## 5. Toolchain bootstrap chain (F7)
 
@@ -138,12 +149,16 @@ started the real port work so M14-4/M14-8 begin from evidence:
 **P1 (2026-09)** landed the first POSIX tranche (`docs/POSIX_PLAN.md`):
 the v2 syscalls, a writable tmpfs with `/dev/console`/`/dev/null`,
 `libc-fantuan` (MIT), and a C hello that runs, prints, exits and is reaped
-under the existing ELF loader (`tools/smoke-posix.sh`). **bash still does
-not run** and the spike is still expected to fail at the build stage.
-**P2** ports dash (BSD) first and only then flips the default `sh`;
-**M14-4** decides musl vs libc-fantuan per the P4 triggers. **M14-8** then
-adds the replayable `patches/`, builds `/usr/bin/bash` and flips
-`CONFIG_APP_BASH` once `posix-libc` is available. Until then the kernel's
+under the existing ELF loader (`tools/smoke-posix.sh`). **P2 (2026-09)**
+then landed the process/signal/VMA layer and the dash port; the `sh`
+command is dash (interactive or `-c`/file) and `tools/smoke-dash.sh`
+asserts the transcripts, statuses and reaps; the built-in shell is the
+boot console/rescue fallback. **bash still does not run** and the spike is
+still expected to fail at the build stage (P3 blockers in
+`docs/POSIX_PLAN.md`); **M14-4** decides musl vs libc-fantuan per the P4
+triggers. **M14-8** then adds the replayable `patches/`, builds
+`/usr/bin/bash` and flips `CONFIG_APP_BASH` once `posix-libc` is
+available, making bash the registered GPLv3 default shell. Until then the
 built-in shell and the interim `ping`/`nslookup`/`wget` bridge remain.
 
 ## 8. Spikes before coding

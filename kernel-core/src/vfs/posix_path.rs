@@ -19,9 +19,15 @@ pub fn stat(path: u64, st: u64) -> u64 {
     };
     let slot = task::current_slot();
     let cwd = fd::cwd(slot);
-    match tmpfs::lookup(cwd, cpath_slice(&buf, len)) {
+    let path = cpath_slice(&buf, len);
+    match tmpfs::lookup(cwd, path) {
         Ok(node) => put_stat(&tmpfs::stat(node), st),
-        Err(e) => e,
+        // Embedded-binary registry: /bin entries without a tmpfs node still
+        // stat as regular 0755 files (dash's PATH search needs this).
+        Err(e) => match fd::rom_stat(path) {
+            Some(rom) => put_stat(&rom, st),
+            None => e,
+        },
     }
 }
 

@@ -6,12 +6,31 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 static SAVE: AtomicUsize = AtomicUsize::new(0);
 static RESTORE: AtomicUsize = AtomicUsize::new(0);
+static ENABLE: AtomicUsize = AtomicUsize::new(0);
 static IDLE: AtomicUsize = AtomicUsize::new(0);
 
 /// Install the arch interrupt-state helpers (called once per kernel boot).
 pub fn set_irq_ops(save: fn() -> u64, restore: fn(u64)) {
     SAVE.store(save as usize, Ordering::Release);
     RESTORE.store(restore as usize, Ordering::Release);
+}
+
+/// Install the unconditional interrupt-enable helper (called at boot with
+/// set_irq_ops). Exited tasks use it to let timer ticks wake the sleepers
+/// that will reap them; without it, `exit_with` would spin with IF=0 and no
+/// tick could ever advance.
+pub fn set_irq_enable(f: fn()) {
+    ENABLE.store(f as usize, Ordering::Release);
+}
+
+/// Unconditionally enable interrupts (arch hook; no-op until installed).
+pub fn irq_enable() {
+    let p = ENABLE.load(Ordering::Acquire);
+    if p == 0 {
+        return;
+    }
+    let f: fn() = unsafe { core::mem::transmute(p) };
+    f()
 }
 
 /// Save and disable interrupts (arch hook; no-op until installed).

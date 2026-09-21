@@ -1,9 +1,9 @@
 # POSIX plan (P batches): libc-fantuan -> dash -> bash
 
-> Status: **P1 landed in the working tree (2026-09)**; P2 (dash) is next.
-> This is the staged execution ledger for M14 track A
-> (`docs/M14_LINUXUSERS.md` §4/§7, `docs/APPS.md` bash exception). The
-> built-in kernel shell stays the default `sh` until dash works.
+> Status: **P2 landed in the working tree (2026-09): dash runs and `sh` is
+> dash**; P3 (bash) is next. This is the staged execution ledger for M14
+> track A (`docs/M14_LINUXUSERS.md` §4/§7, `docs/APPS.md` bash exception).
+> The built-in kernel shell stays the boot console / rescue fallback.
 
 ## Batches
 
@@ -130,7 +130,7 @@ rebuild from source. Until then libc-fantuan stays the P2/P3 base because it
 is small, first-party, permissive, and its failures are visible. Either way
 the **ABI is the contract**: musl would port over the same v2 calls.
 
-## P2 outcome (in progress)
+## P2 outcome (dash runs; verified 2026-09)
 
 Delivered and verified by `user/proc_test.c` at boot: fork returns twice
 (child exits 42), wait4 reaps with the right status, a pipe survives
@@ -142,10 +142,71 @@ libc-fantuan gained the matching headers and stubs.
 
 dash 0.5.12 is vendored in `apps/dash/` (BSD-3-Clause, gpl=false,
 requires posix-libc) and `tools/build-dash.sh` cross-builds it against
-libc-fantuan into a 159 KB ELF that the kernel embeds; the shell command
-`sh` spawns it on /dev/console (`sh: dash pid 14 ...`). Remaining P2
-blocker: dash faults with a user-mode #PF (write, not-present) at
-0x400b85 shortly after start, so no command output is produced yet. The
-next step is to debug that fault (likely console/stdin or a VMA edge in
-libc), then switch the default `sh` to dash and keep the built-in shell
-as the rescue fallback.
+libc-fantuan into a ~160 KB ELF that the kernel embeds. `tools/smoke-dash.sh`
+boots the minimal kernel and drives a paced feeder through both sessions.
+
+**The original "dash #PF at 0x400b85" report was a misdiagnosis.** That
+fault is the deliberate ring-3 fault test in the M4 Rust demo
+(`user/src/main.rs` writes `0x500000`); it fires before `sh` runs and is by
+design. dash itself never faulted. The defects that actually blocked the
+shell, in the order they were found:
+
+1. **Job-control probe spin (kernel + libc).** dash's `setjobctl()` does
+   `do { pgrp = tcgetpgrp(fd); if (pgrp == getpgrp()) break;
+   killpg(0, SIGTTIN); } while (1)`. The `sh` command spawned dash with no
+   console foreground group (`TTY_PGRP` 0) and libc's `killpg(0, sig)`
+   returned `EINVAL` instead of signalling the caller's own group, so dash
+   spun forever before reading a byte. Fix: `sh` hands dash the terminal
+   (`process::set_tty_pgrp(child)`, 0 restored after the wait) and
+   `killpg(0, sig)` maps to `kill(0, sig)`.
+2. **Decimal conversions (libc).** `strtoull` left `base = 0` when the
+   string had no `0x`/leading-`0` prefix, so the digit loop rejected every
+   decimal digit; `$((1+2))` failed with `arithmetic expression: expecting
+   EOF: "1+2"` and `x=4` was `Illegal number: 4`. Fix: base 0 infers 10
+   (8 with a leading 0, 16 with `0x`) and a lone `0`/`0x` consumes the
+   correct characters.
+3. **`getdents` length (libc).** `readdir` passed `len = 0` to
+   `SYS_GETDENTS` (the kernel requires >= the 72-byte record), so any
+   directory read returned `EINVAL`. Fix: pass `sizeof(struct dirent)`.
+4. **No `/bin` entries (kernel).** dash resolves a PATH command by
+   `stat`ing the candidate before `execve`; the embedded ELFs existed only
+   in the `lookup_bin` registry, so `ls`, `cat` and `sh` were "not found".
+   Fix: the VFS gained a read-only registry overlay - `stat`, `open`,
+   `read`, `fstat` and `lseek` answer `/bin/<name>` from the embedded
+   images (`vfs/{fd,io,dir,posix_path}.rs`) - plus first-party
+   `user/ls.c`/`user/cat.c` tools so dash can fork/exec a real pipeline.
+5. **Zombie/sleep scheduler freeze (kernel).** Blocking syscalls run with
+   IF=0 (INT 0x60 is an interrupt gate) and the sleep clock was the
+   IRQ-driven PIT counter: when a child exited while every waiter slept,
+   `task::exit_with` spun in `schedule()` with interrupts disabled and no
+   tick could advance (symptom: `cat` followed by `^C` hung the machine).
+   Fix: `exit_with` enables IRQs and idles behind a new
+   `arch::set_irq_enable` hook, and x86_64 `now_ticks` reads the
+   calibrated TSC in 100 Hz units (floored by the PIT count) so wakeups
+   keep working with IF=0.
+
+**Proven by `tools/smoke-dash.sh`** (minimal profile): `sh -c '<script>'`
+with a clean and a non-zero exit (`wait status=0x700`); interactive dash
+on `/dev/console` with prompt, tty echo/erase, `^C` -> SIGINT
+(`$?` = 130) and `exit` back to the built-in shell; command substitution,
+`$((1+2))`, pipelines (`echo | cat`), `>`/`<` redirections, scripts by
+file (`sh /tmp/s.sh`), `$?`, fork/exec/wait and the reaps.
+
+**What "default sh" means now (exact scope).** The `sh` console command
+launches the embedded dash 0.5.12 (`/bin/dash`, BSD-3-Clause, linked
+against libc-fantuan) and passes arguments through (`sh -c ...`,
+`sh FILE`); `execve("/bin/sh")` and `execve("/bin/dash")` resolve to the
+same image. The built-in kernel shell remains the boot console and the
+rescue fallback (its command set is still gated by `CONFIG_RESCUE_REPAIR`/
+`CONFIG_TOOLS`); when the dash artifact is absent the `sh` command says so
+and the built-in shell is all there is. bash stays the M14-8 default-shell
+target for P3.
+
+**P2 limits (still unsupported in dash).** No job-control stop/continue
+(`^Z` discards the line; `SIGTSTP`/`SIGTTIN` default to ignore), no
+controlling-terminal enforcement (any task may `tcsetpgrp`), mmap is
+anonymous-private only (no file-backed/shared mappings), the `/bin`
+registry entries are stat/open/exec-visible but not `getdents` entries
+(`ls /bin` is empty), getdents still returns one 72-byte record per call,
+tmpfs is 8 files x 8 KiB and pipes are 8 x 512 B. None of these block
+dash; they are the P3/P4 backlog.

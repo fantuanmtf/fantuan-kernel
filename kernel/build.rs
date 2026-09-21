@@ -90,6 +90,16 @@ fn main() {
     } else {
         gen.push_str("pub static DASH_ELF: &[u8] = &[];\n");
     }
+    // P2: the first-party userland tools (tools/build-libc.sh) exec'd by dash.
+    for (sym, file) in [("LS_ELF", "ls_program.bin"), ("CAT_ELF", "cat_program.bin")] {
+        let path = format!("{dir}/{file}");
+        println!("cargo:rerun-if-changed={path}");
+        if std::path::Path::new(&path).exists() {
+            gen.push_str(&format!("pub static {sym}: &[u8] = include_bytes!({path:?});\n"));
+        } else {
+            gen.push_str(&format!("pub static {sym}: &[u8] = &[];\n"));
+        }
+    }
     fs::write(format!("{out}/user_program.rs"), gen).unwrap();
 
     // 4. compile the assembly + C drivers into a static archive for the link.

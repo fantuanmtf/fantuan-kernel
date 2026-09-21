@@ -73,11 +73,14 @@ unsigned long long strtoull(const char *nptr, char **endptr, int base)
         neg = (*s == '-');
         s++;
     }
+    const char *digits = s;
     if ((base == 0 || base == 16) && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
         s += 2;
         base = 16;
-    } else if (base == 0 && s[0] == '0') {
-        base = 8;
+    } else if (base == 0) {
+        /* base 0 means "infer": a leading 0 is octal, otherwise decimal.
+         * The leading 0 is left in place: it is itself an octal digit. */
+        base = s[0] == '0' ? 8 : 10;
     }
     unsigned long long acc = 0;
     int any = 0;
@@ -87,7 +90,15 @@ unsigned long long strtoull(const char *nptr, char **endptr, int base)
         acc = acc * (unsigned long long)base + (unsigned long long)d;
         any = 1;
     }
-    if (endptr) *endptr = (char *)(any ? s : nptr);
+    if (endptr) {
+        if (any) {
+            *endptr = (char *)s;
+        } else if (base == 16 && s != digits) {
+            *endptr = (char *)(digits + 1); /* "0x" with no hex digits: after the 0 */
+        } else {
+            *endptr = (char *)nptr; /* no conversion at all */
+        }
+    }
     return neg ? (unsigned long long)(-(long long)acc) : acc;
 }
 

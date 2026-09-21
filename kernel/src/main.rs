@@ -68,6 +68,10 @@ fn lookup_bin(path: &[u8]) -> Option<&'static [u8]> {
         Some(HELLO_ELF)
     } else if path == b"/bin/proc-test" && !PROC_ELF.is_empty() {
         Some(PROC_ELF)
+    } else if path == b"/bin/ls" && !LS_ELF.is_empty() {
+        Some(LS_ELF)
+    } else if path == b"/bin/cat" && !CAT_ELF.is_empty() {
+        Some(CAT_ELF)
     } else {
         None
     }
@@ -155,6 +159,7 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     // M9.2a: install the arch IRQ hooks for the shared allocator, then
     // initialize it from the memory map (kernel end from the linker script).
     kernel_core::arch::set_irq_ops(cpu::irq_save, cpu::irq_restore);
+    kernel_core::arch::set_irq_enable(cpu::sti);
     let kernel_end_phys = core::ptr::addr_of!(__bss_end) as u64 - fantuan_abi::PHYS_OFFSET;
     mm::frame::init(bi, kernel_end_phys, &[]);
     let alloc = mm::frame::get();

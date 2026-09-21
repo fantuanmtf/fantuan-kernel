@@ -131,11 +131,13 @@ int kill(pid_t pid, int sig)
 
 int killpg(int pgrp, int sig)
 {
-    if (pgrp <= 0) {
+    if (pgrp < 0) {
         errno = EINVAL;
         return -1;
     }
-    return kill(-pgrp, sig);
+    /* pgrp 0 means the caller's own process group (kill(0, sig)), matching
+     * the kill(-pgrp) convention dash relies on in its job-control probe. */
+    return kill(pgrp == 0 ? 0 : -pgrp, sig);
 }
 
 int raise(int sig)

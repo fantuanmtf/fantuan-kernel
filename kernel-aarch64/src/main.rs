@@ -112,6 +112,7 @@ pub extern "C" fn rust_entry(dtb: usize) -> ! {
 
     // Shared allocator (kernel-core): install the IRQ/idle/alias hooks first.
     kernel_core::arch::set_irq_ops(cpu::irq_save, cpu::irq_restore);
+    kernel_core::arch::set_irq_enable(cpu::irq_enable);
     kernel_core::arch::set_idle(cpu::idle);
     kernel_core::mem::set_phys_to_virt(mmu::phys_to_virt);
     let stack_top = core::ptr::addr_of!(BOOT_STACK_TOP) as u64;

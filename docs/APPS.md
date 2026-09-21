@@ -59,7 +59,8 @@ gpl = false                     # true only in the apps layer, never linked
 
 - SPDX in every manifest; CI refuses any GPL manifest in the kernel/base
   layer and records the app-layer ones in the SBOM.
-- **bash is the registered exception**: it is the default `sh`, GPLv3,
+- **bash is the registered exception**: it is the final default `sh`
+  (M14-8/P3; the interim default is dash, P2), GPLv3,
   shipped as a separate program with complete corresponding sources
   (vendored `src/`, `COPYING`, plus a sources copy in the image at
   `/usr/src/bash`), and it is never linked into the kernel or base
@@ -222,8 +223,9 @@ gate are unchanged.
 `libc-fantuan` (MIT) + ABI v2 files/brk/pipe syscalls + a writable tmpfs, and
 `tools/smoke-posix.sh` runs a C program through the ELF loader. With the libc
 probe the bash spike's configure now exits 0 and the counts drop to 13/43
-missing headers and 76/102 defined symbols; dash is ported first (P2), bash
-second (P3). The GPL firewall and the source-provision policy are untouched.
+missing headers and 76/102 defined symbols. **P2 (2026-09)** then ported
+dash, which now runs as the interim default `sh` and `/bin/sh`; bash is
+next (P3). The GPL firewall and the source-provision policy are untouched.
 
 ## Budgets
 

@@ -6,23 +6,39 @@
 //! console reads go through the P2 `tty` line discipline, which blocks by
 //! sleeping outside the FS lock.
 
-use fantuan_abi::{SYS_ERR_BADF, SYS_ERR_ISDIR, O_APPEND};
+use fantuan_abi::{SYS_ERR_ACCES, SYS_ERR_BADF, SYS_ERR_ISDIR, O_APPEND};
 
 use super::fd::{self, FS_LOCK};
 use super::pipe;
 use super::tmpfs::{self, Kind};
 use crate::arch::IrqLock;
 
+/// Copy out of a read-only registry file at `off` (bounded by its length).
+fn rom_read(ptr: u64, len: u64, off: u64, out: &mut [u8]) -> usize {
+    if off >= len {
+        return 0;
+    }
+    let take = (len - off).min(out.len() as u64) as usize;
+    let src = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    out[..take].copy_from_slice(&src[off as usize..off as usize + take]);
+    take
+}
+
 /// read(fd, out): files (honoring the open offset), console/tty, null, pipes.
 pub fn read(slot: usize, fd: u16, out: &mut [u8]) -> Result<usize, u64> {
-    let (pipe_id, idx, node) = {
+    let (pipe_id, idx, node, rom, rom_len, offset) = {
         let _g = IrqLock::acquire(&FS_LOCK);
         let Some(idx) = fd::open_of(slot, fd) else { return Err(SYS_ERR_BADF) };
         let o = fd::open_at(idx);
-        (o.pipe, idx, o.node)
+        (o.pipe, idx, o.node, o.rom, o.rom_len, o.offset)
     };
     if pipe_id != 0 {
         return pipe::read(pipe_id - 1, out);
+    }
+    if rom != 0 {
+        let n = rom_read(rom, rom_len, offset, out);
+        fd::set_offset(idx, offset + n as u64);
+        return Ok(n);
     }
     if tmpfs::kind(node) == Kind::Console {
         return crate::tty::read(out);
@@ -36,13 +52,17 @@ pub fn read(slot: usize, fd: u16, out: &mut [u8]) -> Result<usize, u64> {
 
 /// write(fd, data): console sink, files with offsets and pipes.
 pub fn write(slot: usize, fd: u16, data: &[u8]) -> Result<usize, u64> {
-    let (idx, pipe_id) = {
+    let (idx, pipe_id, rom) = {
         let _g = IrqLock::acquire(&FS_LOCK);
         let idx = fd::open_of(slot, fd).ok_or(SYS_ERR_BADF)?;
-        (idx, fd::open_at(idx).pipe)
+        let o = fd::open_at(idx);
+        (idx, o.pipe, o.rom)
     };
     if pipe_id != 0 {
         return pipe::write(pipe_id - 1, data);
+    }
+    if rom != 0 {
+        return Err(SYS_ERR_ACCES); // embedded binaries are read-only
     }
     let _g = IrqLock::acquire(&FS_LOCK);
     let o = fd::open_at(idx);

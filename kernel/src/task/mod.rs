@@ -58,7 +58,14 @@ fn arch_phys_to_virt(p: u64) -> u64 {
 }
 
 fn arch_now_ticks() -> u64 {
-    crate::timer::ticks()
+    // Sleep/wake uses a hardware-backed clock, not just the PIT counter: a
+    // blocking syscall can spin in the scheduler with interrupts disabled
+    // (INT 0x60 is an interrupt gate), and a tick-only clock would freeze
+    // its `wake_tick`, deadlocking every waiter. TSC ns are calibrated
+    // before pit::init_timer; the PIT count is the floor so the two sources
+    // never disagree on elapsed time.
+    let hw = kernel_core::time::now_ns() / 10_000_000; // 100 Hz units
+    hw.max(crate::timer::ticks())
 }
 
 fn arch_user_map(root: u64, va: u64, pa: u64, prot: kernel_core::user::Prot) {

@@ -20,6 +20,11 @@ pub fn irq_restore(flags: u64) {
     }
 }
 
+/// Unconditional sstatus.SIE set (exited-task idle loop).
+pub fn irq_enable() {
+    unsafe { asm!("csrsi sstatus, 2", options(nomem, nostack)) };
+}
+
 /// Idle until the next interrupt (SBI timer); installed as the shared idle
 /// hook.
 pub fn idle() {

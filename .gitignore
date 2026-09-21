@@ -17,3 +17,5 @@ __pycache__/
 .trae/
 /kernel/dash_program.bin
 /kernel/proc_test_program.bin
+/kernel/ls_program.bin
+/kernel/cat_program.bin

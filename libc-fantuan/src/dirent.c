@@ -33,7 +33,8 @@ DIR *opendir(const char *name)
 
 struct dirent *readdir(DIR *dirp)
 {
-    long r = __fantuan_syscall6(FANTUAN_SYS_GETDENTS, dirp->fd, (long)&dirp->de, 0, 0, 0);
+    long r = __fantuan_syscall6(FANTUAN_SYS_GETDENTS, dirp->fd,
+                               (long)&dirp->de, sizeof(dirp->de), 0, 0);
     if (r < 0) {
         errno = (int)-r;
         return NULL;

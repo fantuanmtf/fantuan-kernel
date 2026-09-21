@@ -18,7 +18,7 @@ pub fn readdir(slot: usize, fd: u16) -> Result<Option<Dirent>, u64> {
     let _g = IrqLock::acquire(&FS_LOCK);
     let Some(idx) = fd::open_of(slot, fd) else { return Err(SYS_ERR_BADF) };
     let o = fd::open_at(idx);
-    if o.pipe != 0 {
+    if o.pipe != 0 || o.rom != 0 {
         return Err(SYS_ERR_NOTDIR);
     }
     if tmpfs::kind(o.node) != Kind::Dir {
@@ -61,6 +61,9 @@ pub fn fstat(slot: usize, fd: u16) -> Result<Stat, u64> {
         st.st_mode = S_IFIFO | 0o600;
         st.st_size = pipe::unread(pid);
         return Ok(st);
+    }
+    if o.rom != 0 {
+        return Ok(fd::rom_open_stat(o.rom_len));
     }
     Ok(tmpfs::stat(o.node))
 }

@@ -68,18 +68,6 @@ pub(super) fn unread(id: u16) -> u64 {
     pipes()[id as usize].len as u64
 }
 
-fn plog2(tag: char, id: usize, a: u64, b: u64) {
-    use core::fmt::Write;
-    struct S;
-    impl Write for S {
-        fn write_str(&mut self, s: &str) -> core::fmt::Result {
-            crate::log::put(s.as_bytes());
-            Ok(())
-        }
-    }
-    let _ = write!(S, "pipe {} id={} ret={} slot={}\n", tag, id, a, b);
-}
-
 fn read_locked(id: usize, out: &mut [u8]) -> Result<usize, u64> {
     let p = pipes()[id];
     if !p.used {

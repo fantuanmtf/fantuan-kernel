@@ -39,7 +39,7 @@ pub const N_COMMANDS: usize = CORE_COMMANDS + RESCUE_COMMANDS + TOOL_COMMANDS;
 pub static COMMANDS: [Command; N_COMMANDS] = [
     Command { name: "help", help: "this table", run: shared_cmds::cmd_help },
     Command { name: "bootinfo", help: "boot handover details", run: shared_cmds::cmd_bootinfo },
-    Command { name: "sh", help: "run /bin/dash on the console (P2)", run: sh::cmd_sh },
+    Command { name: "sh", help: "default shell (dash /bin/sh); args pass through, 'exit' returns", run: sh::cmd_sh },
     #[cfg(kconfig_rescue_repair)]
     Command { name: "hwdiag", help: "re-run hardware + storage diagnostics", run: cmds::cmd_hwdiag },
     #[cfg(kconfig_rescue_repair)]

@@ -308,7 +308,15 @@ fn exit_with(status: u64) -> ! {
     }
     crate::process::on_exit(slot, status);
     crate::vfs::fd::close_all(slot);
+    // An exited task is a zombie: it must not spin with interrupts disabled,
+    // because the wait4 sleepers that reap it are woken by timer ticks. Enable
+    // IRQs and idle (hlt/wfi) so the tick handler runs schedule(); call
+    // schedule() too, for kernels without an idle hook. The scheduler never
+    // picks an Exited task, so this yields until the parent consumes the
+    // status and the slot is reaped.
     loop {
+        crate::arch::irq_enable();
+        crate::arch::idle();
         schedule();
     }
 }

@@ -51,6 +51,18 @@ build() {
     -Wl,--build-id=none -Wl,--gc-sections \
     -Wl,-T,"$ROOT/libc-fantuan/elf.ld" \
     "$obj/crt0.S.o" "$obj/proc_test.c.o" "$1/libc-fantuan.a" -o "$1/proc_test.elf"
+  # P2 userland tools exec'd by dash (ls/cat): one static ELF each. Stripped:
+  # their embedded copies live in the kernel, and the minimal-ELF string
+  # invariants (tools/smoke-config.sh) must not see e.g. a `cat` token from
+  # the tool's source-file symbol.
+  local tool
+  for tool in ls cat; do
+    "$CC" "${CFLAGS[@]}" -c "$ROOT/user/$tool.c" -o "$obj/$tool.c.o"
+    "$CC" --target="$TARGET" -nostdlib -static -no-pie \
+      -Wl,--build-id=none -Wl,--gc-sections -Wl,-s \
+      -Wl,-T,"$ROOT/libc-fantuan/elf.ld" \
+      "$obj/crt0.S.o" "$obj/$tool.c.o" "$1/libc-fantuan.a" -o "$1/$tool.elf"
+  done
 }
 
 CFLAGS=(
@@ -71,7 +83,12 @@ if [ "$VERIFY" = "1" ]; then
   elf_b=$(sha256sum "$ALT/hello.elf" | awk '{print $1}')
   pt_a=$(sha256sum "$OUT/proc_test.elf" | awk '{print $1}')
   pt_b=$(sha256sum "$ALT/proc_test.elf" | awk '{print $1}')
-  if [ "$sha_a" != "$sha_b" ] || [ "$elf_a" != "$elf_b" ] || [ "$pt_a" != "$pt_b" ]; then
+  ls_a=$(sha256sum "$OUT/ls.elf" | awk '{print $1}')
+  ls_b=$(sha256sum "$ALT/ls.elf" | awk '{print $1}')
+  cat_a=$(sha256sum "$OUT/cat.elf" | awk '{print $1}')
+  cat_b=$(sha256sum "$ALT/cat.elf" | awk '{print $1}')
+  if [ "$sha_a" != "$sha_b" ] || [ "$elf_a" != "$elf_b" ] || [ "$pt_a" != "$pt_b" ] \
+     || [ "$ls_a" != "$ls_b" ] || [ "$cat_a" != "$cat_b" ]; then
     echo "build-libc: NOT deterministic" >&2
     exit 1
   fi
@@ -85,7 +102,14 @@ cmp -s "$OUT/hello.elf" "$ROOT/kernel/hello_program.bin" \
   || cp "$OUT/hello.elf" "$ROOT/kernel/hello_program.bin"
 cmp -s "$OUT/proc_test.elf" "$ROOT/kernel/proc_test_program.bin" \
   || cp "$OUT/proc_test.elf" "$ROOT/kernel/proc_test_program.bin"
+for tool in ls cat; do
+  cmp -s "$OUT/$tool.elf" "$ROOT/kernel/${tool}_program.bin" \
+    || cp "$OUT/$tool.elf" "$ROOT/kernel/${tool}_program.bin"
+done
 
 echo "[libc] build/libc-fantuan/libc-fantuan.a $(stat -c %s "$OUT/libc-fantuan.a") bytes"
 echo "[libc] build/libc-fantuan/hello.elf $(stat -c %s "$OUT/hello.elf") bytes -> kernel/hello_program.bin"
 echo "[libc] build/libc-fantuan/proc_test.elf $(stat -c %s "$OUT/proc_test.elf") bytes -> kernel/proc_test_program.bin"
+for tool in ls cat; do
+  echo "[libc] build/libc-fantuan/$tool.elf $(stat -c %s "$OUT/$tool.elf") bytes -> kernel/${tool}_program.bin"
+done

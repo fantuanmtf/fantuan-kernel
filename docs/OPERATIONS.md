@@ -11,6 +11,8 @@ itself see [USAGE.md](USAGE.md); for builds see [BUILD.md](BUILD.md).
 | `tools/build.sh [--arch riscv64]` | build all artifacts for one arch | < 1 min |
 | `tools/smoke.sh` | full x86 acceptance suite (13 phases) | ~25 min |
 | `tools/smoke-config.sh` | profile invariants, command-string gating, budget, incrementality | ~3 min |
+| `tools/smoke-dash.sh` | P2 dash gate: -c/interactive transcripts, pipes/redirects/scripts, SIGINT, reaps | ~2 min |
+| `tools/smoke-posix.sh` | P1 libc/ELF-loader gate (hello, brk, tmpfs, pipe) | ~1 min |
 | `tools/smoke-net.sh` | M11 offline network gate (loopback/SLIRP/DNS/TLS/UDP) | ~8 min |
 | `tools/smoke-bios.sh` | legacy BIOS chain: x86_64 + i686 (2 phases) | ~2 min |
 | `tools/smoke-riscv.sh` | riscv acceptance suite (3 phases) | ~4 min |
