@@ -90,6 +90,17 @@ fn main() {
     } else {
         gen.push_str("pub static DASH_ELF: &[u8] = &[];\n");
     }
+    // P3: /bin/bash (tools/build-bash.sh, vendored GPLv3 app layer) is an
+    // ordinary user program embedded like dash; it is never linked into the
+    // kernel or base libraries (APPS.md GPL firewall). Absent, `sh` keeps
+    // dash and the `bash` command reports it is not embedded.
+    let bash = format!("{dir}/bash_program.bin");
+    println!("cargo:rerun-if-changed={bash}");
+    if std::path::Path::new(&bash).exists() {
+        gen.push_str(&format!("pub static BASH_ELF: &[u8] = include_bytes!({bash:?});\n"));
+    } else {
+        gen.push_str("pub static BASH_ELF: &[u8] = &[];\n");
+    }
     // P2: the first-party userland tools (tools/build-libc.sh) exec'd by dash.
     for (sym, file) in [("LS_ELF", "ls_program.bin"), ("CAT_ELF", "cat_program.bin")] {
         let path = format!("{dir}/{file}");

@@ -1,14 +1,16 @@
-# libc-fantuan (P1)
+# libc-fantuan (P1-P3)
 
 A small freestanding C library for fantuan's native syscall ABI, MIT-licensed
-and written for this kernel (not a port of an existing libc). P1 gives the
-next batches a working, honest base: enough libc to compile and run a C
-program through the ELF loader, and enough headers/symbols that configure
-probes link.
+and written for this kernel (not a port of an existing libc). P1 started it
+with enough libc to run a C program through the ELF loader; P2 added the
+process/signal layer (dash runs); P3 completed the surface bash needs (the
+spike resolves all 43 probed headers and 102/102 probed symbols).
 
-**What P1 is not:** bash does not run. `fork`/`execve`/`wait4`, signals,
-`mmap`, glob/locale/regex/iconv and wide characters are declared or stubbed
-but not implemented; see `docs/POSIX_PLAN.md` for the staged path.
+**What P3 is not:** locale databases and iconv tables (C locale only),
+dynamic loading (`dl*` return NULL/ENOSYS), pty (`forkpty`/`openpty`
+ENOSYS), a regex with back-references, or a full network stack
+(`sys/socket.h` is link surface for configure). See `docs/POSIX_PLAN.md`
+for the staged path and the P3 outcome.
 
 ## Build
 
@@ -61,6 +63,14 @@ trampoline are the only per-arch pieces.
   calendar conversions are UTC.
 - **Stubs**: unimplemented functions are present and set `ENOSYS` so
   configure-style probes link; `src/stubs.c` lists them.
+- **P3 surface**: `fnmatch`/`glob` (small in-repo implementations),
+  an original compact BRE/ERE regex (`regex_parse.c`, `regex_class.c`,
+  `regex_compile.c`, `regex_exec.c`), UTF-8 `wchar`/`wctype`, C-locale
+  `setlocale`/`localeconv`/`nl_langinfo`, `wordexp`, `popen`/`pclose` over
+  `/bin/sh`, and honest ENOSYS link surface for `iconv_*`, `dl*`, sockets
+  and `forkpty`/`openpty` (`src/nls_stubs.c`, `src/net_stubs.c`,
+  `src/pty.c`). `sigsetjmp` is a call-site macro in `setjmp.h`; its
+  `jmp_buf` must belong to the caller's frame.
 
 ## Layout
 
@@ -72,4 +82,5 @@ LICENSE            MIT
 ```
 
 Files stay <=300 lines (repo convention); sources are split accordingly
-(`strings.c`, `stdio_file.c`, `printf_file.c`, `stdlib_misc.c`, `env.c`).
+(`strings.c`, `stdio_file.c`, `printf_file.c`, `stdlib_misc.c`, `env.c`,
+`wstring.c`, `regex_*.c`).

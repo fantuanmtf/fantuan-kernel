@@ -1,9 +1,11 @@
 # POSIX plan (P batches): libc-fantuan -> dash -> bash
 
-> Status: **P2 landed in the working tree (2026-09): dash runs and `sh` is
-> dash**; P3 (bash) is next. This is the staged execution ledger for M14
-> track A (`docs/M14_LINUXUSERS.md` §4/§7, `docs/APPS.md` bash exception).
-> The built-in kernel shell stays the boot console / rescue fallback.
+> Status: **P3 landed in the working tree (2026-09): bash 5.3 builds and
+> runs, and `sh` is bash** (dash stays `/bin/dash`, selectable). P2 remains
+> the dash record; P4 (musl vs libc-fantuan) is the next decision. This is
+> the staged execution ledger for M14 track A
+> (`docs/M14_LINUXUSERS.md` §4/§7, `docs/APPS.md` bash exception). The
+> built-in kernel shell stays the boot console / rescue fallback.
 
 ## Batches
 
@@ -11,7 +13,7 @@
 |---|---|---|
 | **P1** | Native ABI v2 (round 1) + writable tmpfs + `/dev/console`, `/dev/null` + `libc-fantuan` + the first C user program + `tools/smoke-posix.sh` | none; a C program runs through the ELF loader |
 | **P2** | `fork`/`execve`/`wait4`, process groups, signals, the real `mmap`/VMA path, per-ELF heap base, line-discipline input; port **dash** (BSD-2/3) as `/bin/dash`, then flip the default `sh` to it | a real POSIX shell, permissive only |
-| **P3** | Port **bash 5.3** (GPLv3 registered exception, `apps/bash/`): glob/fnmatch/wordexp, regex, locale/time stubs, wide chars, pwd/grp completeness, termios/job control, replayable `patches/`; ship `/usr/bin/bash` with sources in the image | bash as a separate program; built-in shell keeps the rescue builtins |
+| **P3** | Port **bash 5.3** (GPLv3 registered exception, `apps/bash/`): glob/fnmatch/wordexp, regex, locale/time stubs, wide chars, pwd/grp completeness, termios/job control, replayable `patches/`; ship `/usr/bin/bash` with sources in the image | **done (2026-09)**: bash is the default `sh`; built-in shell keeps the rescue builtins |
 | **P4** | musl vs libc-fantuan decision (M14 §5): if libc-fantuan stalls on TLS/futex/locale, port musl (MIT) over the same native ABI - the syscall layer is the stable contract | unchanged shell binary |
 
 ## P1 - what landed
@@ -90,34 +92,27 @@ From the C5 spike (`tools/build-bash-spike.sh`, recorded in
 6. **Heap/COW**: fork needs address-space cloning (COW or copy); the M14-1
    VMA/COW work is the prerequisite.
 
-## P3 - bash (concrete blockers)
+## P3 - bash (measured blockers, all closed)
 
 Measured with the libc include/archive
 (`BASH_SPIKE_LIBC_INC=libc-fantuan/include`, `BASH_SPIKE_LIBC_A=...`):
 
-| Metric | C5 (bare) | P1 (libc-fantuan) |
-|---|---|---|
-| configure | `cannot compute sizeof (size_t)` | exits 0 (Makefiles generated) |
-| missing headers | 39 of 43 | **13 of 43** |
-| probed symbols resolved | 0 of 102 | **76 of 102** (62 real + 14 ENOSYS stubs) |
+| Metric | C5 (bare) | P1 (libc-fantuan) | P3 (landed) |
+|---|---|---|---|
+| configure | `cannot compute sizeof (size_t)` | exits 0 (Makefiles generated) | exits 0 |
+| missing headers | 39 of 43 | 13 of 43 | **0 of 43** |
+| probed symbols resolved | 0 of 102 | 76 of 102 (62 real + 14 ENOSYS stubs) | **102 of 102** |
 
-Remaining **13 headers**: `setjmp.h`, `sys/socket.h`, `grp.h`, `wchar.h`,
-`wctype.h`, `glob.h`, `locale.h`, `langinfo.h`, `iconv.h`, `wordexp.h`,
-`dlfcn.h`, `libintl.h`, `regex.h`.
-
-Remaining **26 symbols**: `setpgid`, `forkpty`, `openpty`, `glob`,
-`globfree`, `fnmatch`, `wordexp`, `wordfree`, `regcomp`, `regexec`,
-`regfree`, `setlocale`, `localeconv`, `nl_langinfo`, `mbrtowc`, `wcrtomb`,
-`mbsrtowcs`, `wcsrtombs`, `iconv_open`, `iconv`, `iconv_close`, `popen`,
-`pclose`, `dlopen`, `dlsym`, `dlclose`.
-
-Plus the P2 process/signal layer (bash needs job control, `tcgetpgrp`/
-`tcsetpgrp`, `killpg`, `SIGCHLD` traps), `sigsetjmp`/`siglongjmp`, and the
-`--without-readline --without-bash-malloc --disable-nls --enable-static-link`
-port path already pinned in `apps/bash/port/README.md`. The 14 stubs among
-the 76 (`fork`, `execve`, `waitpid`, `readlink`, `symlink`, `tcgetpgrp`,
-`tcsetpgrp`, `signal`, `sigaction`, `sigprocmask`, `sigsuspend`, `kill`,
-`killpg`, `system`) must become real before any shell runs.
+The P1/P2 "remaining" lists were `setjmp.h` (P2), `sys/socket.h`, `grp.h`,
+`wchar.h`, `wctype.h`, `glob.h`, `locale.h`, `langinfo.h`, `iconv.h`,
+`wordexp.h`, `dlfcn.h`, `libintl.h`, `regex.h` and `setpgid` (P2),
+`forkpty`, `openpty`, `glob`, `globfree`, `fnmatch`, `wordexp`, `wordfree`,
+`regcomp`, `regexec`, `regfree`, `setlocale`, `localeconv`, `nl_langinfo`,
+`mbrtowc`, `wcrtomb`, `mbsrtowcs`, `wcsrtombs`, `iconv_open`, `iconv`,
+`iconv_close`, `popen`, `pclose`, `dlopen`, `dlsym`, `dlclose` - all landed
+in P3 (implemented where useful, honest stubs for `forkpty`/`openpty`,
+`iconv_*` and `dl*`; see `libc-fantuan/README.md`). The P2 process/signal
+layer satisfies the job-control and `SIGCHLD`/`sigsetjmp` requirements.
 
 ## P4 - musl vs libc-fantuan
 
@@ -210,3 +205,70 @@ registry entries are stat/open/exec-visible but not `getdents` entries
 (`ls /bin` is empty), getdents still returns one 72-byte record per call,
 tmpfs is 8 files x 8 KiB and pipes are 8 x 512 B. None of these block
 dash; they are the P3/P4 backlog.
+
+## P3 outcome (bash runs; verified 2026-09)
+
+**The gap is closed and measured.** With the P3 libc the spike reports
+**0 of 43 missing headers and 102 of 102 probed symbols resolved** (P1:
+13/43 and 76/102; C5: 39/43 and 0/102). `tools/build-bash.sh` cross-builds
+the vendored pristine bash 5.3 against libc-fantuan with the freestanding
+clang and `-nostdlib` (so configure's link probes resolve against
+libc-fantuan, never host glibc): `--host=x86_64-unknown-none
+--without-bash-malloc --disable-nls --disable-readline --enable-static-link`,
+cross-run answers `bash_cv_func_strchrnul_works=yes`
+`bash_cv_getcwd_malloc=yes`, one replayed patch
+(`patches/0001-netopen-no-network-decls.patch`). The stripped artifact is
+743,312 bytes, sha256
+`38ec6a3028d89bbb879315707ba3a0274b6264345181a0693dc55bc94c65e5ac`,
+byte-reproducible (`BASH_VERIFY=1`), installed as `kernel/bash_program.bin`
+and embedded like dash (the GPL firewall is unchanged: an app-layer
+program, never linked into the kernel or base).
+
+**libc additions (P3).** Headers `sys/socket.h`, `grp.h`, `wchar.h`,
+`wctype.h`, `glob.h`, `fnmatch.h`, `locale.h`, `langinfo.h`, `iconv.h`,
+`wordexp.h`, `dlfcn.h`, `libintl.h`, `regex.h`, `pty.h`; implementations:
+in-repo `fnmatch`/`glob`, an original compact BRE/ERE `regex`
+(`regex_parse.c`/`regex_class.c`/`regex_compile.c`/`regex_exec.c`), UTF-8
+`wchar`/`wctype`, C-locale `setlocale`/`localeconv`/`nl_langinfo`,
+`wordexp`, `popen`/`pclose` over `/bin/sh`, and honest link surface for
+`iconv_*`/`dl*`/`forkpty`/`openpty`/sockets (ENOSYS, documented). Shell
+provision: `sigsetjmp` is a call-site macro (the saved context must belong
+to the caller's frame; a nested C `sigsetjmp` did not restore reliably).
+
+**Kernel fixes the P3 load path forced.**
+
+1. **ELF loader page table.** The P1/P2 loader tracked mapped pages in a
+   fixed 64-entry table; a static bash is ~190 pages. The loader now
+   collects the PT_LOAD segments, allocates each distinct page once,
+   unions the covering segments' protections and copies all of their bytes
+   (kernel-core/src/elf.rs) - no table, no cap.
+2. **Stale page-table frames.** `next_level` allocated intermediate tables
+   without zeroing them; a frame recycled from a reaped task read as full
+   of "present" entries and the walk followed garbage (a #GP under bash's
+   fork/exec rate). Fresh tables are zeroed (kernel/src/arch/x86_64/user.rs).
+3. **App-lock orphan (P2 oversight).** `apps/dash` was vendored in P2
+   without an `apps.lock` entry, so `appctl verify --apps-layer` (all
+   entries) failed and `smoke-gpl` was red; dash is now pinned
+   (BSD-3-Clause, `source = "upstream"`).
+
+**Default-shell decision.** **`sh` is bash** when the artifact is embedded:
+`/bin/sh` and `execve("/bin/sh")` resolve to bash, the `sh` console command
+launches it with arguments passed through, and a new `bash` console command
+selects it explicitly. dash stays vendored, embedded as `/bin/dash`, and
+selectable through the new `dash` console command; `execve("/bin/dash")`
+still works. With no bash artifact, `sh` falls back to dash; with neither,
+the built-in shell remains the rescue console.
+
+**Proven by `tools/smoke-bash.sh`** (minimal profile): `sh -c` reports the
+bash version; `bash -c 'echo noninteractive-ok'`; non-zero exit
+(`wait status=0x700`); interactive bash on `/dev/console` with prompt,
+arithmetic `$((2+3))`=5, variables `x=41; echo $((x+1))`=42, a function, a
+pipeline (`echo pipe-bash | cat`), a redirection (`>`/`<`), command
+substitution `$(...)`, `^C` -> status 130, `exit` back to the built-in
+shell, the reaps, and dash still selectable. `tools/smoke-dash.sh` selects
+dash explicitly and stays green.
+
+**P3 limits (still open).** No job-control stop/continue (`^Z`), no pty
+(`forkpty`/`openpty` return ENOSYS), no dynamic loading, no iconv/locale
+database, anonymous-private mmap only, `/bin` not enumerable; bash runs
+without readline (line editing is the tty's). These are P4/M14 backlog.

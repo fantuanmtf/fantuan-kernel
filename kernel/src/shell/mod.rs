@@ -22,7 +22,7 @@ pub mod cmds;
 pub mod cmds_net;
 pub mod sh;
 
-const CORE_COMMANDS: usize = 3;
+const CORE_COMMANDS: usize = 5;
 #[cfg(kconfig_rescue_repair)]
 const RESCUE_COMMANDS: usize = 10;
 #[cfg(not(kconfig_rescue_repair))]
@@ -39,7 +39,9 @@ pub const N_COMMANDS: usize = CORE_COMMANDS + RESCUE_COMMANDS + TOOL_COMMANDS;
 pub static COMMANDS: [Command; N_COMMANDS] = [
     Command { name: "help", help: "this table", run: shared_cmds::cmd_help },
     Command { name: "bootinfo", help: "boot handover details", run: shared_cmds::cmd_bootinfo },
-    Command { name: "sh", help: "default shell (dash /bin/sh); args pass through, 'exit' returns", run: sh::cmd_sh },
+    Command { name: "sh", help: "default shell (bash, else dash); args pass through, 'exit' returns", run: sh::cmd_sh },
+    Command { name: "bash", help: "GNU bash 5.3 (/bin/bash, GPLv3 app layer); args pass through", run: sh::cmd_bash },
+    Command { name: "dash", help: "dash 0.5.12 (/bin/dash, the P2 fallback shell)", run: sh::cmd_dash },
     #[cfg(kconfig_rescue_repair)]
     Command { name: "hwdiag", help: "re-run hardware + storage diagnostics", run: cmds::cmd_hwdiag },
     #[cfg(kconfig_rescue_repair)]

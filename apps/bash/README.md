@@ -14,8 +14,8 @@ registered in [THIRD_PARTY.md](../../THIRD_PARTY.md) and allowed by
 | `src/SHA256SUMS` | sha256 of the tarball (`sha256sum -c` in `src/`) |
 | `src/SOURCE` | release URL, retrieval date, signature and provenance notes |
 | `COPYING` | GPLv3 text, extracted from the tarball |
-| `patches/` | replayable musl/fantuan-ABI patches (empty until M14-8) |
-| `port/` | early-start record: `README.md` (flags + blockers) and `REQUIREMENTS.md` (minimal POSIX surface) |
+| `patches/` | replayable fantuan-ABI patches (`0001-netopen-no-network-decls.patch`; replayed by `tools/build-bash.sh`) |
+| `port/` | port record: `README.md` (config + build recipe) and `REQUIREMENTS.md` (the minimal POSIX surface) |
 
 ## Source provision (GPLv3)
 
@@ -26,24 +26,29 @@ the shipped image at `/usr/src/bash/` (sources bundle) together with
 `COPYING` and `SOURCE`. The build recipe (manifest + this README + `patches/`)
 travels with the same tree, so a recipient can rebuild the exact binary.
 
-## How it is built (M14)
+## How it is built (P3, 2026-09)
 
-Nothing is built yet: libc/POSIX arrives with **M14-4** (musl) and M14-8 wires
-the shell. The manifest therefore carries `requires = ["posix-libc"]`; until
-that layer lands `tools/appctl menu` offers `CONFIG_APP_BASH` as unavailable
-(`default n` plus a note) and never enables it. **C5 started the real port
-work**: `port/README.md` records the exact configure/host flags attempted and
-`port/REQUIREMENTS.md` the minimal libc/POSIX surface;
-`tools/build-bash-spike.sh` reruns the cross-build attempt and records the
-blocker list (configure failure, first missing headers and symbols) without
-network access. bash does not run yet. At M14 the build script:
+**bash builds and runs.** P1/P2 provided `libc-fantuan` and the process
+layer; P3 filled the remaining libc surface (fnmatch/glob, regex, locale,
+wchar, wordexp, popen, iconv/dl/dlfcn stubs) and `tools/build-bash.sh`
+cross-builds the pristine tarball for `x86_64-unknown-none`:
 
-1. extracts `src/bash-5.3.tar.gz` into `build/apps/bash/`;
-2. applies the replayable patches listed in `patches/` (musl build flags,
-   job-control/pty and terminal defaults over the fantuan ABI);
-3. configures against the in-system C library/native ABI
-   (`--prefix=/usr --without-bash-malloc --disable-nls`) and installs
-   `/usr/bin/bash`, with the image assembly choosing the `sh` link.
+1. extracts `src/bash-5.3.tar.gz` into `build/bash/src/`;
+2. replays the patches listed in `patches/` (currently one: the
+   `!HAVE_NETWORK` fallback declaration fix);
+3. configures with the freestanding clang and `-nostdlib`, so link probes
+   resolve against `libc-fantuan` and host glibc can never leak in:
+   `--host=x86_64-unknown-none --without-bash-malloc --disable-nls
+   --disable-readline --enable-static-link`;
+4. builds with `make`, strips and installs `build/bash/bash.elf` as
+   `kernel/bash_program.bin` (embedded by `kernel/build.rs`, like dash; the
+   binary is ~726 KiB and byte-reproducible).
+
+`/bin/sh` resolves to bash when embedded (dash stays `/bin/dash` and the
+`dash` console command); `tools/smoke-bash.sh` is the gate. The manifest still
+carries `requires = ["posix-libc"]` because that requirement is now satisfied
+by `libc-fantuan` (P1-P3); `appctl menu` keeps `CONFIG_APP_BASH` as the
+app-layer availability marker.
 
 ## Isolation
 

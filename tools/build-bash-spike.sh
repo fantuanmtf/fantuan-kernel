@@ -44,6 +44,14 @@ RES_INC="$(clang -print-resource-dir)/include"
 CFLAGS=(--target="$TARGET" -ffreestanding -nostdinc -isystem "$RES_INC")
 LIBC_INC="${BASH_SPIKE_LIBC_INC:-}"
 LIBC_A="${BASH_SPIKE_LIBC_A:-}"
+# Absolutise: configure runs from the extracted source directory, where a
+# repo-relative -I path would no longer resolve (and every probe would fail).
+if [ -n "$LIBC_INC" ] && [ -d "$LIBC_INC" ]; then
+  LIBC_INC="$(cd "$LIBC_INC" && pwd)"
+fi
+if [ -n "$LIBC_A" ] && [ -f "$LIBC_A" ]; then
+  LIBC_A="$(cd "$(dirname "$LIBC_A")" && pwd)/$(basename "$LIBC_A")"
+fi
 if [ -n "$LIBC_INC" ]; then
   CFLAGS+=(-I "$LIBC_INC")
 fi
@@ -56,7 +64,7 @@ echo "[1/3] configure attempt (host $TARGET)..."
       --build="$(uname -m)-pc-linux-gnu" \
       --without-bash-malloc \
       --disable-nls \
-      --without-readline \
+      --disable-readline \
       --enable-static-link \
       > "$WORK/configure.log" 2>&1 )
 CFG_EXIT=$?
@@ -123,37 +131,52 @@ done
 MISSING_SYMBOL_TOTAL="$(wc -l < "$WORK/missing-symbols.txt" | tr -d ' ')"
 
 # Optional: measure how many probed symbols libc-fantuan.a now defines (P1).
+# With an archive, "still missing" means probed-but-not-defined (the object
+# file's undefined list is every probed symbol by construction).
 PROVIDED_TOTAL=0
+REMAINING_SYMBOL_TOTAL="$MISSING_SYMBOL_TOTAL"
 : > "$WORK/provided-symbols.txt"
-if [ -n "$LIBC_A" ] && [ -f "$LIBC_A" ]; then
+: > "$WORK/missing-from-libc.txt"
+if [ -n "$LIBC_A" ]; then
   "$NM" --defined-only "$LIBC_A" | awk '{print $NF}' | sort -u > "$WORK/libc-defined.txt"
   for s in "${SYMBOLS[@]}"; do
-    if grep -qx "$s" "$WORK/libc-defined.txt"; then echo "$s" >> "$WORK/provided-symbols.txt"; fi
+    if grep -qx "$s" "$WORK/libc-defined.txt"; then
+      echo "$s" >> "$WORK/provided-symbols.txt"
+    else
+      echo "$s" >> "$WORK/missing-from-libc.txt"
+    fi
   done
   PROVIDED_TOTAL="$(wc -l < "$WORK/provided-symbols.txt" | tr -d ' ')"
+  REMAINING_SYMBOL_TOTAL="$(wc -l < "$WORK/missing-from-libc.txt" | tr -d ' ')"
 fi
 
 {
   echo "# bash 5.3 early-port blocker report (C5)"
   echo "# target: $TARGET"
-  echo "# configure flags: --host=$TARGET --build=$(uname -m)-pc-linux-gnu --without-bash-malloc --disable-nls --without-readline --enable-static-link"
+  echo "# configure flags: --host=$TARGET --build=$(uname -m)-pc-linux-gnu --without-bash-malloc --disable-nls --disable-readline --enable-static-link"
   echo "# compiler: $CC_STR"
   echo "# configure: $CONFIGURE_BLOCKER (exit $CFG_EXIT)"
   echo "# missing headers: $MISSING_HEADER_TOTAL of ${#HEADERS[@]} probed; first $MAX_HEADERS:"
   head -n "$MAX_HEADERS" "$WORK/missing-headers.txt" | sed 's/^/  - /'
-  echo "# missing POSIX symbols: $MISSING_SYMBOL_TOTAL of ${#SYMBOLS[@]} probed; first $MAX_SYMBOLS:"
-  head -n "$MAX_SYMBOLS" "$WORK/missing-symbols.txt" | sed 's/^/  - /'
-  if [ -n "$LIBC_A" ] && [ -f "$LIBC_A" ]; then
+  if [ -n "$LIBC_A" ]; then
+    echo "# symbols still missing from libc-fantuan: $REMAINING_SYMBOL_TOTAL of ${#SYMBOLS[@]} probed; first $MAX_SYMBOLS:"
+    head -n "$MAX_SYMBOLS" "$WORK/missing-from-libc.txt" | sed 's/^/  - /'
     echo "# libc-fantuan ($LIBC_A) provides $PROVIDED_TOTAL of ${#SYMBOLS[@]} probed symbols"
     echo "# libc-fantuan headers in the probe: $LIBC_INC"
     echo "# headers still missing: $((MISSING_HEADER_TOTAL)) of ${#HEADERS[@]}"
-    echo "# symbols still missing from libc-fantuan: $((MISSING_SYMBOL_TOTAL))"
+  else
+    echo "# missing POSIX symbols: $MISSING_SYMBOL_TOTAL of ${#SYMBOLS[@]} probed; first $MAX_SYMBOLS:"
+    head -n "$MAX_SYMBOLS" "$WORK/missing-symbols.txt" | sed 's/^/  - /'
   fi
 } > "$WORK/blockers.txt"
 
 cat "$WORK/blockers.txt"
-echo "bash-spike: BLOCKED (expected until M14-4 provides the POSIX/libc layer; see apps/bash/port/)"
-if [ "${BASH_SPIKE_STRICT:-0}" = "1" ] && [ "$MISSING_SYMBOL_TOTAL" -gt 0 ]; then
+if [ "$MISSING_HEADER_TOTAL" -eq 0 ] && [ "$REMAINING_SYMBOL_TOTAL" -eq 0 ]; then
+  echo "bash-spike: READY (all probed headers/symbols resolve against the target)"
+  exit 0
+fi
+echo "bash-spike: BLOCKED (expected while the POSIX/libc layer is incomplete; see apps/bash/port/)"
+if [ "${BASH_SPIKE_STRICT:-0}" = "1" ] && [ "$REMAINING_SYMBOL_TOTAL" -gt 0 ]; then
   exit 1
 fi
 exit 0

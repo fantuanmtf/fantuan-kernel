@@ -1,0 +1,14 @@
+--- a/lib/sh/netopen.c
++++ b/lib/sh/netopen.c
+@@ -326,6 +326,11 @@
+ 
+ #else /* !HAVE_NETWORK */
+ 
++/* fantuan P3: upstream only includes these inside the HAVE_NETWORK branch,
++ * so the no-network fallback below cannot see internal_error() or _(). */
++#include <bashintl.h>
++#include <error.h>
++
+ int
+ netopen (char *path)
+ {

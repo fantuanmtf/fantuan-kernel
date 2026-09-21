@@ -14,7 +14,7 @@
 | v0.0.3 | M11 ARM64 + full TCP/HTTPS | `[##########] 100%` | released as 0.0.3: R1-R8 verified; C5 minimal/tools/bash-prep; R9a direct-FDT boot + R9b virtio-net/TLS (`smoke-aarch64.sh` 2/2), `smoke-net.sh` PASS, `smoke-config.sh` PASS, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3; aarch64 UEFI/AAVMF deferred to M14 |
 | v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[#---------] 10%` | design only |
 | v0.0.5 | M13 graphics/input + interface freeze | `[#---------] 10%` | design only |
-| v0.1.0 | M14 Linux userspace + bootstrap + hypervisor V2 | `[###-------] 25%` | P2 dash runs, `sh` is dash (working tree): `tools/smoke-dash.sh` PASS; P1 `tools/smoke-posix.sh` PASS |
+| v0.1.0 | M14 Linux userspace + bootstrap + hypervisor V2 | `[####------] 30%` | P3 bash 5.3 runs, `sh` is bash (working tree): `tools/smoke-bash.sh` PASS, `tools/smoke-dash.sh` PASS (dash selectable); P1 `tools/smoke-posix.sh` PASS |
 | v0.1.5 | M15 desktop + isolation + MinGW | `[----------] 0%` | - |
 | v0.5.0/1.0.0 | M16 finalize | `[----------] 0%` | - |
 
@@ -270,18 +270,22 @@ Design: `M14_LINUXUSERS.md`.
       `tools/smoke-dash.sh` cover the landed half
 - [~] M14-3 POSIX round 2 (fork/execve/wait4, signals, futex, pipes):
       fork/execve/wait4, process groups/sessions, the signal trio and
-      pipes landed in **P2** (see the P-batch section); `futex` and the
-      job-control stop/continue set remain for P3
+      pipes landed in **P2** (see the P-batch section); P3 kept them
+      unchanged while bash exercised them; `futex` and the job-control
+      stop/continue set remain for P4
 - [ ] M14-4 musl vs libc-fantuan decision + toybox + bmake (P4 triggers in
-      `docs/POSIX_PLAN.md`; bash spike with libc-fantuan: configure exits 0,
-      13/43 headers missing, 76/102 symbols defined)
+      `docs/POSIX_PLAN.md`; the P3 spike closes with 0/43 headers missing and
+      102/102 probed symbols resolved against libc-fantuan, so the decision
+      now turns on the P4 triggers, not on bash)
 - [ ] M14-5 seed/self-host chain + `/bootstrap.sh` + reproducibility hash
 - [ ] M14-6 C++ seed (clang) in the developer image
 - [ ] M14-7 hypervisor V2 (VMX first, then SVM) + guest serial
-- [ ] M14-8 full POSIX shell: bash over the native ABI (final default sh,
-      registered GPLv3 separate program shipped with its sources; the
-      interim default is dash, P2); the built-in shell keeps the rescue
-      builtins
+- [x] M14-8 full POSIX shell: **bash 5.3 runs as the default `sh`**
+      (`/bin/sh` and `/bin/bash`), registered GPLv3 separate program with
+      its sources vendored; dash stays `/bin/dash` and is selectable. P3
+      gate `tools/smoke-bash.sh` PASS; build recipe `tools/build-bash.sh`
+      (stripped 743,312-byte artifact, byte-reproducible); the built-in
+      shell keeps the rescue builtins
 
 ## v0.1.5 - M15 (desktop + isolation + MinGW)
 
@@ -296,6 +300,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | P3 bash (working tree): bash 5.3 (GPLv3 app layer) builds against libc-fantuan and runs as the default `sh`; dash stays selectable. Spike before -> after: missing headers 12 -> 0 of 43, probed symbols still missing 25 -> 0 of 102 (libc-fantuan provides 102/102). `tools/build-bash.sh` configures with the freestanding clang and `-nostdlib` (host glibc cannot leak), `--without-bash-malloc --disable-nls --disable-readline --enable-static-link`, replays `patches/0001-netopen-no-network-decls.patch`, links the static ELF (743,312 bytes stripped, sha256 `38ec6a3028d8...`, byte-reproducible), embeds it as `kernel/bash_program.bin`. `tools/smoke-bash.sh` PASS asserts `sh -c` = bash, `bash -c 'echo ...'`, `exit 7` (0x700), interactive prompt/echo, `$((2+3))=5`, `x=41; echo $((x+1))=42`, a function, `echo \| cat`, `>`/`<`, `$(...)`, `^C` -> 130, `exit`, the reaps, and dash selectable. Kernel fixes: ELF loader lost its 64-page table (loads through a segment page walk, ~190 pages for bash) and page-table frames are zeroed on allocation (a recycled frame's stale entries caused a #GP); `sigsetjmp` became a call-site macro. The P2 `apps/dash` lock orphan is fixed (dash pinned), so `smoke-gpl` is green again. `tools/smoke-dash.sh` PASS (dash selected explicitly), `smoke-posix.sh` PASS | PASS |
 | 2026-09 | P2 dash (working tree): dash 0.5.12 (BSD-3) runs as the default `sh`. Root causes fixed: the "0x400b85 #PF" was the M4 demo's deliberate fault test, not dash; dash's `setjobctl` foreground-pgrp spin (kernel `set_tty_pgrp` handover + `killpg(0,...)`); libc base-0 `strtoull`; `readdir`'s zero `getdents` length; missing `/bin` stat/open registry (now with `/bin/ls` + `/bin/cat`); a zombie-exit deadlock with IF=0 (arch `set_irq_enable` + TSC-backed `now_ticks`). `tools/smoke-dash.sh` PASS asserts `sh -c` (exit 0/7), interactive prompt/echo/erase/`^C`(130)/exit, `$((1+2))`, `$(...)`, `echo \| cat`, `>`/`<`, `ls /tmp`, `sh FILE`, `$?` and reaps; `tools/smoke-posix.sh` PASS, `smoke.sh` 13/13, `smoke-bios.sh` 2/2, `smoke-config.sh` PASS; x86_64 minimal/net/tls, riscv64, i686, aarch64 builds zero warnings. Limits: no job-control stop, no file-backed mmap, `/bin` not enumerable; bash is P3 | PASS |
 | 2026-09 | P1 POSIX/libc foundation (working tree): P1 ABI additions `SYS_OPEN 6`..`SYS_RENAME 28` (append-only; `SYS_VERSION` stays 1), kernel-core `vfs/{tmpfs,fd,posix}.rs` + `brk.rs` + `user::UserMemOps`, x86_64 `spawn_user_args` SysV stack, writable tmpfs with `/dev/{console,null}` (disk mounts stay ro); `libc-fantuan` (MIT) archive built deterministically by `tools/build-libc.sh --verify`; `user/hello.c` runs through the ELF loader under the minimal profile (`tools/smoke-posix.sh` PASS: argv printf, brk malloc, tmpfs round trip, pipe, clock, exit, reap); `smoke-config.sh` PASS (minimal ELF still free of net/rump/tls/rescue/tool strings, 2 MiB budget); `smoke-bios.sh` 2/2; x86_64 minimal/net/tls + riscv64 + i686 + aarch64 builds zero warnings; bash spike with libc-fantuan: configure exits 0 (was `cannot compute sizeof (size_t)`), missing headers 39 -> 13 of 43, 76 of 102 probed symbols defined (62 real + 14 stubs) - **bash does not run**, dash is the P2 target (`docs/POSIX_PLAN.md`) | PASS |
 | 2026-09 | M11 R9b aarch64 network + TLS + 0.0.3: `kernel-net` built and run for `aarch64-unknown-none` (per-arch clang flags; `kernel-aarch64/src/net.rs` Env; polled virtio-net MMIO at 0x0a000000+0x200*n with modern negotiation, 12-byte headers, RX/TX virtqueues behind the e1000's `net_ops`); the aarch64 smoke network phase on SLIRP asserts `net: virtio-net up mac=...`, DHCP lease, the IPv4/TCP suite (64 KiB transfer + retransmit + rump self-tests), HTTP/DNS/ping/wget, `tls: KATs ok`, pinned-CA `net: https get ok`, `net: udp host ok`, `net: ext skip` and the shell `nslookup`/`ping`/`wget` transcripts; `smoke-aarch64.sh` 2/2, `smoke-net.sh` PASS (x86_64 gate unchanged), `smoke-config.sh` PASS (aarch64 rows), `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3; x86_64 minimal/net/tls, riscv64, i686 and aarch64 minimal/net/tls builds zero warnings; version transition to 0.0.3; aarch64 UEFI/AAVMF deferred to M14 (documented blocker: the loader port, not the toolchain) | PASS |
@@ -573,24 +578,29 @@ mmap, `/bin` enumeration; bash is P3.
 **M12 W-a** (M11 released as 0.0.3): the owner pushes the R9b/0.0.3
 transition, then M12 starts with the disk imager (`clone`) and the NTFS
 read path; the remaining M12 checkboxes are listed above and the design is
-`docs/M12_TOOLS_HW.md`. **P2 is landed in the working tree and verified**
-(`tools/smoke-dash.sh` PASS plus `tools/smoke-posix.sh` PASS and the
-regression smokes; the exact blast radius is in the P-batch section
-above); the next POSIX step is **P3** - port bash 5.3 per
-`docs/POSIX_PLAN.md` (headers/regex/wide-char/locale stubs, real
-`setjmp`/`sigsetjmp`, job control, `/usr/bin/bash` with sources), after
-which M14-8 can flip the GPLv3 shell in as the registered default. **P2's
-interim default is dash**: the `sh` command and `execve("/bin/sh")`
-resolve to the embedded dash, while the built-in shell stays the boot
-console/rescue fallback.
+`docs/M12_TOOLS_HW.md`. **P3 is landed in the working tree and verified**
+(`tools/smoke-bash.sh` PASS plus `tools/smoke-dash.sh`,
+`tools/smoke-posix.sh` and the regression smokes); bash 5.3 now builds
+against libc-fantuan and **`sh` is bash**: the `sh` command and
+`execve("/bin/sh")` resolve to the embedded bash, `/bin/dash` and the new
+`dash` command keep the P2 shell selectable, and the built-in shell stays
+the boot console/rescue fallback. The next POSIX step is **P4** - the
+musl vs libc-fantuan decision per `docs/POSIX_PLAN.md`, driven by its
+triggers (TLS/threads/in-system toolchain), not by the shell; M14-1
+(demand paging/COW/kernel heap) and M14-5..M14-7 remain as listed.
+M14-8 is closed: the spike reports 0/43 missing headers and 102/102
+probed symbols against libc-fantuan, and the bash artifact is
+byte-reproducible.
 M11-8 is closed: aarch64 direct FDT + virtio-net
 MMIO + TLS verified by `tools/smoke-aarch64.sh` (2 phases), the x86_64
 offline gate by `tools/smoke-net.sh`. The aarch64 UEFI/AAVMF path is
 deferred to M14 with the loader-port reason recorded in `M11_PLAN.md`; the
 direct-FDT path is the supported aarch64 boot for 0.0.3. riscv/i686 stay
-without `kernel-net` (documented). bash stays pinned behind
-`requires = ["posix-libc"]`: the M14-4 musl port and M14-8 shell flip
-`app_manifest.AVAILABLE_REQUIRES` and add the in-image `/usr/src/bash`
-sources bundle. Stop after each batch so the owner can push.
+without `kernel-net` (documented). bash now builds and runs against
+libc-fantuan (P3), so the remaining GPL-provision item is the in-image
+`/usr/src/bash` sources bundle at image assembly; the manifest keeps
+`requires = ["posix-libc"]` until `app_manifest.AVAILABLE_REQUIRES`
+advertises the layer (M14-4/menu decision). Stop after each batch so the
+owner can push.
 Housekeeping: hunt the intermittent riscv `uart::log_bytes` fault and the
 i686 PIO ATA polling-to-IRQ conversion when the i686 shell work needs it.

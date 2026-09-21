@@ -41,6 +41,13 @@ void *bsearch(const void *key, const void *base, size_t nmemb, size_t size,
 int abs(int j);
 long labs(long j);
 long long llabs(long long j);
+
+/* Multibyte helpers (P3; declared here per POSIX). */
+int mblen(const char *s, size_t n);
+int mbtowc(wchar_t *pwc, const char *s, size_t n);
+int wctomb(char *s, wchar_t wc);
+size_t mbstowcs(wchar_t *dest, const char *src, size_t n);
+size_t wcstombs(char *dest, const wchar_t *src, size_t n);
 int rand(void);
 void srand(unsigned int seed);
 

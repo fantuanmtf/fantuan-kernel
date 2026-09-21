@@ -12,7 +12,16 @@ license = "GPL-3.0-or-later"
 gpl = true
 source = "upstream"
 rev = "unversioned"
-sha256 = "2f69249e6f998731517aa2a0ed860265c307d792f852a2c47421e156e7f53d35"
+sha256 = "afc73162ec83245f37e7f864b5a980fbb14094b92a2c1ce1888f70aa54c87874"
+
+[[app]]
+name = "dash"
+version = "0.5.12"
+license = "BSD-3-Clause"
+gpl = false
+source = "upstream"
+rev = "unversioned"
+sha256 = "1d2a871658a0785c12771d815c227f81d6a2affc8f1e15ef7092b4ad9c8e3763"
 
 [[app]]
 name = "mbedtls"

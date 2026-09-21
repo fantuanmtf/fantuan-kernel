@@ -64,6 +64,30 @@ int chmod(const char *path, mode_t mode)
     return 0; /* no permission model in P1 */
 }
 
+int fchmod(int fd, mode_t mode)
+{
+    (void)fd;
+    (void)mode;
+    return 0;
+}
+
+int mknod(const char *path, mode_t mode, dev_t dev)
+{
+    (void)path;
+    (void)mode;
+    (void)dev;
+    errno = ENOSYS;
+    return -1;
+}
+
+int mkfifo(const char *path, mode_t mode)
+{
+    (void)path;
+    (void)mode;
+    errno = ENOSYS;
+    return -1;
+}
+
 int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
            struct timeval *timeout)
 {
@@ -93,21 +117,23 @@ int poll(struct pollfd *fds, nfds_t nfds, int timeout)
     return -1;
 }
 
-int getitimer(int which, void *curr_value)
+int getitimer(int which, struct itimerval *curr_value)
 {
     (void)which;
-    (void)curr_value;
-    errno = ENOSYS;
-    return -1;
+    if (curr_value) {
+        memset(curr_value, 0, sizeof(*curr_value));
+    }
+    return 0;
 }
 
-int setitimer(int which, const void *new_value, void *old_value)
+int setitimer(int which, const struct itimerval *new_value, struct itimerval *old_value)
 {
     (void)which;
     (void)new_value;
-    (void)old_value;
-    errno = ENOSYS;
-    return -1;
+    if (old_value) {
+        memset(old_value, 0, sizeof(*old_value));
+    }
+    return 0; /* accepted, never fires (no timer virtualisation) */
 }
 
 int getrusage(int who, struct rusage *usage)

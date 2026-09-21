@@ -59,10 +59,21 @@ pub use arch::x86_64::{
     cpu, exceptions, gdt, idt, interrupts, pci, pic, pit, port, serial, syscall, tsc,
 };
 
-/// P2 embedded-binary registry: execve("/bin/dash") resolves without a
-/// filesystem mount (the P1 tmpfs file cap is far below a static shell).
+/// P2/P3 embedded-binary registry: execve("/bin/sh") resolves without a
+/// filesystem mount (the tmpfs file cap is far below a static shell).
+/// P3: /bin/sh prefers bash when embedded, dash stays /bin/dash.
 fn lookup_bin(path: &[u8]) -> Option<&'static [u8]> {
-    if (path == b"/bin/dash" || path == b"/bin/sh") && !DASH_ELF.is_empty() {
+    if path == b"/bin/bash" && !BASH_ELF.is_empty() {
+        Some(BASH_ELF)
+    } else if path == b"/bin/sh" {
+        if !BASH_ELF.is_empty() {
+            Some(BASH_ELF)
+        } else if !DASH_ELF.is_empty() {
+            Some(DASH_ELF)
+        } else {
+            None
+        }
+    } else if path == b"/bin/dash" && !DASH_ELF.is_empty() {
         Some(DASH_ELF)
     } else if path == b"/bin/hello" && !HELLO_ELF.is_empty() {
         Some(HELLO_ELF)
@@ -219,8 +230,9 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     kernel_core::process::set_bin_lookup(lookup_bin);
     let _ = writeln!(
         s,
-        "p2: process layer ready (fork/exec/wait, signals, VMA; dash embedded={})",
-        if DASH_ELF.is_empty() { "no" } else { "yes" }
+        "p2: process layer ready (fork/exec/wait, signals, VMA; dash embedded={} bash embedded={})",
+        if DASH_ELF.is_empty() { "no" } else { "yes" },
+        if BASH_ELF.is_empty() { "no" } else { "yes" }
     );
     task::init(bi.stack_top);
     task::spawn(demo::demo_1);

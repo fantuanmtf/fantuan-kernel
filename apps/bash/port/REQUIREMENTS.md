@@ -1,10 +1,16 @@
-# bash minimal libc/POSIX surface (C5)
+# bash minimal libc/POSIX surface (C5; landed in P3)
 
 What GNU Bash 5.3 needs to compile and run over the fantuan native ABI.
 Grouped by subsystem; the C5 spike probes this list against the bare target
 (`tools/build-bash-spike.sh`, 102 symbols / 43 headers) and records the
 missing ones. `posix-libc` means this whole surface once M14-2/M14-3 provide
 the syscalls and M14-4 ports musl.
+
+**P3 status (2026-09): all of it resolves against libc-fantuan** - the spike
+reports 0/43 missing headers and 102/102 probed symbols provided. The
+per-item notes below record where the P3 implementations live or where a
+stub is deliberate (`forkpty`/`openpty`, `dl*`, `iconv`); see
+`../../libc-fantuan/README.md` and `README.md` here.
 
 ## Startup and process
 

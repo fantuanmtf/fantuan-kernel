@@ -59,8 +59,8 @@ gpl = false                     # true only in the apps layer, never linked
 
 - SPDX in every manifest; CI refuses any GPL manifest in the kernel/base
   layer and records the app-layer ones in the SBOM.
-- **bash is the registered exception**: it is the final default `sh`
-  (M14-8/P3; the interim default is dash, P2), GPLv3,
+- **bash is the registered exception**: it is the default `sh`
+  (M14-8/P3 landed; dash stays selectable as `/bin/dash`), GPLv3,
   shipped as a separate program with complete corresponding sources
   (vendored `src/`, `COPYING`, plus a sources copy in the image at
   `/usr/src/bash`), and it is never linked into the kernel or base
@@ -224,8 +224,17 @@ gate are unchanged.
 `tools/smoke-posix.sh` runs a C program through the ELF loader. With the libc
 probe the bash spike's configure now exits 0 and the counts drop to 13/43
 missing headers and 76/102 defined symbols. **P2 (2026-09)** then ported
-dash, which now runs as the interim default `sh` and `/bin/sh`; bash is
-next (P3). The GPL firewall and the source-provision policy are untouched.
+dash, which ran as the interim default `sh`. **P3 (2026-09)** filled the
+rest of the libc surface (glob/fnmatch, an in-repo regex, locale/langinfo,
+wide chars, wordexp, popen, iconv/dl/pty stubs), added
+`tools/build-bash.sh`, and made **bash 5.3 the default `sh`**: bash is
+cross-built against `libc-fantuan` with the freestanding clang and
+`-nostdlib`, one replayable patch is replayed from `patches/`, the stripped
+artifact (`kernel/bash_program.bin`) is embedded like dash, and `bash` /
+`dash` console commands plus `/bin/{bash,dash}` keep both shells
+addressable. `tools/smoke-bash.sh` is the gate. The GPL firewall and the
+source-provision policy are untouched: bash remains an app-layer static
+user program, never linked into the kernel or base libraries.
 
 ## Budgets
 

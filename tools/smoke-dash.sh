@@ -5,6 +5,9 @@
 # non-interactive session and an interactive one on /dev/console. Asserts the
 # transcripts, exit statuses, the SIGINT handler and the reaps.
 #
+# P3: `sh` prefers the embedded bash, so this smoke selects dash explicitly
+# (the `dash` console command and /bin/dash) to keep the P2 shell covered.
+#
 #   ./tools/smoke-dash.sh            # bounded; exits non-zero on any miss
 #   DASH_VERIFY=1 ./tools/smoke-dash.sh   # also prove the dash build is
 #                                          byte-reproducible (adds ~13 s)
@@ -80,12 +83,12 @@ time.sleep(0.5)
 
 # Non-interactive: -c scripts, arithmetic/substitution, a clean and a
 # non-zero exit (the kernel shell logs the wait status).
-ensure("sh -c 'echo noninteractive-ok'", "noninteractive-ok")
-ensure("sh -c 'exit 7'", "wait status=0x700")
+ensure("dash -c 'echo noninteractive-ok'", "noninteractive-ok")
+ensure("dash -c 'exit 7'", "wait status=0x700")
 
 # Interactive: prompt, line editing, builtins, fork/exec, pipes, redirects
 # and scripts.
-send("sh\n")
+send("dash\n")
 wait("sh: dash pid", 120)
 time.sleep(1.0)
 ensure("echo interactive-ok", "interactive-ok")
@@ -95,7 +98,7 @@ ensure("echo hello-pipe | cat", "hello-pipe")
 run("echo redir-ok > /tmp/f")
 ensure("cat < /tmp/f", "redir-ok")
 run('echo "echo from-script" > /tmp/s.sh')
-ensure("sh /tmp/s.sh", "from-script")
+ensure("dash /tmp/s.sh", "from-script")
 ensure("ls /tmp", "s.sh")
 ensure("false", "")
 ensure("echo status=$?", "status=1")

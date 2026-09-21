@@ -166,32 +166,36 @@ pub fn load_full(elf: &[u8]) -> Option<(u64, u64, u64)> {
 
     let root = (ops.new_root)();
 
-    // Track already-mapped pages: two segments may share a 4K page (e.g.
-    // .rodata and .data), and the second must reuse the first's frame — a
-    // fresh frame would shadow the earlier content. The entry also carries
-    // the accumulated protection so a shared page gets the union of rights
-    // (W if any segment writes it; executable if any segment executes it).
-    let mut mapped: [(u64, u64, Prot); 64] = [(0, 0, Prot::Ro); 64];
-    let mut mapped_n = 0;
-    let mut image_end = 0u64;
-
+    // Collect the loadable segments first. Overlapping PT_LOADs are legal
+    // (e.g. a data segment sharing its first page with rodata), so every
+    // distinct page must be allocated once, mapped with the union of the
+    // covering segments' rights and filled with all of their bytes. Doing it
+    // by address instead of a per-page table removes P1's fixed 64-page cap,
+    // which a static bash (~190 pages) cannot fit.
+    type Seg = (u64, u64, u64, u64, Prot);
+    fn covers(seg: &Seg, page: u64) -> bool {
+        let end = seg.0 + seg.3;
+        seg.0 < page + 4096 && page < end
+    }
+    let mut segs: [Seg; 16] = [(0, 0, 0, 0, Prot::Ro); 16];
+    let mut nsegs = 0usize;
     for i in 0..phnum {
         let ph = &elf[phoff + i * phentsize..][..phentsize];
         let ph = parse_phdr(ph, hdr.class32);
         if ph.p_type != PT_LOAD {
             continue;
         }
-        let p_offset = ph.p_offset;
-        let p_vaddr = ph.p_vaddr;
-        let p_filesz = ph.p_filesz;
-        let p_memsz = ph.p_memsz;
         // The segment must fit the user half and its file bytes must exist.
-        if p_vaddr.checked_add(p_memsz)? > PHYS_OFFSET {
+        if ph.p_vaddr.checked_add(ph.p_memsz)? > PHYS_OFFSET {
             (ops.log)("elf: PT_LOAD overflows the user half");
             return None;
         }
-        if p_offset.checked_add(p_filesz)? > elf.len() as u64 || p_filesz > p_memsz {
+        if ph.p_offset.checked_add(ph.p_filesz)? > elf.len() as u64 || ph.p_filesz > ph.p_memsz {
             (ops.log)("elf: PT_LOAD file bytes outside the image");
+            return None;
+        }
+        if nsegs >= segs.len() {
+            (ops.log)("elf: too many PT_LOAD segments");
             return None;
         }
         // W^X from the program-header flags (PF_X = 1, PF_W = 2).
@@ -201,45 +205,50 @@ pub fn load_full(elf: &[u8]) -> Option<(u64, u64, u64)> {
             (false, true) => Prot::Rx,
             (true, true) => Prot::Rwx,
         };
-        let p_offset = to_usize(p_offset)?;
-        let p_filesz = to_usize(p_filesz)?;
-        let page_start = p_vaddr & !0xFFF;
-        let seg_end = p_vaddr + p_memsz;
-        let mut page = page_start;
+        segs[nsegs] = (ph.p_vaddr, ph.p_offset, ph.p_filesz, ph.p_memsz, prot);
+        nsegs += 1;
+    }
+
+    let mut image_end = 0u64;
+    for si in 0..nsegs {
+        let (vaddr, _offset, _filesz, memsz, prot) = segs[si];
+        let seg_end = vaddr + memsz;
+        let mut page = vaddr & !0xFFF;
         while page < seg_end {
-            let head = if page == page_start { (p_vaddr - page_start) as usize } else { 0 };
-            let f = match mapped[..mapped_n].iter().position(|e| e.0 == page) {
-                Some(idx) => {
-                    // Shared page: union the protections.
-                    let phys = mapped[idx].1;
-                    let merged = mapped[idx].2.union(prot);
-                    mapped[idx].2 = merged;
-                    (ops.map)(root, page, phys, merged);
-                    phys
-                }
-                None => {
-                    let f = frame::get().alloc()?;
-                    if mapped_n >= mapped.len() {
-                        // More distinct pages than the tracking table holds:
-                        // refuse rather than map an untracked page (which a
-                        // later segment could double-allocate).
-                        return None;
-                    }
-                    mapped[mapped_n] = (page, f, prot);
-                    mapped_n += 1;
-                    (ops.map)(root, page, f, prot);
-                    let dst = (ops.phys_to_virt)(f) as *mut u8;
-                    unsafe { core::ptr::write_bytes(dst, 0, 4096) };
-                    f
-                }
-            };
-            let seg_off = to_usize((page + head as u64) - p_vaddr)?; // offset into the segment
-            let dst = (ops.phys_to_virt)(f) as *mut u8;
-            if seg_off < p_filesz {
-                let copy = (p_filesz - seg_off).min(4096 - head);
-                let src = elf.get(p_offset + seg_off..p_offset + seg_off + copy)?;
-                unsafe { core::ptr::copy_nonoverlapping(src.as_ptr(), dst.add(head), copy) };
+            // A page first reached by an earlier segment was already fully
+            // populated from every covering segment.
+            if segs[..si].iter().any(|s| covers(s, page)) {
+                page += 4096;
+                continue;
             }
+            let mut merged = prot;
+            for s in segs[..nsegs].iter() {
+                if covers(s, page) {
+                    merged = merged.union(s.4);
+                }
+            }
+            let Some(f) = frame::get().alloc() else {
+                (ops.log)("elf: out of frames for a PT_LOAD page");
+                return None;
+            };
+            let dst = (ops.phys_to_virt)(f) as *mut u8;
+            unsafe { core::ptr::write_bytes(dst, 0, 4096) };
+            for s in segs[..nsegs].iter() {
+                if s.2 == 0 || !covers(s, page) {
+                    continue;
+                }
+                let start = s.0.max(page);
+                let page_off = to_usize(start - page)?;
+                let seg_off = to_usize(start - s.0)?;
+                if seg_off >= to_usize(s.2)? {
+                    continue;
+                }
+                let copy = (to_usize(s.2)? - seg_off).min(4096 - page_off);
+                let file_off = to_usize(s.1)?;
+                let src = elf.get(file_off + seg_off..file_off + seg_off + copy)?;
+                unsafe { core::ptr::copy_nonoverlapping(src.as_ptr(), dst.add(page_off), copy) };
+            }
+            (ops.map)(root, page, f, merged);
             image_end = image_end.max(page + 4096);
             page += 4096;
         }

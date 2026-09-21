@@ -30,6 +30,8 @@ struct termios {
 #define IGNCR 0000200
 #define ICRNL 0000400
 #define IXON 0002000
+#define IXOFF 0010000
+#define IXANY 0004000
 /* oflag */
 #define OPOST 0000001
 #define ONLCR 0000004
@@ -39,9 +41,13 @@ struct termios {
 #define CS6 0000020
 #define CS7 0000040
 #define CS8 0000060
+#define CSTOPB 0000100
 #define CREAD 0000200
+#define PARENB 0000400
+#define PARODD 0001000
 #define HUPCL 0002000
 #define CLOCAL 0004000
+#define CRTSCTS 020000000000
 /* lflag */
 #define ISIG 0000001
 #define ICANON 0000002
@@ -67,6 +73,11 @@ struct termios {
 #define TCSANOW 0
 #define TCSADRAIN 1
 #define TCSAFLUSH 2
+
+/* tcflush queue selectors (Linux-compatible). */
+#define TCIFLUSH 0
+#define TCOFLUSH 1
+#define TCIOFLUSH 2
 
 speed_t cfgetispeed(const struct termios *t);
 speed_t cfgetospeed(const struct termios *t);

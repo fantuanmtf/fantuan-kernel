@@ -58,13 +58,22 @@ groups/sessions, `sigaction/sigprocmask/sigreturn/sigsuspend`, the VMA
 list with anonymous `mmap`/`munmap`/`mprotect`, a console line discipline
 and the append-only ABI additions (`SYS_FORK 29`..`SYS_FCNTL 47`). dash
 0.5.12 (BSD-3-Clause) is vendored, cross-built against libc-fantuan and
-embedded: **`sh` is now dash** (interactive `/dev/console` or pass-through
-`sh -c ...` / `sh FILE`), with first-party `/bin/ls` and `/bin/cat`; the
-built-in kernel shell remains the boot console and rescue fallback.
-`tools/smoke-dash.sh` is the gate; the fault root causes and the exact
-limits (no job-control stop, no file-backed mmap) are recorded in
-`docs/POSIX_PLAN.md` P2 outcome. `futex` and job-control
-stop/continue remain for P3/P4.
+embedded; in P2 it became the interim default `sh`, with first-party
+`/bin/ls` and `/bin/cat`; the built-in kernel shell remains the boot
+console and rescue fallback. `tools/smoke-dash.sh` is the gate; the fault
+root causes and the exact limits (no job-control stop, no file-backed
+mmap) are recorded in `docs/POSIX_PLAN.md` P2 outcome.
+
+**P3 (landed in the working tree, 2026-09):** the libc surface bash needs
+is complete (spike: 0/43 headers, 102/102 symbols) and bash 5.3 is
+cross-built by `tools/build-bash.sh` against libc-fantuan. **`sh` is now
+bash** (`/bin/sh`, `/bin/bash`, the `sh`/`bash` console commands), dash
+stays `/bin/dash` and the `dash` command keeps it selectable, and
+`tools/smoke-bash.sh` proves `-c`, interactive sessions, arithmetic,
+variables, functions, pipes, redirects, `$(...)`, `^C` and the reaps.
+The kernel/loader fixes the static-bash load forced (page-walk ELF
+loading, zeroed page-table frames) are in `docs/POSIX_PLAN.md` P3
+outcome. `futex` and job-control stop/continue remain for P4.
 
 Kernel-side work (F3/F4): demand paging, COW, a kernel heap for page-table
 and process structures, a VMA list per process, `fork/exec` cloning of
@@ -133,33 +142,38 @@ started the real port work so M14-4/M14-8 begin from evidence:
 - `apps/bash/port/REQUIREMENTS.md` - the minimal libc/POSIX surface
   (startup/`fork`/`execve`/`wait4`, pipes, signals, termios/job control,
   `getpwnam`, `glob`, locale/time stubs, ...);
-- `apps/bash/port/README.md` - the exact configure/host flags attempted
-  against `x86_64-unknown-none` (`--without-bash-malloc --disable-nls
-  --without-readline --enable-static-link`) and the result: configure stops
-  at `cannot compute sizeof (size_t)`, 39/43 probed headers and 102/102
-  probed POSIX symbols are missing;
+- `apps/bash/port/README.md` - the exact configure/host flags
+  (`--without-bash-malloc --disable-nls --disable-readline
+  --enable-static-link`) and the before/after result: the earlier
+  `cannot compute sizeof (size_t)`, 39/43 headers and 102/102 symbols
+  missing, now 0/43 headers and 0/102 symbols missing (P3);
 - `tools/build-bash-spike.sh` - reruns the cross-build attempt and writes
   `build/bash-spike/blockers.txt` deterministically (no network;
-  `BASH_SPIKE_STRICT=1` fails while blocked). P1 added the optional
-  `BASH_SPIKE_LIBC_INC`/`BASH_SPIKE_LIBC_A` probe: with libc-fantuan the
-  configure step exits 0, missing headers drop 39 -> 13 of 43 and 76 of 102
-  probed symbols are now defined (62 real + 14 ENOSYS stubs) - the exact
-  remainder is tabulated in `docs/POSIX_PLAN.md` P3.
+  `BASH_SPIKE_STRICT=1` fails while blocked). The optional
+  `BASH_SPIKE_LIBC_INC`/`BASH_SPIKE_LIBC_A` probe measures the target
+  libc: with P1 libc-fantuan configure exited 0 (13/43 headers and
+  25/102 symbols still missing); with P3 the report is 0/43 and 0/102 -
+  see `docs/POSIX_PLAN.md` P3 outcome.
 
 **P1 (2026-09)** landed the first POSIX tranche (`docs/POSIX_PLAN.md`):
 the v2 syscalls, a writable tmpfs with `/dev/console`/`/dev/null`,
 `libc-fantuan` (MIT), and a C hello that runs, prints, exits and is reaped
 under the existing ELF loader (`tools/smoke-posix.sh`). **P2 (2026-09)**
 then landed the process/signal/VMA layer and the dash port; the `sh`
-command is dash (interactive or `-c`/file) and `tools/smoke-dash.sh`
-asserts the transcripts, statuses and reaps; the built-in shell is the
-boot console/rescue fallback. **bash still does not run** and the spike is
-still expected to fail at the build stage (P3 blockers in
-`docs/POSIX_PLAN.md`); **M14-4** decides musl vs libc-fantuan per the P4
-triggers. **M14-8** then adds the replayable `patches/`, builds
-`/usr/bin/bash` and flips `CONFIG_APP_BASH` once `posix-libc` is
-available, making bash the registered GPLv3 default shell. Until then the
-built-in shell and the interim `ping`/`nslookup`/`wget` bridge remain.
+command ran dash (interactive or `-c`/file) and `tools/smoke-dash.sh`
+asserted the transcripts, statuses and reaps; the built-in shell is the
+boot console/rescue fallback. **P3 (2026-09) finished the port: bash 5.3
+builds against libc-fantuan (`tools/build-bash.sh`, one replayable patch,
+`-nostdlib` probes, byte-reproducible 743,312-byte artifact) and is the
+default `sh`; dash stays `/bin/dash` and selectable. `tools/smoke-bash.sh`
+asserts `-c`, interactive use, arithmetic/variables/functions, pipes,
+redirects, `$(...)`, `^C` and the reaps. M14-8 is therefore closed at the
+shell level; the spike now reports 0/43 missing headers and 102/102
+probed symbols (M14_LINUXUSERS §7.1). **M14-4** decides musl vs
+libc-fantuan per the P4 triggers, and the remaining shell follow-ups (pty,
+job-control stop/continue, the in-image `/usr/src/bash` sources bundle)
+stay on the M14/P4 backlog; the built-in shell and the interim
+`ping`/`nslookup`/`wget` bridge remain.
 
 ## 8. Spikes before coding
 

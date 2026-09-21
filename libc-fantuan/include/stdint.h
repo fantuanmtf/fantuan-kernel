@@ -30,8 +30,21 @@ typedef __UINTMAX_TYPE__ uintmax_t;
 #define INTPTR_MAX __INTPTR_MAX__
 #define UINTPTR_MAX __UINTPTR_MAX__
 #define INTMAX_MAX __INTMAX_MAX__
+#define INTMAX_MIN (-INTMAX_MAX - 1)
 #define UINTMAX_MAX __UINTMAX_MAX__
 #define SIZE_MAX __SIZE_MAX__
 #define PTRDIFF_MAX __PTRDIFF_MAX__
+#define PTRDIFF_MIN (-PTRDIFF_MAX - 1)
+
+#define INT8_C(c) c
+#define INT16_C(c) c
+#define INT32_C(c) c
+#define INT64_C(c) c##L
+#define UINT8_C(c) c
+#define UINT16_C(c) c
+#define UINT32_C(c) c##U
+#define UINT64_C(c) c##UL
+#define INTMAX_C(c) c##L
+#define UINTMAX_C(c) c##UL
 
 #endif /* _STDINT_H */

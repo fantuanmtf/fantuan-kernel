@@ -15,6 +15,9 @@
 #define WTERMSIG(status) ((status)&0x7f)
 #define WIFSTOPPED(status) (((status)&0xff) == 0x7f)
 #define WSTOPSIG(status) WEXITSTATUS(status)
+/* P2 has no stop/continue, so WIFCONTINUED is never true (Linux keeps the
+ * 0xffff encoding, which no P2 status can produce). */
+#define WIFCONTINUED(status) ((status) == 0xffff)
 
 typedef int idtype_t;
 #define P_ALL 0

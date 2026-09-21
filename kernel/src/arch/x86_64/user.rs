@@ -56,6 +56,11 @@ pub fn map_page(cr3: u64, vaddr: u64, phys: u64, flags: u64) {
 unsafe fn next_level(entry: *mut u64) -> *mut u64 {
     if *entry & P_PRESENT == 0 {
         let f = frame::get().alloc().expect("no frames for user page tables");
+        // A recycled frame still holds its previous owner's bytes: every
+        // other entry of a fresh table must read as "not present", or the
+        // walk follows stale garbage (the P3 bash fork/exec storm exposed
+        // this latent P2 bug).
+        core::ptr::write_bytes(phys_to_virt(f) as *mut u8, 0, 4096);
         *entry = f | P_PRESENT | P_WRITABLE | P_USER;
     }
     phys_to_virt(*entry & ADDR_MASK) as *mut u64

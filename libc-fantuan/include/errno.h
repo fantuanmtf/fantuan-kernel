@@ -48,4 +48,21 @@ extern int errno;
 #define EWOULDBLOCK EAGAIN
 #define EDEADLK 36
 
+/* P3 additions (beyond the kernel's SYS_ERR_* set). */
+#define EILSEQ 37
+#define ENOTSOCK 38
+#define EPROTONOSUPPORT 39
+#define EAFNOSUPPORT 40
+#define EOPNOTSUPP 41
+#define ENOTSUP EOPNOTSUPP
+#define ENOBUFS 42
+#define ETIMEDOUT 43
+#define ECONNREFUSED 44
+#define ECONNRESET 47
+#define EHOSTUNREACH 45
+#define ENETUNREACH 46
+#define EISCONN 48
+#define ENOTCONN 49
+#define EINPROGRESS 50
+
 #endif /* _ERRNO_H */

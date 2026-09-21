@@ -129,10 +129,12 @@ cargo build -p kernel-core     --target aarch64-unknown-none --release
 # i686 chain (nightly crate; wraps build-std + the custom target JSON)
 ./tools/build-i686.sh
 
-# P2 userland/POSIX chain (optional; the minimal kernel embeds what exists).
-# Order matters: libc archive first, then dash (it links the archive).
+# P2/P3 userland/POSIX chain (optional; the minimal kernel embeds what exists).
+# Order matters: libc archive first, then the shells (they link the archive).
 tools/build-libc.sh    # libc-fantuan.a + hello/proc-test/ls/cat ELFs
 tools/build-dash.sh    # vendored dash 0.5.12 -> kernel/dash_program.bin
+tools/build-bash.sh    # vendored bash 5.3 (GPLv3 app) -> kernel/bash_program.bin
+                       # BASH_VERIFY=1 rebuilds and compares the hash
 ```
 
 A clean build must produce **zero warnings** on all targets; treat a new

@@ -8,6 +8,15 @@
 #define STDIN_FILENO 0
 #define STDOUT_FILENO 1
 #define STDERR_FILENO 2
+
+/* POSIX.1-2008 feature level (bash keys its posixwait/termios paths on it). */
+#define _POSIX_VERSION 200809L
+#define _POSIX2_VERSION 200809L
+#define _POSIX_JOB_CONTROL 1
+#define _POSIX_SAVED_IDS 1
+#define _POSIX_CHOWN_RESTRICTED 1
+#define _POSIX_NO_TRUNC 1
+#define _POSIX_VDISABLE '\0'
 #define SEEK_SET 0
 #define SEEK_CUR 1
 #define SEEK_END 2
@@ -28,6 +37,12 @@ uid_t getuid(void);
 uid_t geteuid(void);
 gid_t getgid(void);
 gid_t getegid(void);
+int setuid(uid_t uid);
+int setgid(gid_t gid);
+int seteuid(uid_t uid);
+int setegid(gid_t gid);
+int setreuid(uid_t ruid, uid_t euid);
+int setregid(gid_t rgid, gid_t egid);
 pid_t fork(void);
 int execve(const char *path, char *const argv[], char *const envp[]);
 int execv(const char *path, char *const argv[]);
@@ -39,6 +54,9 @@ pid_t setsid(void);
 int getgroups(int size, gid_t list[]);
 pid_t vfork(void);
 void _exit(int status) __attribute__((noreturn));
+
+int gethostname(char *name, size_t len);
+int sethostname(const char *name, size_t len);
 
 int chdir(const char *path);
 char *getcwd(char *buf, size_t size);
