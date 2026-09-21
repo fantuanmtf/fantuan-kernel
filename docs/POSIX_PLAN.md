@@ -129,3 +129,23 @@ this is unlikely); (c) the in-system toolchain (M14-5) needs a libc it can
 rebuild from source. Until then libc-fantuan stays the P2/P3 base because it
 is small, first-party, permissive, and its failures are visible. Either way
 the **ABI is the contract**: musl would port over the same v2 calls.
+
+## P2 outcome (in progress)
+
+Delivered and verified by `user/proc_test.c` at boot: fork returns twice
+(child exits 42), wait4 reaps with the right status, a pipe survives
+fork, mmap-backed memory works, and execve replaces the image (the
+"proc_test re-exec image" step). The process layer (process.rs), signal
+delivery (signal.rs) and a console line discipline (tty.rs) landed in
+kernel-core, the ABI grew append-only (fork/execve/wait4/mmap/...), and
+libc-fantuan gained the matching headers and stubs.
+
+dash 0.5.12 is vendored in `apps/dash/` (BSD-3-Clause, gpl=false,
+requires posix-libc) and `tools/build-dash.sh` cross-builds it against
+libc-fantuan into a 159 KB ELF that the kernel embeds; the shell command
+`sh` spawns it on /dev/console (`sh: dash pid 14 ...`). Remaining P2
+blocker: dash faults with a user-mode #PF (write, not-present) at
+0x400b85 shortly after start, so no command output is produced yet. The
+next step is to debug that fault (likely console/stdin or a VMA edge in
+libc), then switch the default `sh` to dash and keep the built-in shell
+as the rescue fallback.

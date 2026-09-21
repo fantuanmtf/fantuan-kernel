@@ -44,6 +44,12 @@ pub struct UserOps {
     pub phys_to_virt: fn(u64) -> u64,
     /// Kernel log channel for loader errors.
     pub log: fn(&str),
+    /// P2 fork: eager 4K copy of the user half into a fresh root.
+    pub clone_root: fn(src: u64) -> Option<u64>,
+    /// P2 munmap: drop one user page (frame returned to the allocator).
+    pub unmap: fn(root: u64, va: u64),
+    /// P2 mprotect: rewrite the PTE protections of one user page.
+    pub protect: fn(root: u64, va: u64, prot: Prot),
 }
 
 fn unset_root() -> u64 {
@@ -55,6 +61,11 @@ fn unset_p2v(p: u64) -> u64 {
     p
 }
 fn unset_log(_s: &str) {}
+fn unset_clone(_src: u64) -> Option<u64> {
+    None
+}
+fn unset_unmap(_root: u64, _va: u64) {}
+fn unset_protect(_root: u64, _va: u64, _prot: Prot) {}
 
 /// Arch user-memory copy bridge (P1). Kernels that run fd/path syscalls
 /// install real copies (with SMAP bracketing on x86_64); the default refuses,
@@ -110,6 +121,9 @@ static mut OPS: UserOps = UserOps {
     free_root: unset_free,
     phys_to_virt: unset_p2v,
     log: unset_log,
+    clone_root: unset_clone,
+    unmap: unset_unmap,
+    protect: unset_protect,
 };
 
 pub fn set_ops(ops: UserOps) {

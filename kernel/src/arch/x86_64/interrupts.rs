@@ -48,6 +48,27 @@ pub(crate) fn cpu_frame(frame: &InterruptFrame) -> &CpuFrame {
     }
 }
 
+/// The full ring-3 frame (CPU adds RSP/SS for a privilege change).
+#[repr(C)]
+pub(crate) struct UserFrame {
+    pub(crate) rip: u64,
+    pub(crate) cs: u64,
+    pub(crate) rflags: u64,
+    pub(crate) rsp: u64,
+    pub(crate) ss: u64,
+}
+
+/// Ring-3 view of an interrupt frame, or None for a kernel-mode interrupt.
+pub(crate) fn user_frame(frame: &mut InterruptFrame) -> Option<&mut UserFrame> {
+    if cpu_frame(frame).cs & 3 != 3 {
+        return None;
+    }
+    Some(unsafe {
+        &mut *((frame as *mut InterruptFrame as *mut u8).add(size_of::<InterruptFrame>())
+            as *mut UserFrame)
+    })
+}
+
 /// Called from isr_common with rdi = *mut InterruptFrame.
 #[no_mangle]
 pub extern "C" fn isr_dispatch(frame: *mut InterruptFrame) {
@@ -62,6 +83,8 @@ pub extern "C" fn isr_dispatch(frame: *mut InterruptFrame) {
         pic::eoi(vector as u8);
         if vector == IRQ_TIMER as u64 {
             timer::tick();
+            // P2: deliver pending signals before the user task resumes.
+            syscall::deliver_user(f);
         } else if vector == IRQ_KEYBOARD as u64 {
             crate::kbd::irq();
         }

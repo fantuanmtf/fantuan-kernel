@@ -61,6 +61,108 @@ unsafe fn next_level(entry: *mut u64) -> *mut u64 {
     phys_to_virt(*entry & ADDR_MASK) as *mut u64
 }
 
+/// Return the PTE pointer for a 4K user address, or None when unmapped.
+unsafe fn leaf(cr3: u64, vaddr: u64) -> Option<*mut u64> {
+    let pml4 = phys_to_virt(cr3) as *const u64;
+    let e4 = *pml4.add(((vaddr >> 39) & 0x1FF) as usize);
+    if e4 & P_PRESENT == 0 {
+        return None;
+    }
+    let pdpt = phys_to_virt(e4 & ADDR_MASK) as *const u64;
+    let e3 = *pdpt.add(((vaddr >> 30) & 0x1FF) as usize);
+    if e3 & P_PRESENT == 0 || e3 & P_HUGE != 0 {
+        return None;
+    }
+    let pd = phys_to_virt(e3 & ADDR_MASK) as *const u64;
+    let e2 = *pd.add(((vaddr >> 21) & 0x1FF) as usize);
+    if e2 & P_PRESENT == 0 || e2 & P_HUGE != 0 {
+        return None;
+    }
+    let pt = phys_to_virt(e2 & ADDR_MASK) as *mut u64;
+    let pte = pt.add(((vaddr >> 12) & 0x1FF) as usize);
+    if *pte & P_PRESENT == 0 {
+        return None;
+    }
+    Some(pte)
+}
+
+/// P2 fork: eager 4K copy of the whole user half into a fresh PML4. Every
+/// present page gets a new frame with the same PTE flags (W/NX preserved)
+/// and its bytes copied. Returns None on frame exhaustion; the caller must
+/// free whatever was built (free_user_pml4 handles a partial tree).
+pub fn clone_user_pml4(src: u64) -> Option<u64> {
+    let dst = new_user_pml4();
+    unsafe {
+        let spml4 = phys_to_virt(src) as *const u64;
+        for i4 in 0..256 {
+            if *spml4.add(i4) & P_PRESENT == 0 {
+                continue;
+            }
+            let dpm = phys_to_virt(dst) as *mut u64;
+            // Allocate the matching path in the destination on demand.
+            let dpdpt = next_level(dpm.add(i4));
+            let spdpt = phys_to_virt(*spml4.add(i4) & ADDR_MASK) as *const u64;
+            for i3 in 0..512 {
+                let se3 = *spdpt.add(i3);
+                if se3 & P_PRESENT == 0 || se3 & P_HUGE != 0 {
+                    continue;
+                }
+                let dpd = next_level(dpdpt.add(i3));
+                let spd = phys_to_virt(se3 & ADDR_MASK) as *const u64;
+                for i2 in 0..512 {
+                    let se2 = *spd.add(i2);
+                    if se2 & P_PRESENT == 0 || se2 & P_HUGE != 0 {
+                        continue;
+                    }
+                    let dpt = next_level(dpd.add(i2));
+                    let spt = phys_to_virt(se2 & ADDR_MASK) as *const u64;
+                    for i1 in 0..512 {
+                        let spte = *spt.add(i1);
+                        if spte & P_PRESENT == 0 {
+                            continue;
+                        }
+                        let f = frame::get().alloc()?;
+                        core::ptr::copy_nonoverlapping(
+                            phys_to_virt(spte & ADDR_MASK) as *const u8,
+                            phys_to_virt(f) as *mut u8,
+                            4096,
+                        );
+                        *dpt.add(i1) = (spte & !ADDR_MASK) | f;
+                    }
+                }
+            }
+        }
+    }
+    Some(dst)
+}
+
+/// P2 munmap: unmap one 4K page and return its frame.
+pub fn unmap_page(cr3: u64, vaddr: u64) {
+    unsafe {
+        if let Some(pte) = leaf(cr3, vaddr) {
+            frame::get().free(*pte & ADDR_MASK);
+            *pte = 0;
+        }
+    }
+}
+
+/// P2 mprotect: rewrite W/NX of one present PTE, keeping the frame.
+pub fn protect_page(cr3: u64, vaddr: u64, prot: kernel_core::user::Prot) {
+    unsafe {
+        if let Some(pte) = leaf(cr3, vaddr) {
+            let frame_addr = *pte & ADDR_MASK;
+            let mut flags = P_PRESENT | P_USER;
+            if prot.write() {
+                flags |= P_WRITABLE;
+            }
+            if !prot.exec() {
+                flags |= P_NX;
+            }
+            *pte = frame_addr | flags;
+        }
+    }
+}
+
 /// Free a user address space (M8.3b): every 4K page mapped in the user half
 /// (PML4 entries 0..256), the intermediate tables, then the PML4 frame. The
 /// kernel half (entry 256) is shared with the kernel PML4 and must not be

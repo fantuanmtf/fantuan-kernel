@@ -110,7 +110,9 @@ fn parse_phdr(ph: &[u8], class32: bool) -> Phdr {
     }
 }
 
-pub fn load(elf: &[u8]) -> Option<(u64, u64)> {
+/// Load an ET_EXEC image; returns (entry, root, image_end) where image_end is
+/// the first address after the highest mapped page (P2 heap base derivation).
+pub fn load_full(elf: &[u8]) -> Option<(u64, u64, u64)> {
     let ops = user::ops();
     if elf.len() < ELF32_HEADER || elf[0..4] != ELF_MAGIC {
         (ops.log)("elf: bad magic or too small");
@@ -171,6 +173,7 @@ pub fn load(elf: &[u8]) -> Option<(u64, u64)> {
     // (W if any segment writes it; executable if any segment executes it).
     let mut mapped: [(u64, u64, Prot); 64] = [(0, 0, Prot::Ro); 64];
     let mut mapped_n = 0;
+    let mut image_end = 0u64;
 
     for i in 0..phnum {
         let ph = &elf[phoff + i * phentsize..][..phentsize];
@@ -237,9 +240,15 @@ pub fn load(elf: &[u8]) -> Option<(u64, u64)> {
                 let src = elf.get(p_offset + seg_off..p_offset + seg_off + copy)?;
                 unsafe { core::ptr::copy_nonoverlapping(src.as_ptr(), dst.add(head), copy) };
             }
+            image_end = image_end.max(page + 4096);
             page += 4096;
         }
     }
 
-    Some((entry, root))
+    Some((entry, root, image_end))
+}
+
+/// Compatibility wrapper (P1 callers): entry + root only.
+pub fn load(elf: &[u8]) -> Option<(u64, u64)> {
+    load_full(elf).map(|(e, r, _)| (e, r))
 }

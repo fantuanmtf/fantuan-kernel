@@ -1,0 +1,13 @@
+name = "dash"
+version = "0.5.12"
+license = "BSD-3-Clause"
+upstream = "https://git.kernel.org/pub/scm/utils/dash/dash.git/snapshot/dash-0.5.12.tar.gz"
+rev = "unversioned"
+tarball_sha256 = "0d632f6b945058d84809cac7805326775bd60cb4a316907d0bd4228ff7107154"
+abi_min = 1
+build = "custom"
+deps = []
+patches = []
+requires = ["posix-libc"]
+description = "dash 0.5.12, the default POSIX shell (BSD-3-Clause)"
+gpl = false

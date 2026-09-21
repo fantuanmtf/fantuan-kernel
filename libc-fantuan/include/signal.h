@@ -36,6 +36,12 @@ typedef unsigned long sigset_t;
 #define SIGWINCH 28
 #define NSIG 32
 
+#define SA_NOCLDSTOP 0x00000001
+#define SA_RESTART 0x10000000
+#define SA_NOCLDWAIT 0x00000002
+#define SA_NODEFER 0x40000000
+#define SA_RESETHAND 0x80000000
+
 #define SIG_BLOCK 0
 #define SIG_UNBLOCK 1
 #define SIG_SETMASK 2

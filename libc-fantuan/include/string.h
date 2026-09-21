@@ -34,5 +34,10 @@ char *strndup(const char *s, size_t n);
 char *strerror(int errnum);
 char *strsignal(int sig);
 char *stpcpy(char *dest, const char *src);
+void *mempcpy(void *dest, const void *src, size_t n);
+char *strchrnul(const char *s, int c);
+char *stpncpy(char *dest, const char *src, size_t n);
+int strcasecmp(const char *s1, const char *s2);
+int strncasecmp(const char *s1, const char *s2, size_t n);
 
 #endif /* _STRING_H */

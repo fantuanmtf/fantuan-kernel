@@ -35,10 +35,26 @@ switch_context:
     popfq
     ret
 
-/* user_entry — first entry into a user task. switch_context returns here with
- * rsp already pointing at the pre-built ring-3 frame:
- *   [rip][cs][rflags][rsp][ss]
- * so a bare iretq lands in user mode. */
-    .global user_entry
-user_entry:
+/* user_iret_entry — first entry into a user task and the fork child's resume
+ * path. switch_context returns here with rsp pointing at the full user
+ * context block the kernel built (P2, kernel/src/task/mod.rs):
+ *   [r15..r8][rbp][rdi][rsi][rdx][rcx][rbx][rax][rip][cs][rflags][rsp][ss]
+ * The GP registers are popped in field order, then iretq lands in ring 3. */
+    .global user_iret_entry
+user_iret_entry:
+    pop     r15
+    pop     r14
+    pop     r13
+    pop     r12
+    pop     r11
+    pop     r10
+    pop     r9
+    pop     r8
+    pop     rbp
+    pop     rdi
+    pop     rsi
+    pop     rdx
+    pop     rcx
+    pop     rbx
+    pop     rax
     iretq

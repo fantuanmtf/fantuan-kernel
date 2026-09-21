@@ -25,21 +25,12 @@ use super::tmpfs;
 const PATH_MAX: usize = 256;
 const CHUNK: usize = 256;
 
-/// Termios flag bits (mirror of libc-fantuan's termios.h).
-const ICRNL: u32 = 0x0100;
-const OPOST: u32 = 0x0001;
-const CS8: u32 = 0x0030;
-const CREAD: u32 = 0x0080;
-const ISIG: u32 = 0x0001;
-const ICANON: u32 = 0x0002;
-const ECHO: u32 = 0x0008;
-
 fn nodeps() -> u64 {
     SYS_ERR_NOSYS
 }
 
 /// Copy a NUL-terminated user string into a kernel buffer (no NUL stored).
-pub(super) fn cpath(ptr: u64) -> Result<([u8; PATH_MAX], usize), u64> {
+pub(crate) fn cpath(ptr: u64) -> Result<([u8; PATH_MAX], usize), u64> {
     let mut buf = [0u8; PATH_MAX];
     for i in 0..PATH_MAX {
         let mut b = [0u8; 1];
@@ -52,7 +43,7 @@ pub(super) fn cpath(ptr: u64) -> Result<([u8; PATH_MAX], usize), u64> {
     Err(fantuan_abi::SYS_ERR_NAMETOOLONG)
 }
 
-pub(super) fn cpath_slice<'a>(buf: &'a [u8; PATH_MAX], len: usize) -> &'a [u8] {
+pub(crate) fn cpath_slice<'a>(buf: &'a [u8; PATH_MAX], len: usize) -> &'a [u8] {
     &buf[..len]
 }
 
@@ -208,56 +199,110 @@ pub fn ioctl(fd: u64, req: u64, arg: u64) -> u64 {
     let Some(node) = fd::node_of(slot, fd as u16) else {
         return SYS_ERR_NOTTY;
     };
-    if node != tmpfs::CONSOLE || arg == 0 {
+    if node != tmpfs::CONSOLE {
         return SYS_ERR_NOTTY;
     }
     match req {
         fantuan_abi::IOCTL_TCGETS => {
-            let t = Termios {
-                c_iflag: ICRNL,
-                c_oflag: OPOST,
-                c_cflag: CS8 | CREAD,
-                c_lflag: ISIG | ICANON | ECHO,
-                c_cc: [0; 32],
-            };
-            let bytes = unsafe {
-                core::slice::from_raw_parts(
-                    &t as *const Termios as *const u8,
-                    core::mem::size_of::<Termios>(),
-                )
-            };
-            match user::copy_out(arg, bytes) {
-                Some(()) => SYS_OK,
-                None => SYS_ERR_FAULT,
+            if arg == 0 {
+                return SYS_ERR_NOTTY;
             }
+            let t = crate::tty::termios_get();
+            put_bytes(arg, &t)
         }
         fantuan_abi::IOCTL_TCSETS => {
-            let mut t = Termios::default();
-            let bytes = unsafe {
-                core::slice::from_raw_parts_mut(
-                    &mut t as *mut Termios as *mut u8,
-                    core::mem::size_of::<Termios>(),
-                )
-            };
-            match user::copy_in(bytes, arg) {
-                Some(()) => SYS_OK,
-                None => SYS_ERR_FAULT,
+            if arg == 0 {
+                return SYS_ERR_NOTTY;
             }
+            let mut t = Termios::default();
+            if copy_bytes(&mut t, arg).is_none() {
+                return SYS_ERR_FAULT;
+            }
+            crate::tty::termios_set(&t)
+        }
+        fantuan_abi::IOCTL_TIOCGPGRP => {
+            let p = crate::process::tty_pgrp();
+            if user::copy_out(arg, &(p as u32).to_le_bytes()).is_none() {
+                return SYS_ERR_FAULT;
+            }
+            SYS_OK
+        }
+        fantuan_abi::IOCTL_TIOCSPGRP => {
+            let mut raw = [0u8; 4];
+            if user::copy_in(&mut raw, arg).is_none() {
+                return SYS_ERR_FAULT;
+            }
+            crate::process::set_tty_pgrp(u32::from_le_bytes(raw) as u64);
+            SYS_OK
         }
         fantuan_abi::IOCTL_TIOCGWINSZ => {
             let w = Winsize { ws_row: 25, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
-            let bytes = unsafe {
-                core::slice::from_raw_parts(
-                    &w as *const Winsize as *const u8,
-                    core::mem::size_of::<Winsize>(),
-                )
-            };
-            match user::copy_out(arg, bytes) {
-                Some(()) => SYS_OK,
-                None => SYS_ERR_FAULT,
-            }
+            put_bytes(arg, &w)
         }
         _ => fantuan_abi::SYS_ERR_NOTTY,
+    }
+}
+
+fn put_bytes<T>(ptr: u64, v: &T) -> u64 {
+    let bytes =
+        unsafe { core::slice::from_raw_parts(v as *const T as *const u8, core::mem::size_of::<T>()) };
+    match user::copy_out(ptr, bytes) {
+        Some(()) => SYS_OK,
+        None => SYS_ERR_FAULT,
+    }
+}
+
+fn copy_bytes<T>(v: &mut T, ptr: u64) -> Option<()> {
+    let bytes = unsafe {
+        core::slice::from_raw_parts_mut(v as *mut T as *mut u8, core::mem::size_of::<T>())
+    };
+    user::copy_in(bytes, ptr)
+}
+
+/// wait4(pid, status, options, rusage): block on the process layer, encode
+/// the status as the POSIX 32-bit wait word, ignore rusage (zero-filled).
+pub fn wait4(pid: u64, status: u64, options: u64, rusage: u64) -> u64 {
+    let _ = rusage;
+    match crate::process::wait4(pid as i64, options) {
+        Ok((child, st)) => {
+            if status != 0 {
+                if user::copy_out(status, &(st as u32).to_le_bytes()).is_none() {
+                    return SYS_ERR_FAULT;
+                }
+            }
+            child as u64
+        }
+        Err(e) => e,
+    }
+}
+
+/// tcgetpgrp: the console's foreground group.
+pub fn tcgetpgrp(fd: u64) -> u64 {
+    let slot = task::current_slot();
+    match fd::node_of(slot, fd as u16) {
+        Some(n) if n == tmpfs::CONSOLE => crate::process::tty_pgrp(),
+        _ => SYS_ERR_NOTTY,
+    }
+}
+
+/// tcsetpgrp: only the console has a foreground group.
+pub fn tcsetpgrp(fd: u64, pgrp: u64) -> u64 {
+    let slot = task::current_slot();
+    match fd::node_of(slot, fd as u16) {
+        Some(n) if n == tmpfs::CONSOLE => {
+            crate::process::set_tty_pgrp(pgrp);
+            SYS_OK
+        }
+        _ => SYS_ERR_NOTTY,
+    }
+}
+
+/// fcntl(fd, cmd, arg): F_DUPFD/F_GETFD/F_SETFD/F_GETFL/F_SETFL.
+pub fn fcntl(fd: u64, cmd: u64, arg: u64) -> u64 {
+    let slot = task::current_slot();
+    match fd::fcntl(slot, fd as u16, cmd, arg) {
+        Ok(v) => v,
+        Err(e) => e,
     }
 }
 

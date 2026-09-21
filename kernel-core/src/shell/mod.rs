@@ -220,26 +220,60 @@ impl<'a> Shell<'a> {
 
     // --- dispatch ---
 
+    /// Split a line into tokens, stripping boundary quotes (P2: the
+    /// `sh -c '...'` command needs the quoted script as one argument).
+    /// Interior quotes are kept verbatim; that is enough for the rescue
+    /// shell, which only needs to hand a whole script to dash.
     pub fn run_line(&mut self, s: &mut Log, line: &[u8]) {
-        let mut toks: [&[u8]; 4] = [&[]; 4];
+        let mut toks: [&[u8]; 8] = [&[]; 8];
         let mut n = 0usize;
-        let mut start: Option<usize> = None;
-        for (i, &b) in line.iter().enumerate() {
-            if b == b' ' || b == b'\t' {
-                if let Some(st) = start.take() {
-                    if n < toks.len() {
-                        toks[n] = &line[st..i];
-                        n += 1;
+        let mut pending = false;
+        let mut st = 0usize;
+        let mut quote: u8 = 0;
+        let mut i = 0usize;
+        while i <= line.len() {
+            let b = if i < line.len() { line[i] } else { b' ' };
+            if quote != 0 {
+                if b == quote {
+                    quote = 0;
+                    let next = if i + 1 < line.len() { line[i + 1] } else { b' ' };
+                    if (next == b' ' || next == b'\t') && pending {
+                        if n < toks.len() {
+                            toks[n] = &line[st..i];
+                            n += 1;
+                        }
+                        pending = false;
                     }
                 }
-            } else if start.is_none() {
-                start = Some(i);
+                i += 1;
+                continue;
             }
-        }
-        if let Some(st) = start {
-            if n < toks.len() {
-                toks[n] = &line[st..];
-                n += 1;
+            match b {
+                b'\'' | b'"' => {
+                    quote = b;
+                    if !pending {
+                        pending = true;
+                        st = i + 1;
+                    }
+                    i += 1;
+                }
+                b' ' | b'\t' => {
+                    if pending {
+                        if n < toks.len() {
+                            toks[n] = &line[st..i];
+                            n += 1;
+                        }
+                        pending = false;
+                    }
+                    i += 1;
+                }
+                _ => {
+                    if !pending {
+                        pending = true;
+                        st = i;
+                    }
+                    i += 1;
+                }
             }
         }
         if n == 0 {

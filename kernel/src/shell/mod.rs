@@ -20,8 +20,9 @@ pub use kernel_core::shell::{cat, rescue};
 pub mod cmds;
 #[cfg(kconfig_tools)]
 pub mod cmds_net;
+pub mod sh;
 
-const CORE_COMMANDS: usize = 2;
+const CORE_COMMANDS: usize = 3;
 #[cfg(kconfig_rescue_repair)]
 const RESCUE_COMMANDS: usize = 10;
 #[cfg(not(kconfig_rescue_repair))]
@@ -38,6 +39,7 @@ pub const N_COMMANDS: usize = CORE_COMMANDS + RESCUE_COMMANDS + TOOL_COMMANDS;
 pub static COMMANDS: [Command; N_COMMANDS] = [
     Command { name: "help", help: "this table", run: shared_cmds::cmd_help },
     Command { name: "bootinfo", help: "boot handover details", run: shared_cmds::cmd_bootinfo },
+    Command { name: "sh", help: "run /bin/dash on the console (P2)", run: sh::cmd_sh },
     #[cfg(kconfig_rescue_repair)]
     Command { name: "hwdiag", help: "re-run hardware + storage diagnostics", run: cmds::cmd_hwdiag },
     #[cfg(kconfig_rescue_repair)]

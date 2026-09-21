@@ -1,0 +1,5 @@
+dash 0.5.12 (pristine upstream release tarball)
+upstream: https://git.kernel.org/pub/scm/utils/dash/dash.git/snapshot/dash-0.5.12.tar.gz
+sha256:   0d632f6b945058d84809cac7805326775bd60cb4a316907d0bd4228ff7107154
+license:  BSD-3-Clause (see ../COPYING)
+fetched:  2026-09 (P2); pinned in apps.lock and checked by tools/appctl verify.

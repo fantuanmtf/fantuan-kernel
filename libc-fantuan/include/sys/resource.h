@@ -6,6 +6,8 @@
 #include <sys/types.h>
 #include <sys/time.h>
 
+typedef unsigned long rlim_t;
+
 struct rlimit {
     unsigned long rlim_cur;
     unsigned long rlim_max;

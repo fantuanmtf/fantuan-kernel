@@ -10,13 +10,15 @@ use crate::arch;
 use crate::frame;
 
 pub const MAX_TASKS: usize = 16;
-const STACK_PAGES: u64 = 4; // 16 KiB per task
+pub const STACK_PAGES: u64 = 4; // 16 KiB per task
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum State {
     Unused,
     Ready,
     Sleeping { wake_tick: u64 },
+    /// Zombie: exited and not yet reaped. The slot survives until wait4
+    /// consumed the status (or the parent died), so `exit_code` stays valid.
     Exited,
 }
 
@@ -35,6 +37,8 @@ pub struct Task {
     pub body: fn() -> !,
     pub id: u64,
     pub exit_code: u64,
+    /// P2: heap base derived from the ELF image; 0 = USER_HEAP_BASE.
+    pub heap_base: u64,
 }
 
 /// Placeholder body for tasks that never run it (user tasks).
@@ -54,6 +58,7 @@ const EMPTY_TASK: Task = Task {
     body: dead_body,
     id: 0,
     exit_code: 0,
+    heap_base: 0,
 };
 
 static mut TASKS: [Task; MAX_TASKS] = [EMPTY_TASK; MAX_TASKS];
@@ -80,6 +85,12 @@ pub struct TaskOps {
     pub now_ticks: fn() -> u64,
     /// Log one reap (the kernel owns serial).
     pub on_reap: fn(tid: u64),
+    /// P2: kernel stack for a fork child that resumes the parent's ring-3
+    /// context with RAX = 0; returns (stack_phys, stack_top, saved_rsp).
+    pub init_fork_stack: fn(&crate::process::UserContext) -> Option<(u64, u64, u64)>,
+    /// P2: execve image builder; returns (entry, user_rsp, root, heap_base).
+    pub exec_image:
+        fn(&[u8], &[&[u8]], &[&[u8]]) -> Option<(u64, u64, u64, u64)>,
 }
 
 fn unset(_old: *mut u64, _new: u64, _vm: u64) {}
@@ -98,6 +109,12 @@ fn unset_ticks() -> u64 {
     0
 }
 fn unset_reap(_tid: u64) {}
+fn unset_fork_stack(_ctx: &crate::process::UserContext) -> Option<(u64, u64, u64)> {
+    None
+}
+fn unset_exec_image(_e: &[u8], _a: &[&[u8]], _v: &[&[u8]]) -> Option<(u64, u64, u64, u64)> {
+    None
+}
 
 static mut OPS: TaskOps = TaskOps {
     switch: unset,
@@ -108,13 +125,15 @@ static mut OPS: TaskOps = TaskOps {
     phys_to_virt: unset_p2v,
     now_ticks: unset_ticks,
     on_reap: unset_reap,
+    init_fork_stack: unset_fork_stack,
+    exec_image: unset_exec_image,
 };
 
 pub fn set_ops(ops: TaskOps) {
     unsafe { ptr::write(ptr::addr_of_mut!(OPS), ops) };
 }
 
-fn ops() -> TaskOps {
+pub fn ops() -> TaskOps {
     unsafe { ptr::addr_of!(OPS).read() }
 }
 
@@ -141,9 +160,11 @@ pub fn init(boot_stack_top: u64) {
             body: dead_body,
             id: 0,
             exit_code: 0,
+            heap_base: 0,
         };
     }
     (ops.set_kernel_stack)(boot_stack_top, false);
+    crate::process::init_boot();
 }
 
 /// Allocate a kernel stack; returns (physical base, virtual top).
@@ -162,13 +183,33 @@ pub fn register(mut t: Task) -> Option<u64> {
     };
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed) + 1;
     t.id = id;
+    let base = t.heap_base;
     let is_user = t.is_user;
     unsafe { ptr::write(ptr::addr_of_mut!(TASKS[slot]), t) };
     if is_user {
         // P1: stdio on /dev/console (fds 0..2) and a fresh heap.
         crate::vfs::fd::init_task(slot);
-        crate::brk::init_task(slot);
+        crate::brk::init_task(slot, base);
+        crate::process::init_task(slot, id, 0);
     }
+    arch::irq_restore(flags);
+    Some(id)
+}
+
+/// Register a fork child: the fd table, brk state and signal/VMA state are
+/// cloned from the parent before the task becomes runnable (IRQs off).
+pub fn register_fork(parent_slot: usize, mut t: Task) -> Option<u64> {
+    let flags = arch::irq_save();
+    let Some(slot) = find_slot() else {
+        arch::irq_restore(flags);
+        return None;
+    };
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed) + 1;
+    t.id = id;
+    unsafe { ptr::write(ptr::addr_of_mut!(TASKS[slot]), t) };
+    crate::vfs::fd::clone_task(parent_slot, slot);
+    crate::brk::clone_task(parent_slot, slot);
+    crate::process::clone_task(parent_slot, slot, id);
     arch::irq_restore(flags);
     Some(id)
 }
@@ -188,6 +229,7 @@ pub fn spawn(body: fn() -> !) -> u64 {
         body,
         id: 0,
         exit_code: 0,
+        heap_base: 0,
     })
     .expect("task table full")
 }
@@ -249,12 +291,23 @@ pub fn sleep_ms(ms: u64) {
 
 /// Mark the current task exited and never run it again.
 pub fn exit(code: u64) -> ! {
+    exit_with(crate::process::status_exited(code))
+}
+
+/// Exit through a signal: the wait status carries the signal number.
+pub fn exit_signal(sig: u32) -> ! {
+    exit_with(crate::process::status_signaled(sig))
+}
+
+fn exit_with(status: u64) -> ! {
+    let slot = CURRENT.load(Ordering::Relaxed);
     unsafe {
-        let t = &mut *ptr::addr_of_mut!(TASKS[CURRENT.load(Ordering::Relaxed)]);
+        let t = &mut *ptr::addr_of_mut!(TASKS[slot]);
         t.state = State::Exited;
-        t.exit_code = code;
+        t.exit_code = status;
     }
-    crate::vfs::fd::close_all(CURRENT.load(Ordering::Relaxed));
+    crate::process::on_exit(slot, status);
+    crate::vfs::fd::close_all(slot);
     loop {
         schedule();
     }
@@ -271,7 +324,16 @@ pub fn current_vm_root() -> u64 {
     unsafe { (*ptr::addr_of!(TASKS[CURRENT.load(Ordering::Relaxed)])).vm_root }
 }
 
-/// Free every Exited task except CURRENT's slot.
+/// Point the running task at a new address space (execve; the arch also
+/// reloads CR3/root register).
+pub fn set_current_vm_root(root: u64) {
+    unsafe {
+        (*ptr::addr_of_mut!(TASKS[CURRENT.load(Ordering::Relaxed)])).vm_root = root;
+    }
+}
+
+/// Free every Exited task except CURRENT's slot. P2: zombies stay in their
+/// slot until wait4 consumed the status (or the parent died).
 fn reap_exited(current: usize) {
     let ops = ops();
     for i in 0..MAX_TASKS {
@@ -280,17 +342,21 @@ fn reap_exited(current: usize) {
         }
         unsafe {
             let t = &mut *ptr::addr_of_mut!(TASKS[i]);
-            if t.state != State::Exited {
+            if t.state != State::Exited || !crate::process::reapable(i) {
                 continue;
             }
             let tid = t.id;
-            // P1: release fds/pipes before the slot can be reused.
+            let is_user = t.is_user;
+            let vm_root = t.vm_root;
+            let stack_phys = t.stack_phys;
+            // Release fds/pipes before the slot can be reused.
             crate::vfs::fd::close_all(i);
+            crate::process::on_reap(i);
             for p in 0..STACK_PAGES {
-                frame::get().free(t.stack_phys + p * frame::FRAME_SIZE);
+                frame::get().free(stack_phys + p * frame::FRAME_SIZE);
             }
-            if t.is_user && t.vm_root != 0 && t.vm_root != (ops.kernel_vm_root)() {
-                (ops.free_user_vm)(t.vm_root);
+            if is_user && vm_root != 0 && vm_root != (ops.kernel_vm_root)() {
+                (ops.free_user_vm)(vm_root);
             }
             t.state = State::Unused;
             (ops.on_reap)(tid);

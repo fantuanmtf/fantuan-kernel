@@ -7,7 +7,7 @@
 //! drop it across `task::sleep_ms`, so the peer task can make progress.
 //! `alloc`/`init`/`drop_end`/`unread` run with the caller holding the lock.
 
-use fantuan_abi::{SYS_ERR_BADF, SYS_ERR_PIPE};
+use fantuan_abi::{SYS_ERR_BADF, SYS_ERR_INTR, SYS_ERR_PIPE};
 
 use super::fd::FS_LOCK;
 use super::ERR_WOULD_BLOCK;
@@ -68,6 +68,18 @@ pub(super) fn unread(id: u16) -> u64 {
     pipes()[id as usize].len as u64
 }
 
+fn plog2(tag: char, id: usize, a: u64, b: u64) {
+    use core::fmt::Write;
+    struct S;
+    impl Write for S {
+        fn write_str(&mut self, s: &str) -> core::fmt::Result {
+            crate::log::put(s.as_bytes());
+            Ok(())
+        }
+    }
+    let _ = write!(S, "pipe {} id={} ret={} slot={}\n", tag, id, a, b);
+}
+
 fn read_locked(id: usize, out: &mut [u8]) -> Result<usize, u64> {
     let p = pipes()[id];
     if !p.used {
@@ -97,7 +109,12 @@ pub fn read(id: u16, out: &mut [u8]) -> Result<usize, u64> {
             read_locked(id as usize, out)
         };
         match r {
-            Err(e) if e == ERR_WOULD_BLOCK => task::sleep_ms(1),
+            Err(e) if e == ERR_WOULD_BLOCK => {
+                if crate::process::pending_handled(task::current_slot()) {
+                    return Err(SYS_ERR_INTR);
+                }
+                task::sleep_ms(1);
+            }
             other => return other,
         }
     }
@@ -130,7 +147,12 @@ pub fn write(id: u16, data: &[u8]) -> Result<usize, u64> {
             write_locked(id as usize, data)
         };
         match r {
-            Err(e) if e == ERR_WOULD_BLOCK => task::sleep_ms(1),
+            Err(e) if e == ERR_WOULD_BLOCK => {
+                if crate::process::pending_handled(task::current_slot()) {
+                    return Err(SYS_ERR_INTR);
+                }
+                task::sleep_ms(1);
+            }
             other => return other,
         }
     }

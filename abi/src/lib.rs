@@ -91,6 +91,97 @@ pub const SYS_V2_FIRST: u64 = SYS_OPEN;
 /// Highest P1 call (stubs included). Append new calls after it.
 pub const SYS_V2_LAST: u64 = SYS_RENAME;
 
+// --- Syscall additions v3: POSIX round 2 (P2, append-only) -----------------
+//
+// P2 adds the process/signal/VMA surface (docs/POSIX_PLAN.md). P1 numbers are
+// untouched; `SYS_MMAP` (15) stays the ENOSYS stub forever and the real call
+// is `SYS_MMAP2` (40) with the full argument set. Frame-dependent calls
+// (fork/execve/sigreturn) are handled by the arch that installs process
+// FrameOps; kernels without it report ERR_NOSYS.
+
+pub const SYS_FORK: u64 = 29; // () -> child pid (0 in the child)
+pub const SYS_EXECVE: u64 = 30; // (path, argv, envp) -> only returns on error
+pub const SYS_WAIT4: u64 = 31; // (pid, status, options, rusage) -> pid
+pub const SYS_KILL: u64 = 32; // (pid, sig) -> 0
+pub const SYS_SIGACTION: u64 = 33; // (signum, act, oldact) -> 0
+pub const SYS_SIGPROCMASK: u64 = 34; // (how, set, oldset) -> 0
+pub const SYS_SIGRETURN: u64 = 35; // () -> restores the interrupted context
+pub const SYS_SETPGID: u64 = 36; // (pid, pgid) -> 0
+pub const SYS_GETPGID: u64 = 37; // (pid) -> pgid
+pub const SYS_GETPGRP: u64 = 38; // () -> pgid
+pub const SYS_SETSID: u64 = 39; // () -> sid
+pub const SYS_MMAP2: u64 = 40; // (addr, len, prot, flags, fd) -> addr
+pub const SYS_MUNMAP: u64 = 41; // (addr, len) -> 0
+pub const SYS_MPROTECT: u64 = 42; // (addr, len, prot) -> 0
+pub const SYS_NANOSLEEP: u64 = 43; // (req, rem) -> 0
+pub const SYS_TCGETPGRP: u64 = 44; // (fd) -> pgrp
+pub const SYS_TCSETPGRP: u64 = 45; // (fd, pgrp) -> 0
+pub const SYS_SIGSUSPEND: u64 = 46; // (mask) -> 0 after a signal arrives
+pub const SYS_FCNTL: u64 = 47; // (fd, cmd, arg) -> varies
+
+/// First P2 syscall number; the kernel-core router checks n >= this.
+pub const SYS_P2_FIRST: u64 = SYS_FORK;
+
+/// Highest P2 call (append new calls after it).
+pub const SYS_P2_LAST: u64 = SYS_FCNTL;
+
+// --- P2 process/signal/VMA constants ---------------------------------------
+
+/// Signal numbers (mirror libc-fantuan/signal.h and POSIX).
+pub const SIGHUP: u32 = 1;
+pub const SIGINT: u32 = 2;
+pub const SIGQUIT: u32 = 3;
+pub const SIGILL: u32 = 4;
+pub const SIGTRAP: u32 = 5;
+pub const SIGABRT: u32 = 6;
+pub const SIGBUS: u32 = 7;
+pub const SIGFPE: u32 = 8;
+pub const SIGKILL: u32 = 9;
+pub const SIGUSR1: u32 = 10;
+pub const SIGSEGV: u32 = 11;
+pub const SIGUSR2: u32 = 12;
+pub const SIGPIPE: u32 = 13;
+pub const SIGALRM: u32 = 14;
+pub const SIGTERM: u32 = 15;
+pub const SIGCHLD: u32 = 17;
+pub const SIGCONT: u32 = 18;
+pub const SIGSTOP: u32 = 19;
+pub const SIGTSTP: u32 = 20;
+pub const SIGTTIN: u32 = 21;
+pub const SIGTTOU: u32 = 22;
+pub const SIGWINCH: u32 = 28;
+pub const NSIG: u32 = 32;
+
+/// Handler sentinels (the canonical SIG_DFL/SIG_IGN values).
+pub const SIG_DFL: u64 = 0;
+pub const SIG_IGN: u64 = 1;
+
+/// sigprocmask how values (POSIX).
+pub const SIG_BLOCK: u64 = 0;
+pub const SIG_UNBLOCK: u64 = 1;
+pub const SIG_SETMASK: u64 = 2;
+
+/// mmap protections and flags (POSIX/Linux-compatible numbers).
+pub const PROT_NONE: u64 = 0;
+pub const PROT_READ: u64 = 1;
+pub const PROT_WRITE: u64 = 2;
+pub const PROT_EXEC: u64 = 4;
+pub const MAP_SHARED: u64 = 0x01;
+pub const MAP_PRIVATE: u64 = 0x02;
+pub const MAP_FIXED: u64 = 0x10;
+pub const MAP_ANONYMOUS: u64 = 0x20;
+
+/// wait4 options (mirror libc-fantuan/sys/wait.h).
+pub const WNOHANG: u64 = 1;
+pub const WUNTRACED: u64 = 2;
+
+/// Base of the P2 mmap region; brk grows from USER_HEAP_BASE upward and the
+/// loader's ET_EXEC images stay well below both.
+pub const USER_MMAP_BASE: u64 = 0x1000_0000;
+
+/// Per-process VMA slots (static table, no kernel heap).
+pub const MAX_VMAS: usize = 8;
+
 pub const SYS_ERR_NOENT: u64 = u64::MAX - 2; // -3
 pub const SYS_ERR_BADF: u64 = u64::MAX - 3; // -4
 pub const SYS_ERR_IO: u64 = u64::MAX - 4; // -5
@@ -117,6 +208,7 @@ pub const SYS_ERR_INTR: u64 = u64::MAX - 24; // -25
 pub const SYS_ERR_CHILD: u64 = u64::MAX - 25; // -26
 pub const SYS_ERR_PERM: u64 = u64::MAX - 26; // -27
 pub const SYS_ERR_SRCH: u64 = u64::MAX - 27; // -28
+pub const SYS_ERR_NOEXEC: u64 = u64::MAX - 28; // -29 (P2: exec format)
 
 /// User heap base for P1 (the ELF images link at 0x400000 and are tiny).
 /// The ELF loader's segment end is not consulted yet; P2 derives it.
@@ -130,6 +222,16 @@ pub const O_CREAT: u64 = 0x40;
 pub const O_EXCL: u64 = 0x80;
 pub const O_TRUNC: u64 = 0x200;
 pub const O_APPEND: u64 = 0x400;
+pub const O_NONBLOCK: u64 = 0x800;
+pub const O_CLOEXEC: u64 = 0x80000;
+
+/// fcntl commands and the close-on-exec flag (mirror libc-fantuan/fcntl.h).
+pub const F_DUPFD: u64 = 0;
+pub const F_GETFD: u64 = 1;
+pub const F_SETFD: u64 = 2;
+pub const F_GETFL: u64 = 3;
+pub const F_SETFL: u64 = 4;
+pub const FD_CLOEXEC: u64 = 1;
 
 /// mode bits (mirrored by sys/stat.h; POSIX values).
 pub const S_IFMT: u32 = 0xF000;
@@ -149,6 +251,8 @@ pub const DT_REG: u32 = 8;
 /// sys/ioctl.h mirror them). P1 implements them on /dev/console only.
 pub const IOCTL_TCGETS: u64 = 0x5401;
 pub const IOCTL_TCSETS: u64 = 0x5402;
+pub const IOCTL_TIOCGPGRP: u64 = 0x540F;
+pub const IOCTL_TIOCSPGRP: u64 = 0x5410;
 pub const IOCTL_TIOCGWINSZ: u64 = 0x5413;
 
 // P1 payload structs (Stat/Timespec/Dirent/Termios/Winsize) live in the

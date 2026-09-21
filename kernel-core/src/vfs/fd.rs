@@ -10,8 +10,9 @@
 use core::sync::atomic::AtomicBool;
 
 use fantuan_abi::{
-    O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_TRUNC, O_WRONLY, SYS_ERR_BADF, SYS_ERR_EXIST,
-    SYS_ERR_INVAL, SYS_ERR_ISDIR, SYS_ERR_MFILE, SYS_ERR_NOENT, SYS_ERR_SPIPE,
+    F_DUPFD, F_GETFD, F_GETFL, F_SETFD, F_SETFL, FD_CLOEXEC, O_APPEND, O_CLOEXEC, O_CREAT, O_EXCL,
+    O_NONBLOCK, O_RDONLY, O_TRUNC, O_WRONLY, SYS_ERR_BADF, SYS_ERR_EXIST, SYS_ERR_INVAL,
+    SYS_ERR_ISDIR, SYS_ERR_MFILE, SYS_ERR_NOENT, SYS_ERR_SPIPE,
 };
 
 use crate::arch::IrqLock;
@@ -19,8 +20,8 @@ use crate::arch::IrqLock;
 use super::pipe;
 use super::tmpfs::{self, Kind};
 
-pub const MAX_FDS: usize = 16;
-const MAX_OPEN: usize = 64;
+pub const MAX_FDS: usize = 32;
+const MAX_OPEN: usize = 128;
 const MAX_TASKS: usize = crate::task::MAX_TASKS;
 
 /// Serializes the P1 FS tables (tmpfs, fds, pipes); `pub(super)` so the
@@ -30,9 +31,10 @@ pub(super) static FS_LOCK: AtomicBool = AtomicBool::new(false);
 #[derive(Clone, Copy)]
 struct Fd {
     open: u16, // open index + 1; 0 = free
+    cloexec: bool,
 }
 
-const EMPTY_FD: Fd = Fd { open: 0 };
+const EMPTY_FD: Fd = Fd { open: 0, cloexec: false };
 
 #[derive(Clone, Copy)]
 pub(super) struct Open {
@@ -91,8 +93,71 @@ fn alloc_open() -> Option<usize> {
 fn install(slot: usize, open: usize, flags: u32, node: u16, pipe_id: u16) -> Option<u16> {
     let fd = (0..MAX_FDS).find(|&i| fds(slot)[i].open == 0)?;
     opens()[open] = Open { used: true, node, flags, offset: 0, refs: 1, pipe: pipe_id };
-    fds(slot)[fd] = Fd { open: open as u16 + 1 };
+    fds(slot)[fd] = Fd { open: open as u16 + 1, cloexec: flags & O_CLOEXEC as u32 != 0 };
     Some(fd as u16)
+}
+
+/// Fork: duplicate the fd table into the child (open objects shared).
+pub fn clone_task(parent: usize, child: usize) {
+    let _g = IrqLock::acquire(&FS_LOCK);
+    close_all_unlocked(child);
+    for i in 0..MAX_FDS {
+        let fd = fds(parent)[i];
+        fds(child)[i] = fd;
+        if fd.open != 0 {
+            opens()[fd.open as usize - 1].refs += 1;
+        }
+    }
+    let cwd = cwd_get(parent);
+    cwd_set(child, cwd);
+}
+
+/// execve: close every fd carrying FD_CLOEXEC.
+pub fn exec_close(slot: usize) {
+    let _g = IrqLock::acquire(&FS_LOCK);
+    for i in 0..MAX_FDS {
+        let fd = fds(slot)[i];
+        if fd.open != 0 && fd.cloexec {
+            close_open(fd.open as usize - 1);
+            fds(slot)[i] = EMPTY_FD;
+        }
+    }
+}
+
+/// fcntl(2) subset: F_DUPFD, F_GETFD/F_SETFD, F_GETFL/F_SETFL.
+pub fn fcntl(slot: usize, fd: u16, cmd: u64, arg: u64) -> Result<u64, u64> {
+    let _g = IrqLock::acquire(&FS_LOCK);
+    match cmd {
+        F_DUPFD => {
+            let old = open_of(slot, fd).ok_or(SYS_ERR_BADF)?;
+            let min = arg as usize;
+            let Some(new_fd) = (min..MAX_FDS).find(|&i| fds(slot)[i].open == 0) else {
+                return Err(SYS_ERR_MFILE);
+            };
+            opens()[old].refs += 1;
+            fds(slot)[new_fd] = Fd { open: old as u16 + 1, cloexec: false };
+            Ok(new_fd as u64)
+        }
+        F_GETFD => {
+            open_of(slot, fd).ok_or(SYS_ERR_BADF)?;
+            Ok(fds(slot)[fd as usize].cloexec as u64)
+        }
+        F_SETFD => {
+            open_of(slot, fd).ok_or(SYS_ERR_BADF)?;
+            fds(slot)[fd as usize].cloexec = arg & FD_CLOEXEC != 0;
+            Ok(0)
+        }
+        F_GETFL => {
+            let idx = open_of(slot, fd).ok_or(SYS_ERR_BADF)?;
+            Ok(opens()[idx].flags as u64)
+        }
+        F_SETFL => {
+            let idx = open_of(slot, fd).ok_or(SYS_ERR_BADF)?;
+            opens()[idx].flags = (opens()[idx].flags & !O_NONBLOCK as u32) | (arg as u32 & O_NONBLOCK as u32);
+            Ok(0)
+        }
+        _ => Err(SYS_ERR_INVAL),
+    }
 }
 
 /// Initialize a task's fd table: fds 0..2 on /dev/console, cwd "/".
@@ -110,7 +175,7 @@ pub fn init_task(slot: usize) {
         pipe: 0,
     };
     for fd in 0..3 {
-        fds(slot)[fd] = Fd { open: open as u16 + 1 };
+        fds(slot)[fd] = Fd { open: open as u16 + 1, cloexec: false };
     }
 }
 
@@ -241,7 +306,7 @@ fn dup_into(slot: usize, fd: u16) -> Result<u16, u64> {
         return Err(SYS_ERR_MFILE);
     };
     opens()[old].refs += 1;
-    fds(slot)[new_fd] = Fd { open: old as u16 + 1 };
+    fds(slot)[new_fd] = Fd { open: old as u16 + 1, cloexec: false };
     Ok(new_fd as u16)
 }
 
@@ -264,7 +329,7 @@ pub fn dup2(slot: usize, old: u16, new: u16) -> Result<u16, u64> {
         close_open(prev);
     }
     opens()[old_idx].refs += 1;
-    fds(slot)[new as usize] = Fd { open: old_idx as u16 + 1 };
+    fds(slot)[new as usize] = Fd { open: old_idx as u16 + 1, cloexec: false };
     Ok(new)
 }
 

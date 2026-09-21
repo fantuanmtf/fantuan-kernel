@@ -20,57 +20,6 @@
 #include <unistd.h>
 #include <fantuan/abi.h>
 
-pid_t fork(void)
-{
-    errno = ENOSYS;
-    return -1;
-}
-
-int execve(const char *path, char *const argv[], char *const envp[])
-{
-    (void)path;
-    (void)argv;
-    (void)envp;
-    errno = ENOSYS;
-    return -1;
-}
-
-int execv(const char *path, char *const argv[])
-{
-    return execve(path, argv, NULL);
-}
-
-int execvp(const char *file, char *const argv[])
-{
-    return execve(file, argv, NULL);
-}
-
-pid_t wait(int *status)
-{
-    (void)status;
-    errno = ENOSYS;
-    return -1;
-}
-
-pid_t waitpid(pid_t pid, int *status, int options)
-{
-    (void)pid;
-    (void)status;
-    (void)options;
-    errno = ENOSYS;
-    return -1;
-}
-
-pid_t wait4(pid_t pid, int *status, int options, void *rusage)
-{
-    (void)pid;
-    (void)status;
-    (void)options;
-    (void)rusage;
-    errno = ENOSYS;
-    return -1;
-}
-
 unsigned int alarm(unsigned int seconds)
 {
     (void)seconds;
@@ -202,6 +151,14 @@ int setrlimit(int resource, const struct rlimit *rlim)
     (void)resource;
     (void)rlim;
     return 0; /* accepted, not enforced in P1 */
+}
+
+int getgroups(int size, gid_t list[])
+{
+    if (size > 0 && list) {
+        list[0] = 0; /* root group */
+    }
+    return 1;
 }
 
 int getpriority(int which, int who)

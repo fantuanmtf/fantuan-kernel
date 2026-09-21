@@ -72,6 +72,24 @@ fn main() {
     } else {
         gen.push_str("pub static HELLO_ELF: &[u8] = &[];\n");
     }
+    // P2: the process-layer test program (user/proc_test.c) shares the hello
+    // embedding path; absent builds skip the P2 smoke markers.
+    let proc_test = format!("{dir}/proc_test_program.bin");
+    println!("cargo:rerun-if-changed={proc_test}");
+    if std::path::Path::new(&proc_test).exists() {
+        gen.push_str(&format!("pub static PROC_ELF: &[u8] = include_bytes!({proc_test:?});\n"));
+    } else {
+        gen.push_str("pub static PROC_ELF: &[u8] = &[];\n");
+    }
+    // P2: /bin/dash (tools/build-dash.sh, vendored BSD-3-Clause) is embedded
+    // the same way; absent, the registry stays empty and `sh` falls back.
+    let dash = format!("{dir}/dash_program.bin");
+    println!("cargo:rerun-if-changed={dash}");
+    if std::path::Path::new(&dash).exists() {
+        gen.push_str(&format!("pub static DASH_ELF: &[u8] = include_bytes!({dash:?});\n"));
+    } else {
+        gen.push_str("pub static DASH_ELF: &[u8] = &[];\n");
+    }
     fs::write(format!("{out}/user_program.rs"), gen).unwrap();
 
     // 4. compile the assembly + C drivers into a static archive for the link.

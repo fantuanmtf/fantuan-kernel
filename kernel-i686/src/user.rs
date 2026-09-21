@@ -143,6 +143,7 @@ fn register_user(root: u64, entry: u32) -> Option<u64> {
         body: task::dead_body,
         id: 0,
         exit_code: 0,
+        heap_base: 0,
     })
 }
 

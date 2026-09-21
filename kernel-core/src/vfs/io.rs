@@ -1,9 +1,10 @@
-//! fd-level read/write for the P1 POSIX layer (tmpfs, console, pipes).
+//! fd-level read/write for the POSIX layer (tmpfs, console, pipes).
 //!
 //! Split from `fd.rs` to keep files within the repo's 300-line convention;
 //! the open-file table and its lock live there. Console writes go through
 //! `crate::log::put` (the kernel sink, the same channel as SYS_WRITE) and
-//! console reads return EOF until the P2 line discipline exists.
+//! console reads go through the P2 `tty` line discipline, which blocks by
+//! sleeping outside the FS lock.
 
 use fantuan_abi::{SYS_ERR_BADF, SYS_ERR_ISDIR, O_APPEND};
 
@@ -12,15 +13,19 @@ use super::pipe;
 use super::tmpfs::{self, Kind};
 use crate::arch::IrqLock;
 
-/// read(fd, out): files (honoring the open offset), console/EOF, null, pipes.
+/// read(fd, out): files (honoring the open offset), console/tty, null, pipes.
 pub fn read(slot: usize, fd: u16, out: &mut [u8]) -> Result<usize, u64> {
-    let (pipe_id, idx) = {
+    let (pipe_id, idx, node) = {
         let _g = IrqLock::acquire(&FS_LOCK);
         let Some(idx) = fd::open_of(slot, fd) else { return Err(SYS_ERR_BADF) };
-        (fd::open_at(idx).pipe, idx)
+        let o = fd::open_at(idx);
+        (o.pipe, idx, o.node)
     };
     if pipe_id != 0 {
         return pipe::read(pipe_id - 1, out);
+    }
+    if tmpfs::kind(node) == Kind::Console {
+        return crate::tty::read(out);
     }
     let _g = IrqLock::acquire(&FS_LOCK);
     let o = fd::open_at(idx);

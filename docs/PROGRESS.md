@@ -532,6 +532,15 @@ the default `sh` until a real shell passes.
         fault); two pristine-HEAD worktree runs failed on the same input
         flake, so this is not a P1 regression (see Known issues).
 
+## P2 (in progress) - process layer and dash
+
+The process layer is verified by `user/proc_test.c` (fork/wait4/mmap/
+execve/pipe) and `p2: process layer ready` prints at boot; dash 0.5.12 is
+vendored and cross-built against libc-fantuan (159 KB) and the `sh`
+command launches it on /dev/console. Blocker: dash hits a user-mode #PF
+at 0x400b85 right after start (documented in `POSIX_PLAN.md`); the
+built-in shell stays default until it is fixed, then P3 ports bash.
+
 ## Next action
 
 **M12 W-a** (M11 released as 0.0.3): the owner pushes the R9b/0.0.3

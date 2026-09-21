@@ -109,6 +109,18 @@ fn arch_on_reap(tid: u64) {
 }
 
 /// Install the ops; call before kernel_core::task::init.
+fn unset_fork_stack(_ctx: &kernel_core::process::UserContext) -> Option<(u64, u64, u64)> {
+    None
+}
+
+fn unset_exec_image(
+    _e: &[u8],
+    _a: &[&[u8]],
+    _v: &[&[u8]],
+) -> Option<(u64, u64, u64, u64)> {
+    None
+}
+
 pub fn init_arch() {
     kernel_core::task::set_ops(kernel_core::task::TaskOps {
         switch: arch_switch,
@@ -119,5 +131,7 @@ pub fn init_arch() {
         phys_to_virt: arch_phys_to_virt,
         now_ticks: arch_now_ticks,
         on_reap: arch_on_reap,
+        init_fork_stack: unset_fork_stack,
+        exec_image: unset_exec_image,
     });
 }

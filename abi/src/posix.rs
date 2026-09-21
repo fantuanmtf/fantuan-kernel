@@ -64,3 +64,52 @@ pub struct Winsize {
     pub ws_xpixel: u16,
     pub ws_ypixel: u16,
 }
+
+/// P2 sigaction payload. Field order/widths must match libc-fantuan's
+/// signal.h `struct sigaction` exactly (32 bytes on x86_64). `sa_restorer`
+/// is filled in by libc's sigaction wrapper with the trampoline that issues
+/// SYS_SIGRETURN; the kernel pushes it as the handler's return address.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SigAction {
+    pub sa_handler: u64,
+    pub sa_mask: u64,
+    pub sa_flags: i32,
+    pub _pad: i32,
+    pub sa_restorer: u64,
+}
+
+impl Default for SigAction {
+    fn default() -> Self {
+        SigAction { sa_handler: 0, sa_mask: 0, sa_flags: 0, _pad: 0, sa_restorer: 0 }
+    }
+}
+
+/// P2 signal frame pushed on the user stack before a handler runs. Exactly
+/// the GP-register order of the x86_64 InterruptFrame (minus vector/error)
+/// followed by the interrupted RIP/RFLAGS/RSP; SYS_SIGRETURN reads it back
+/// from the user stack. The kernel writes it with copy_out.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct SignalFrame {
+    pub r15: u64,
+    pub r14: u64,
+    pub r13: u64,
+    pub r12: u64,
+    pub r11: u64,
+    pub r10: u64,
+    pub r9: u64,
+    pub r8: u64,
+    pub rbp: u64,
+    pub rdi: u64,
+    pub rsi: u64,
+    pub rdx: u64,
+    pub rcx: u64,
+    pub rbx: u64,
+    pub rax: u64,
+    pub rip: u64,
+    pub rflags: u64,
+    pub rsp: u64,
+    pub signum: u64,
+    pub mask: u64,
+}

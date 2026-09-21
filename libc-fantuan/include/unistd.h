@@ -32,6 +32,12 @@ pid_t fork(void);
 int execve(const char *path, char *const argv[], char *const envp[]);
 int execv(const char *path, char *const argv[]);
 int execvp(const char *file, char *const argv[]);
+pid_t setpgid(pid_t pid, pid_t pgid);
+pid_t getpgid(pid_t pid);
+pid_t getpgrp(void);
+pid_t setsid(void);
+int getgroups(int size, gid_t list[]);
+pid_t vfork(void);
 void _exit(int status) __attribute__((noreturn));
 
 int chdir(const char *path);

@@ -135,6 +135,26 @@ fn arch_on_reap(tid: u64) {
 }
 
 /// Install the ops; call before kernel_core::task::init.
+fn unset_fork_stack(_ctx: &kernel_core::process::UserContext) -> Option<(u64, u64, u64)> {
+    None
+}
+
+fn unset_exec_image(
+    _e: &[u8],
+    _a: &[&[u8]],
+    _v: &[&[u8]],
+) -> Option<(u64, u64, u64, u64)> {
+    None
+}
+
+fn unset_clone_root(_src: u64) -> Option<u64> {
+    None
+}
+
+fn unset_unmap_page(_root: u64, _va: u64) {}
+
+fn unset_protect_page(_root: u64, _va: u64, _prot: kernel_core::user::Prot) {}
+
 pub fn init_arch() {
     kernel_core::task::set_ops(kernel_core::task::TaskOps {
         switch: arch_switch,
@@ -145,6 +165,8 @@ pub fn init_arch() {
         phys_to_virt: arch_phys_to_virt,
         now_ticks: arch_now_ticks,
         on_reap: arch_on_reap,
+        init_fork_stack: unset_fork_stack,
+        exec_image: unset_exec_image,
     });
     kernel_core::user::set_ops(kernel_core::user::UserOps {
         machine: 0xF3, // riscv
@@ -153,6 +175,9 @@ pub fn init_arch() {
         free_root: paging::free_user_root,
         phys_to_virt: arch_phys_to_virt,
         log: arch_log,
+        clone_root: unset_clone_root,
+        unmap: unset_unmap_page,
+        protect: unset_protect_page,
     });
 }
 
@@ -215,6 +240,7 @@ pub fn spawn_user(elf_image: &[u8]) -> Option<u64> {
         body: dead_body,
         id: 0,
         exit_code: 0,
+        heap_base: 0,
     });
     cpu::irq_restore(flags);
     id

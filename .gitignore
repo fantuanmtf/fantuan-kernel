@@ -15,3 +15,5 @@ __pycache__/
 
 # IDE agent scaffolding (Trae) — not project artifacts
 .trae/
+/kernel/dash_program.bin
+/kernel/proc_test_program.bin

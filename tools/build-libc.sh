@@ -45,6 +45,12 @@ build() {
     -Wl,--build-id=none -Wl,--gc-sections \
     -Wl,-T,"$ROOT/libc-fantuan/elf.ld" \
     "$obj/crt0.S.o" "$obj/hello.c.o" "$1/libc-fantuan.a" -o "$1/hello.elf"
+  # P2 process-layer test program (fork/exec/wait/signals/mmap).
+  "$CC" "${CFLAGS[@]}" -c "$ROOT/user/proc_test.c" -o "$obj/proc_test.c.o"
+  "$CC" --target="$TARGET" -nostdlib -static -no-pie \
+    -Wl,--build-id=none -Wl,--gc-sections \
+    -Wl,-T,"$ROOT/libc-fantuan/elf.ld" \
+    "$obj/crt0.S.o" "$obj/proc_test.c.o" "$1/libc-fantuan.a" -o "$1/proc_test.elf"
 }
 
 CFLAGS=(
@@ -63,7 +69,9 @@ if [ "$VERIFY" = "1" ]; then
   sha_b=$(sha256sum "$ALT/libc-fantuan.a" | awk '{print $1}')
   elf_a=$(sha256sum "$OUT/hello.elf" | awk '{print $1}')
   elf_b=$(sha256sum "$ALT/hello.elf" | awk '{print $1}')
-  if [ "$sha_a" != "$sha_b" ] || [ "$elf_a" != "$elf_b" ]; then
+  pt_a=$(sha256sum "$OUT/proc_test.elf" | awk '{print $1}')
+  pt_b=$(sha256sum "$ALT/proc_test.elf" | awk '{print $1}')
+  if [ "$sha_a" != "$sha_b" ] || [ "$elf_a" != "$elf_b" ] || [ "$pt_a" != "$pt_b" ]; then
     echo "build-libc: NOT deterministic" >&2
     exit 1
   fi
@@ -71,10 +79,13 @@ if [ "$VERIFY" = "1" ]; then
   rm -rf "$ALT"
 fi
 
-# Embedding copy: only touch it when bytes changed (kernel build.rs watches it).
+# Embedding copies: only touch them when bytes changed (kernel build.rs watches).
 mkdir -p "$ROOT/kernel"
 cmp -s "$OUT/hello.elf" "$ROOT/kernel/hello_program.bin" \
   || cp "$OUT/hello.elf" "$ROOT/kernel/hello_program.bin"
+cmp -s "$OUT/proc_test.elf" "$ROOT/kernel/proc_test_program.bin" \
+  || cp "$OUT/proc_test.elf" "$ROOT/kernel/proc_test_program.bin"
 
 echo "[libc] build/libc-fantuan/libc-fantuan.a $(stat -c %s "$OUT/libc-fantuan.a") bytes"
 echo "[libc] build/libc-fantuan/hello.elf $(stat -c %s "$OUT/hello.elf") bytes -> kernel/hello_program.bin"
+echo "[libc] build/libc-fantuan/proc_test.elf $(stat -c %s "$OUT/proc_test.elf") bytes -> kernel/proc_test_program.bin"

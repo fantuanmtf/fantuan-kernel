@@ -4,6 +4,9 @@
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
+#include <fantuan/abi.h>
+
+long __fantuan_raw(long n, long a1, long a2, long a3, long a4, long a5);
 
 speed_t cfgetispeed(const struct termios *t)
 {
@@ -57,15 +60,20 @@ int tcdrain(int fd)
 
 pid_t tcgetpgrp(int fd)
 {
-    (void)fd;
-    errno = ENOSYS;
-    return -1;
+    long r = __fantuan_raw(FANTUAN_SYS_TCGETPGRP, fd, 0, 0, 0, 0);
+    if (r < 0 && r > -4096) {
+        errno = (int)-r;
+        return -1;
+    }
+    return (pid_t)r;
 }
 
 int tcsetpgrp(int fd, pid_t pgrp)
 {
-    (void)fd;
-    (void)pgrp;
-    errno = ENOSYS;
-    return -1;
+    long r = __fantuan_raw(FANTUAN_SYS_TCSETPGRP, fd, pgrp, 0, 0, 0);
+    if (r < 0 && r > -4096) {
+        errno = (int)-r;
+        return -1;
+    }
+    return 0;
 }

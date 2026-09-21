@@ -59,6 +59,20 @@ pub use arch::x86_64::{
     cpu, exceptions, gdt, idt, interrupts, pci, pic, pit, port, serial, syscall, tsc,
 };
 
+/// P2 embedded-binary registry: execve("/bin/dash") resolves without a
+/// filesystem mount (the P1 tmpfs file cap is far below a static shell).
+fn lookup_bin(path: &[u8]) -> Option<&'static [u8]> {
+    if (path == b"/bin/dash" || path == b"/bin/sh") && !DASH_ELF.is_empty() {
+        Some(DASH_ELF)
+    } else if path == b"/bin/hello" && !HELLO_ELF.is_empty() {
+        Some(HELLO_ELF)
+    } else if path == b"/bin/proc-test" && !PROC_ELF.is_empty() {
+        Some(PROC_ELF)
+    } else {
+        None
+    }
+}
+
 #[no_mangle]
 pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     let bi = unsafe { &*boot_info };
@@ -196,6 +210,13 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     let abi = syscall::syscall(syscall::SYS_VERSION, 0, 0, 0, 0, 0);
     let _ = writeln!(s, "syscall: ABI v{} (int 0x60, versioned dispatch)", abi);
     task::init_arch();
+    syscall::init_frame_ops();
+    kernel_core::process::set_bin_lookup(lookup_bin);
+    let _ = writeln!(
+        s,
+        "p2: process layer ready (fork/exec/wait, signals, VMA; dash embedded={})",
+        if DASH_ELF.is_empty() { "no" } else { "yes" }
+    );
     task::init(bi.stack_top);
     task::spawn(demo::demo_1);
     task::spawn(demo::demo_2);
@@ -227,6 +248,10 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     if !HELLO_ELF.is_empty() {
         let h = task::spawn_user_args(HELLO_ELF, &[b"/bin/hello"]);
         let _ = writeln!(s, "user: C hello ELF {} bytes -> tid {} (libc-fantuan, fd syscalls)", HELLO_ELF.len(), h.unwrap_or(0));
+    }
+    if !PROC_ELF.is_empty() {
+        let p = task::spawn_user_args(PROC_ELF, &[b"/bin/proc-test"]);
+        let _ = writeln!(s, "user: P2 proc-test ELF {} bytes -> tid {} (fork/exec/wait/signals/mmap)", PROC_ELF.len(), p.unwrap_or(0));
     }
 
     // --- M5: diagnostics stage 1 (pure Rust core, DESIGN.md §6) ------------

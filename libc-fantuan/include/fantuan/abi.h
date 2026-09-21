@@ -38,9 +38,32 @@
 #define FANTUAN_SYS_RMDIR 27
 #define FANTUAN_SYS_RENAME 28
 
+/* P2 (POSIX round 2) syscalls: process/signal/VMA surface. */
+#define FANTUAN_SYS_FORK 29
+#define FANTUAN_SYS_EXECVE 30
+#define FANTUAN_SYS_WAIT4 31
+#define FANTUAN_SYS_KILL 32
+#define FANTUAN_SYS_SIGACTION 33
+#define FANTUAN_SYS_SIGPROCMASK 34
+#define FANTUAN_SYS_SIGRETURN 35
+#define FANTUAN_SYS_SETPGID 36
+#define FANTUAN_SYS_GETPGID 37
+#define FANTUAN_SYS_GETPGRP 38
+#define FANTUAN_SYS_SETSID 39
+#define FANTUAN_SYS_MMAP2 40
+#define FANTUAN_SYS_MUNMAP 41
+#define FANTUAN_SYS_MPROTECT 42
+#define FANTUAN_SYS_NANOSLEEP 43
+#define FANTUAN_SYS_TCGETPGRP 44
+#define FANTUAN_SYS_TCSETPGRP 45
+#define FANTUAN_SYS_SIGSUSPEND 46
+#define FANTUAN_SYS_FCNTL 47
+
 /* ioctl requests implemented on /dev/console (Linux-compatible numbers). */
 #define FANTUAN_IOCTL_TCGETS 0x5401
 #define FANTUAN_IOCTL_TCSETS 0x5402
+#define FANTUAN_IOCTL_TIOCGPGRP 0x540F
+#define FANTUAN_IOCTL_TIOCSPGRP 0x5410
 #define FANTUAN_IOCTL_TIOCGWINSZ 0x5413
 
 /* P1 layouts: field order/widths must match abi/src/posix.rs exactly. */
@@ -84,6 +107,15 @@ struct fantuan_winsize {
     unsigned short ws_col;
     unsigned short ws_xpixel;
     unsigned short ws_ypixel;
+};
+
+/* P2 sigaction payload (matches abi/src/posix.rs `SigAction`). */
+struct fantuan_sigaction {
+    unsigned long sa_handler;
+    unsigned long sa_mask;
+    int sa_flags;
+    int sa_pad;
+    unsigned long sa_restorer;
 };
 
 /* Raw call: n and up to five arguments, returns the raw result. */

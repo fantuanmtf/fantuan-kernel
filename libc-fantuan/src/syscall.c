@@ -184,13 +184,12 @@ int fchown(int fd, uid_t owner, gid_t group)
 
 int fcntl(int fd, int cmd, ...)
 {
-    (void)fd;
-    switch (cmd) {
-    case F_GETFD:
-    case F_SETFD:
-        return 0;
-    default:
-        errno = ENOSYS;
-        return -1;
+    va_list ap;
+    long arg = 0;
+    if (cmd != F_GETFD && cmd != F_GETFL) {
+        va_start(ap, cmd);
+        arg = va_arg(ap, long);
+        va_end(ap);
     }
+    return (int)rc(__fantuan_raw(FANTUAN_SYS_FCNTL, fd, cmd, arg, 0, 0));
 }
