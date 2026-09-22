@@ -294,7 +294,8 @@ sdb      HDD   power-on 60211 h   reallocated 12   pending 3   <- WARNING: back 
 2. **Probing != mounting**: identify filesystems by superblock magic in the first
    few KB of each partition (ext4 `0xEF53`, XFS `"XFSB"`, Btrfs, FAT, NTFS
    `"NTFS    "`, UFS, swap). ext4 has a real read-only driver since M6.5;
-   XFS/Btrfs/NTFS/swap stay magic-probed only (no driver needed for v1).
+   NTFS gained one in M12-4/M12-5 (read-only, `/mnt/win0`); XFS/Btrfs/swap
+   stay magic-probed only (no driver needed for v1).
 3. Read `\EFI\` of the ESP to list bootloaders; identify Linux by
    `/boot/grub/grub.cfg`, `vmlinuz`, `initramfs`; identify Windows partitions
    by GPT partition-type GUIDs (works with **zero** NTFS driver).

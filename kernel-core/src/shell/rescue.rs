@@ -120,6 +120,15 @@ pub fn cmd_lsmnt(sh: &mut Shell, s: &mut Log, _args: &[&[u8]]) {
             core::str::from_utf8(&uuid).unwrap_or("?")
         );
     }
+    #[cfg(kconfig_ntfs)]
+    if let Some(win) = vfs.win.as_ref() {
+        out!(
+            s,
+            "  /mnt/win0  part {} (NTFS, ro, label '{}')",
+            vfs.win_part + 1,
+            core::str::from_utf8(win.label()).unwrap_or("?")
+        );
+    }
     for (path, len, active) in sh.mounts().iter() {
         if *active {
             out!(s, "  {}  part {} (ro alias)", core::str::from_utf8(&path[..*len]).unwrap_or("?"), vfs.fat_part + 1);

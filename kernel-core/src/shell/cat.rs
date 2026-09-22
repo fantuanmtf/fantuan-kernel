@@ -73,6 +73,13 @@ pub fn cmd_cat(sh: &mut Shell, s: &mut Log, args: &[&[u8]]) {
     let path = if path.first() == Some(&b'/') { &path[1..] } else { path };
     let buf = unsafe { &mut *core::ptr::addr_of_mut!(CAT_BUF) };
 
+    // M12-5: /mnt/win0 is the read-only NTFS mount.
+    #[cfg(kconfig_ntfs)]
+    if vfs::ntfs::win_rel(path).is_some() {
+        cat_ntfs(&vfs, s, path);
+        return;
+    }
+
     // FAT first (8.3 names), then the ext4 root (case-sensitive long names).
     if let Some((cluster, size)) = fat_lookup(&vfs, path) {
         let want = (size as usize).min(buf.len());
@@ -99,4 +106,70 @@ pub fn cmd_cat(sh: &mut Shell, s: &mut Log, args: &[&[u8]]) {
         return;
     }
     out!(s, "cat: not found");
+}
+
+/// `cat` on the read-only NTFS mount: resolve under /mnt/win0, dump up to
+/// the 4 KiB buffer and print the full-file SHA-256 (the smoke compares it
+/// with the host fixture hash, covering resident and run-backed files).
+#[cfg(kconfig_ntfs)]
+fn cat_ntfs(vfs: &vfs::Vfs, s: &mut Log, path: &[u8]) {
+    use crate::sha256::Sha256;
+    use crate::vfs::ntfs;
+
+    let Some(win) = vfs.win.as_ref() else {
+        out!(s, "cat: NTFS not mounted at /mnt/win0");
+        return;
+    };
+    let rel = ntfs::win_rel(path).unwrap_or(b"");
+    let mut scratch = [0u8; ntfs::MAX_INDEX_BLOCK];
+    let rec = match win.resolve(rel, &mut scratch) {
+        Ok(r) => r,
+        Err(e) => {
+            out!(s, "cat: NTFS: {}", e.text());
+            return;
+        }
+    };
+    if rec.is_dir() {
+        out!(s, "cat: NTFS: is a directory");
+        return;
+    }
+    let size = rec.size();
+    let buf = unsafe { &mut *core::ptr::addr_of_mut!(CAT_BUF) };
+    let want = to_usize(size).map_or(buf.len(), |n| n.min(buf.len()));
+    match win.read_at(&rec, 0, &mut buf[..want]) {
+        Ok(n) => dump_ascii(s, &buf[..n], to_usize(size).unwrap_or(usize::MAX)),
+        Err(e) => {
+            out!(s, "cat: NTFS: {}", e.text());
+            return;
+        }
+    }
+    let mut hash = Sha256::new();
+    let mut chunk = [0u8; 1024];
+    let mut off = 0u64;
+    while off < size {
+        match win.read_at(&rec, off, &mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                hash.update(&chunk[..n]);
+                off += n as u64;
+            }
+            Err(e) => {
+                out!(s, "cat: NTFS: {}", e.text());
+                return;
+            }
+        }
+    }
+    let hex = hex32(&hash.finish());
+    out!(s, "cat: sha256 {}", core::str::from_utf8(&hex).unwrap_or("?"));
+}
+
+#[cfg(kconfig_ntfs)]
+fn hex32(d: &[u8; 32]) -> [u8; 64] {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = [0u8; 64];
+    for (i, &b) in d.iter().enumerate() {
+        out[i * 2] = HEX[(b >> 4) as usize];
+        out[i * 2 + 1] = HEX[(b & 0xF) as usize];
+    }
+    out
 }

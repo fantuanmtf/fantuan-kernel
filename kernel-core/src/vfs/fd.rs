@@ -48,10 +48,24 @@ pub(super) struct Open {
     /// embedded ELF (`crate::process::lookup_bin`). 0 = tmpfs/pipe object.
     pub rom: u64,
     pub rom_len: u64,
+    /// M12-5: MFT record + 1 of a read-only /mnt/win0 file; 0 = not NTFS.
+    /// The NTFS path has no write entry point, so such opens are read-only.
+    #[cfg(kconfig_ntfs)]
+    pub ntfs: u64,
 }
 
-pub(super) const EMPTY_OPEN: Open =
-    Open { used: false, node: 0, flags: 0, offset: 0, refs: 0, pipe: 0, rom: 0, rom_len: 0 };
+pub(super) const EMPTY_OPEN: Open = Open {
+    used: false,
+    node: 0,
+    flags: 0,
+    offset: 0,
+    refs: 0,
+    pipe: 0,
+    rom: 0,
+    rom_len: 0,
+    #[cfg(kconfig_ntfs)]
+    ntfs: 0,
+};
 
 static mut FDS: [[Fd; MAX_FDS]; MAX_TASKS] = [[EMPTY_FD; MAX_FDS]; MAX_TASKS];
 static mut OPENS: [Open; MAX_OPEN] = [EMPTY_OPEN; MAX_OPEN];
@@ -90,14 +104,25 @@ pub(super) fn set_offset(idx: usize, off: u64) {
     opens()[idx].offset = off;
 }
 
-fn alloc_open() -> Option<usize> {
+/// Allocate a free open-file slot (shared with vfs::ntfs_fd).
+pub(super) fn alloc_open() -> Option<usize> {
     (0..MAX_OPEN).find(|&i| !opens()[i].used)
 }
 
-fn install(slot: usize, open: usize, flags: u32, node: u16, pipe_id: u16) -> Option<u16> {
+pub(super) fn install(slot: usize, open: usize, flags: u32, node: u16, pipe_id: u16) -> Option<u16> {
     let fd = (0..MAX_FDS).find(|&i| fds(slot)[i].open == 0)?;
-    opens()[open] =
-        Open { used: true, node, flags, offset: 0, refs: 1, pipe: pipe_id, rom: 0, rom_len: 0 };
+    opens()[open] = Open {
+        used: true,
+        node,
+        flags,
+        offset: 0,
+        refs: 1,
+        pipe: pipe_id,
+        rom: 0,
+        rom_len: 0,
+        #[cfg(kconfig_ntfs)]
+        ntfs: 0,
+    };
     fds(slot)[fd] = Fd { open: open as u16 + 1, cloexec: flags & O_CLOEXEC as u32 != 0 };
     Some(fd as u16)
 }
@@ -180,6 +205,8 @@ pub fn init_task(slot: usize) {
         pipe: 0,
         rom: 0,
         rom_len: 0,
+        #[cfg(kconfig_ntfs)]
+        ntfs: 0,
     };
     for fd in 0..3 {
         fds(slot)[fd] = Fd { open: open as u16 + 1, cloexec: false };
@@ -220,6 +247,12 @@ pub fn close_all(slot: usize) {
 pub fn open(slot: usize, path: &[u8], flags: u32) -> Result<u16, u64> {
     let _g = IrqLock::acquire(&FS_LOCK);
     let flags64 = flags as u64;
+    // M12-5: /mnt/win0 is a read-only NTFS mount; its open/read/readdir
+    // glue lives in vfs::ntfs_fd.
+    #[cfg(kconfig_ntfs)]
+    if super::ntfs_fd::is_win(path) {
+        return super::ntfs_fd::open(slot, path, flags64);
+    }
     let node = match tmpfs::lookup(cwd_get(slot), path) {
         Ok(n) => {
             if flags64 & O_CREAT != 0 && flags64 & O_EXCL != 0 {
@@ -333,6 +366,10 @@ pub fn lseek(slot: usize, fd: u16, off: i64, whence: u32) -> Result<u64, u64> {
         0 => 0,
         1 => o.offset as i64,
         2 if o.rom != 0 => o.rom_len as i64,
+        #[cfg(kconfig_ntfs)]
+        2 if o.ntfs != 0 => crate::vfs::ntfs::stat_record(o.ntfs - 1)
+            .map(|(size, _dir, _attrs)| size as i64)
+            .unwrap_or(0),
         2 => tmpfs::size(o.node) as i64,
         _ => return Err(SYS_ERR_INVAL),
     };

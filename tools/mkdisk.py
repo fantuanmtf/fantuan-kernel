@@ -13,6 +13,7 @@ and Secure Boot fixtures) and optional variant files:
                              --keys) for the tools/smoke-imager.sh phase
   --imager-bad               autorun runs the M12-3 bad-sector transcript
                              (implies --keys) for tools/smoke-imager-bad.sh
+  --ntfs                     NTFS read-only volume (M12-4/M12-5) + transcript
   --empty <sectors> <path>   write a zero-filled raw image (imager destination
                              fixtures); no GPT/FAT build
   --pattern <sectors> <path> write a deterministic per-sector pattern image
@@ -34,6 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from mkdisk_ext4 import build as build_ext4  # noqa: E402
 from mkdisk_fat import build as build_fat  # noqa: E402
 from mkdisk_raw import raw_mode  # noqa: E402
+from mkntfs import NTFS_LBA, NTFS_SECTORS, install_ntfs, shell_cmd as ntfs_shell_cmd  # noqa: E402
 
 SECTOR = 512
 
@@ -43,6 +45,8 @@ SECTOR = 512
 if raw_mode(sys.argv):
     sys.exit(0)
 TWO_FS = "--two-fs" in sys.argv
+# --ntfs: NTFS read-only partition (M12-4/M12-5) + shell transcript.
+NTFS = "--ntfs" in sys.argv
 # Audit fixtures:
 #   --bigcluster  SPC=8 (4 KiB clusters): exercises the short-data cluster
 #                 write (a 21-byte copy must not index past the chunk).
@@ -72,7 +76,9 @@ PART2_SECTORS = 8192  # 4 MiB (ext4 root fixture)
 PART3_LBA = 77824
 PART3_SECTORS = 8192  # 4 MiB (XFS-magic probe fixture)
 _LAST_PART_END = PART3_LBA + PART3_SECTORS if TWO_FS else PART_LBA + PART_SECTORS
-DISK_SECTORS = _LAST_PART_END + BACKUP_GPT_SECTORS + 1  # 42 / 33.6 MiB
+if NTFS:
+    _LAST_PART_END = NTFS_LBA + NTFS_SECTORS
+DISK_SECTORS = _LAST_PART_END + BACKUP_GPT_SECTORS + 1  # 42 / 33.6 / 49.6 MiB
 
 out = bytearray(SECTOR * DISK_SECTORS)
 
@@ -83,7 +89,7 @@ BROKEN = "--broken" in sys.argv or "--broken-shim" in sys.argv
 # ESP/fantuan tree.
 IMAGER = "--imager" in sys.argv
 IMAGER_BAD = "--imager-bad" in sys.argv
-KEYS = "--keys" in sys.argv or "--shell-repair" in sys.argv or GRUB_REGEN or KBD_TEST or IMAGER or IMAGER_BAD
+KEYS = "--keys" in sys.argv or "--shell-repair" in sys.argv or GRUB_REGEN or KBD_TEST or IMAGER or IMAGER_BAD or NTFS
 SHELL_REPAIR = "--shell-repair" in sys.argv
 # --broken-shim: the fallback loader AND the shim are gone, so the fallback
 # copy repair has nothing to copy from (exercises the NVRAM delete path).
@@ -148,6 +154,13 @@ if TWO_FS:
     name3 = "FANTUAN xfs".encode("utf-16-le")
     ent3[56:56 + len(name3)] = name3
     entries[256:384] = ent3
+
+if NTFS:
+    # M12-4/M12-5: a hand-built read-only NTFS volume on the next free slot
+    # (partition 2 alone, partition 4 after the ext4/XFS pair); the builder
+    # writes both the GPT entry and the volume (tools/mkntfs.py).
+    install_ntfs(out, entries, 3 if TWO_FS else 1)
+
 # The header CRC covers exactly HeaderSize (92) bytes, not the whole sector.
 # UEFI validates that range and rejects the disk when it does not match.
 hdr[88:92] = struct.pack('<I', zlib.crc32(entries) & 0xFFFFFFFF)
@@ -194,7 +207,9 @@ FSTAB = (
 
 # §10 shell autorun transcript: the shell feeds these lines to the command
 # loop, so the gate answers (YES/NO) are scripted too.
-if IMAGER_BAD:
+if NTFS:
+    SHELL_CMD = ntfs_shell_cmd()
+elif IMAGER_BAD:
     # M12-3 bad-sector phase: blk0 boot disk, blk1 bad-range pattern source,
     # blk2 larger empty destination, blk3 clean pattern source. Quick verify
     # happy path, then the default abort, then the --continue partial copy.
@@ -281,4 +296,5 @@ print(f"{path}: {len(out)} bytes, GPT + FAT32 ({CLUSTERS} clusters, SPC {SPC}), 
       + (" + HELLO.TXT size lie" if LIAR else "")
       + (" + clone imager transcript" if IMAGER else "")
       + (" + bad-cluster clone transcript" if IMAGER_BAD else "")
-      + (" + ext4 root + XFS probe fixtures" if TWO_FS else ""))
+      + (" + ext4 root + XFS probe fixtures" if TWO_FS else "")
+      + (" + NTFS ro fixture" if NTFS else ""))

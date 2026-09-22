@@ -84,7 +84,8 @@ profiles enable it; the minimal kernel has no imager).
 | `lsmnt` | [rescue] | current mount aliases |
 | `mount esp0 /mnt/esp0` | [rescue] | read-only alias for the ESP |
 | `umount <path>` | [rescue] | removes an alias |
-| `cat <path>` | [rescue] | prints a file (FAT or ext4, up to 4 KiB) |
+| `ls [path]` | [rescue] | lists a directory (FAT32/ext4/NTFS; `/mnt/win0` for NTFS) |
+| `cat <path>` | [rescue] | prints a file (FAT/ext4/NTFS, up to 4 KiB; NTFS also prints the full-file SHA-256) |
 | `diskhealth [--scan]` | [rescue] | identity + SMART; `--scan` reads the surface (`q` cancels) |
 | `grub-fix [diagnose\|repair\|install]` | [rescue] | boot-repair chain (see below) |
 | `crypto-selftest` | [rescue] | SHA-256/RSA known-answer tests (x86 only) |
@@ -172,7 +173,9 @@ minimal kernel cannot repair because it does not carry the rescue commands
    report: ESP scan, `grub.cfg` search UUID, `/etc/fstab` cross-check,
    `/boot` inventory, recommendations.
 2. **Inspect files without mounting on the host** — `mount esp0 /mnt/esp0`,
-   then `cat` configs; read the ext4 root read-only with `cat` too.
+   then `cat` configs; read the ext4 root read-only with `cat` too, and a
+   Windows volume read-only with `ls /mnt/win0` / `cat /mnt/win0/...`
+   (NTFS is never written; there is no write path).
 3. **Repair a missing fallback loader** — `grub-fix repair`, answer `YES`;
    watch for `repair: copied ... (N bytes, verified)`.
 4. **Restore a boot entry** — same command: stale entries are deleted, a
@@ -205,7 +208,9 @@ minimal kernel cannot repair because it does not carry the rescue commands
 fantuan-kernel diagnoses and repairs **Linux and BSD** boot chains only;
 Windows/PE repair is a permanent non-goal. For a broken Windows boot use
 the vendor's **WinPE** / installation media and `bootrec`/`bcdboot`; the
-read-only NTFS tooling planned for M12 never writes to Windows volumes.
+read-only NTFS tooling (M12-4/M12-5: `ls`/`cat` under `/mnt/win0`) never
+writes to Windows volumes — the reader has no write entry point and every
+write intent from the POSIX layer is rejected with EROFS.
 Full rationale and commands: [WINDOWS.md](WINDOWS.md).
 
 ## 9. Support matrix (v0.0.3)
@@ -215,7 +220,7 @@ Full rationale and commands: [WINDOWS.md](WINDOWS.md).
 | Firmware / boot | UEFI (x86_64), legacy BIOS (x86_64 + i686), OpenSBI (riscv64), direct FDT (aarch64) | aarch64 UEFI/AAVMF deferred to M14 |
 | Architecture | x86_64, i686 (32-bit, nightly toolchain), riscv64, aarch64 (stable) | more boards (M14+) |
 | Storage | AHCI (every populated port), NVMe, virtio-mmio; i686 legacy PIO ATA (read-only, so `clone` destinations there are read-only) | verified disk imager (`clone` + `--continue` bad-sector policy and report, v0.0.4); more drivers (v0.0.4) |
-| Filesystems | FAT32 (write-gated on x86_64/riscv), ext4 (ro), others probe-only; i686 read-only | NTFS read-only (v0.0.4) |
+| Filesystems | FAT32 (write-gated on x86_64/riscv), ext4 (ro), NTFS read-only (`/mnt/win0`, M12-4/M12-5), others probe-only; i686 read-only | NTFS per-file write (never planned), more read-only filesystems (v0.0.4+) |
 | Network | NetBSD-derived IPv4/TCP on x86_64 (e1000) + aarch64 (virtio-net MMIO); DHCP/DNS/ping/wget, HTTP and pinned-CA HTTPS (mbedTLS); riscv/i686 have no NIC yet | user sockets (M14), IPv6/IPsec later |
 | Graphics | serial + GOP console; VBE text console (i686, serial mirror) | framebuffer/KMS API (v0.0.5), XFCE/Qt (v0.1.5) |
 | Virtualization | none | detect (v0.0.4), minimal hypervisor (v0.1.0), isolated mounting (v0.1.5) |

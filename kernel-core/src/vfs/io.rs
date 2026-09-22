@@ -35,6 +35,18 @@ pub fn read(slot: usize, fd: u16, out: &mut [u8]) -> Result<usize, u64> {
     if pipe_id != 0 {
         return pipe::read(pipe_id - 1, out);
     }
+    #[cfg(kconfig_ntfs)]
+    {
+        let ntfs = {
+            let _g = IrqLock::acquire(&FS_LOCK);
+            fd::open_at(idx).ntfs
+        };
+        if ntfs != 0 {
+            let n = super::ntfs_fd::read(ntfs - 1, offset, out)?;
+            fd::set_offset(idx, offset + n as u64);
+            return Ok(n);
+        }
+    }
     if rom != 0 {
         let n = rom_read(rom, rom_len, offset, out);
         fd::set_offset(idx, offset + n as u64);
@@ -84,6 +96,10 @@ pub fn write(slot: usize, fd: u16, data: &[u8]) -> Result<usize, u64> {
     }
     let _g = IrqLock::acquire(&FS_LOCK);
     let o = fd::open_at(idx);
+    #[cfg(kconfig_ntfs)]
+    if o.ntfs != 0 {
+        return Err(fantuan_abi::SYS_ERR_ROFS); // /mnt/win0 has no write path
+    }
     match tmpfs::kind(o.node) {
         Kind::Console => {
             crate::log::put(data);

@@ -16,8 +16,10 @@ responsibly. Windows entries seen on the ESP are reported by
 - The only disk write path (FAT32 repair on x86_64/riscv, behind
   `RepairToken` + an explicit `YES`) targets the EFI System Partition and
   the fallback loader; it never touches NTFS.
-- The planned NTFS driver (M12) is read-only by design: MFT/attribute/
-  runlist reads only, no write path at all (`ROADMAP_v0.0.2+.md` §4).
+- The NTFS driver (M12-4/M12-5, `/mnt/win0`) is read-only by design:
+  MFT/attribute/runlist and `$I30` reads only, no write path at all, and
+  every write intent from the POSIX layer returns `EROFS`
+  (`ROADMAP_v0.0.2+.md` §4).
 - The planned disk imager (M12) copies a whole disk to another disk or an
   image file, but only behind the same repair gate and confirmation.
 

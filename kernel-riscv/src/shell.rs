@@ -12,7 +12,7 @@ use kernel_core::vfs::Vfs;
 
 const CORE_COMMANDS: usize = 2;
 #[cfg(kconfig_rescue_repair)]
-const RESCUE_COMMANDS: usize = 7;
+const RESCUE_COMMANDS: usize = 8;
 #[cfg(not(kconfig_rescue_repair))]
 const RESCUE_COMMANDS: usize = 0;
 #[cfg(kconfig_imager)]
@@ -34,7 +34,9 @@ static COMMANDS: [Command; N_COMMANDS] = [
     #[cfg(kconfig_rescue_repair)]
     Command { name: "umount", help: "umount <path>", run: kernel_core::shell::rescue::cmd_umount },
     #[cfg(kconfig_rescue_repair)]
-    Command { name: "cat", help: "cat <path> - print a file (FAT or ext4, 4 KiB max)", run: kernel_core::shell::cat::cmd_cat },
+    Command { name: "ls", help: "ls <path> - list a directory (FAT/ext4/NTFS)", run: kernel_core::shell::ls::cmd_ls },
+    #[cfg(kconfig_rescue_repair)]
+    Command { name: "cat", help: "cat <path> - print a file (FAT/ext4/NTFS, 4 KiB max)", run: kernel_core::shell::cat::cmd_cat },
     #[cfg(kconfig_rescue_repair)]
     Command { name: "diskhealth", help: "disk health [--scan]", run: kernel_core::shell::rescue::cmd_diskhealth },
     #[cfg(kconfig_rescue_repair)]

@@ -32,11 +32,11 @@ TLS = NET + ["TLS"]
 PROFILES = {
     "minimal": ["SHELL"],
     "imager": ["SHELL", "IMAGER"],
-    "rescue": ["SHELL", "RESCUE_REPAIR", "IMAGER"],
-    "net": NET + ["IMAGER"],
-    "tls": TLS + ["IMAGER"],
-    "desktop": NET + ["GRAPHICS", "DESKTOP", "IMAGER"],
-    "hypervisor": ["SHELL", "RESCUE_REPAIR", "VIRT", "IMAGER"],
+    "rescue": ["SHELL", "RESCUE_REPAIR", "IMAGER", "NTFS"],
+    "net": NET + ["IMAGER", "NTFS"],
+    "tls": TLS + ["IMAGER", "NTFS"],
+    "desktop": NET + ["GRAPHICS", "DESKTOP", "IMAGER", "NTFS"],
+    "hypervisor": ["SHELL", "RESCUE_REPAIR", "VIRT", "IMAGER", "NTFS"],
     "all": None,
 }
 

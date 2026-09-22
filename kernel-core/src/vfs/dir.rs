@@ -21,6 +21,25 @@ pub fn readdir(slot: usize, fd: u16) -> Result<Option<Dirent>, u64> {
     if o.pipe != 0 || o.rom != 0 {
         return Err(SYS_ERR_NOTDIR);
     }
+    #[cfg(kconfig_ntfs)]
+    if o.ntfs != 0 {
+        let index = o.offset;
+        match super::ntfs_fd::dir_entry(o.ntfs - 1, index)? {
+            None => return Ok(None),
+            Some((child, is_dir, name, n)) => {
+                let mut de = Dirent {
+                    d_ino: child + 1,
+                    d_type: if is_dir { DT_DIR } else { DT_REG },
+                    d_reclen: 72,
+                    d_name: [0; 56],
+                };
+                let take = n.min(56);
+                de.d_name[..take].copy_from_slice(&name[..take]);
+                fd::set_offset(idx, index + 1);
+                return Ok(Some(de));
+            }
+        }
+    }
     if tmpfs::kind(o.node) != Kind::Dir {
         return Err(SYS_ERR_NOTDIR);
     }
@@ -64,6 +83,10 @@ pub fn fstat(slot: usize, fd: u16) -> Result<Stat, u64> {
     }
     if o.rom != 0 {
         return Ok(fd::rom_open_stat(o.rom_len));
+    }
+    #[cfg(kconfig_ntfs)]
+    if o.ntfs != 0 {
+        return super::ntfs_fd::stat(o.ntfs - 1);
     }
     Ok(tmpfs::stat(o.node))
 }

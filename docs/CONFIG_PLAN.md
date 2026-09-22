@@ -30,6 +30,7 @@ CONFIG_GRAPHICS         bool  default n    # fb_info/KMS API (M13)
 CONFIG_DESKTOP          bool  depends GRAPHICS  # M15
 CONFIG_RESCUE_REPAIR    bool  default n    # rescue/diagnostic + bootrepair (C5)
 CONFIG_IMAGER           bool  default n    # disk imager + `clone` (M12-2)
+CONFIG_NTFS             bool  default n    # NTFS read-only + /mnt/win0 (M12-4/M12-5)
 CONFIG_SMBIOS           bool  default n    # SMBIOS identity/DIMM/slots
 CONFIG_DEBUG_SELFTEST   bool  default n    # rump/scheduler self-tests
 CONFIG_SECURE_WIPE      bool  default n    # Live shutdown RAM wipe
@@ -142,6 +143,15 @@ registered by the x86_64 and riscv64 command tables. It is independent of
 `RESCUE_REPAIR`; the rescue/net/tls/desktop/hypervisor profiles enable it,
 and the minimal kernel ELF carries neither the command nor the imager
 strings.
+
+Gated in M12-4/M12-5: `CONFIG_NTFS` selects `kernel-core::vfs::ntfs`
+(boot/$MFT/attribute/runlist parsing, `$I30` indexes, `$DATA` reads, the
+read cache) plus the `/mnt/win0` mount and the POSIX read-only view. The
+`ls` command is part of the rescue table, and its NTFS path exists only
+with the symbol. The minimal profile stays NTFS-free: `smoke-config.sh`
+asserts the minimal ELF has no `win0` string and no `ntfs:` boot line,
+while the rescue/net/tls/desktop/hypervisor profiles mount the fixture
+read-only (`tools/smoke-ntfs.sh`).
 
 ## Implemented in C5 (2026-09)
 

@@ -16,7 +16,7 @@ use kernel_core::vfs::Vfs;
 
 pub use kernel_core::shell::cmds as shared_cmds;
 #[cfg(kconfig_rescue_repair)]
-pub use kernel_core::shell::{cat, rescue};
+pub use kernel_core::shell::{cat, ls, rescue};
 #[cfg(kconfig_rescue_repair)]
 pub mod cmds;
 #[cfg(kconfig_tools)]
@@ -25,7 +25,7 @@ pub mod sh;
 
 const CORE_COMMANDS: usize = 5;
 #[cfg(kconfig_rescue_repair)]
-const RESCUE_COMMANDS: usize = 10;
+const RESCUE_COMMANDS: usize = 11;
 #[cfg(not(kconfig_rescue_repair))]
 const RESCUE_COMMANDS: usize = 0;
 #[cfg(kconfig_imager)]
@@ -60,7 +60,9 @@ pub static COMMANDS: [Command; N_COMMANDS] = [
     #[cfg(kconfig_rescue_repair)]
     Command { name: "umount", help: "umount <path>", run: rescue::cmd_umount },
     #[cfg(kconfig_rescue_repair)]
-    Command { name: "cat", help: "cat <path> — print a file (FAT or ext4, 4 KiB max)", run: cat::cmd_cat },
+    Command { name: "ls", help: "ls <path> — list a directory (FAT/ext4/NTFS)", run: ls::cmd_ls },
+    #[cfg(kconfig_rescue_repair)]
+    Command { name: "cat", help: "cat <path> — print a file (FAT/ext4/NTFS, 4 KiB max)", run: cat::cmd_cat },
     #[cfg(kconfig_rescue_repair)]
     Command { name: "diskhealth", help: "disk health [--scan]", run: rescue::cmd_diskhealth },
     #[cfg(kconfig_rescue_repair)]

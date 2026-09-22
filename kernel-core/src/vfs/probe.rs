@@ -69,8 +69,9 @@ fn fs_name(t: FsType) -> &'static str {
 }
 
 /// Human label for the probe table. FAT32 and the first ext4 root can be
-/// mounted ro (M6.5); every other non-FAT filesystem is probe-only in v1 —
-/// the label says so explicitly (mount contract).
+/// mounted ro (M6.5); the first NTFS volume since M12-5; every other non-FAT
+/// filesystem is probe-only in v1 — the label says so explicitly (mount
+/// contract).
 fn label_for(t: FsType, is_esp: bool, mounted: bool) -> &'static str {
     if is_esp {
         return "EFI System Partition";
@@ -82,6 +83,7 @@ fn label_for(t: FsType, is_esp: bool, mounted: bool) -> &'static str {
         FsType::Ext4 => "ext4 (probe-only)",
         FsType::Xfs => "XFS (probe-only)",
         FsType::Btrfs => "Btrfs (probe-only)",
+        FsType::Ntfs if mounted => "NTFS (mounted ro)",
         FsType::Ntfs => "NTFS (probe-only)",
         FsType::Swap => "swap (probe-only)",
         FsType::Ufs => "UFS (probe-only)",
@@ -201,8 +203,9 @@ pub fn probe_table() -> &'static [FsProbeEntry] {
 
 /// Probe every partition. FAT_MOUNTED is the FAT32 partition vfs::init
 /// actually mounted; ROOT_MOUNTED is the ext4 partition mounted at
-/// /mnt/root0 (M6.5) — only those may claim a mounted entry.
-pub unsafe fn init(table: &part::Table, fat_mounted: usize, root_mounted: Option<usize>) {
+/// /mnt/root0 (M6.5) and WIN_MOUNTED the NTFS volume mounted at /mnt/win0
+/// (M12-5) — only those may claim a mounted entry.
+pub unsafe fn init(table: &part::Table, fat_mounted: usize, root_mounted: Option<usize>, win_mounted: Option<usize>) {
     let mut s = Log::new();
     let mut count = 0usize;
     for (pi, p) in table.parts[..table.count].iter().enumerate() {
@@ -210,9 +213,10 @@ pub unsafe fn init(table: &part::Table, fat_mounted: usize, root_mounted: Option
             break;
         }
         let fst = detect_fs(p);
-        let is_esp = p.type_guid == part::FAT32_GPT_GUID;
+        let is_esp = p.type_guid == part::FAT32_GPT_GUID && fst == FsType::Fat32;
         let mounted = (fst == FsType::Fat32 && pi == fat_mounted)
-            || (fst == FsType::Ext4 && root_mounted == Some(pi));
+            || (fst == FsType::Ext4 && root_mounted == Some(pi))
+            || (fst == FsType::Ntfs && win_mounted == Some(pi));
         let mut bootloaders: BootloaderList = ["", "", "", "", "", "", "", ""];
         if fst == FsType::Fat32 {
             if let Some(fs) = super::fat::parse(p.first_lba) {

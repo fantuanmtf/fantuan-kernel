@@ -55,10 +55,19 @@ elf_has_string() { # elf name
 # CONFIG_IMAGER). `part` cannot be a string invariant because the boot-time
 # VFS already prints "part: LBA ...".
 RESCUE_STRINGS=(diskhealth lsmnt lsos mount umount cat hwdiag lsdev grub-fix crypto-selftest)
+# `ls` cannot be a token invariant: the embedded /bin/ls userland binary
+# carries "ls:" strings in every profile, and adjacent .rodata literals glue
+# the name to the help text. The ls help wording is unique to the table.
+LS_STRING="list a directory"
 TOOL_STRINGS=(ping nslookup wget)
 # M12: the imager is its own symbol, enabled in the rescue/net/tls/desktop
 # profiles (not minimal), so `clone` is present in net and absent in minimal.
 IMAGER_STRINGS=(clone)
+# M12-4/M12-5: NTFS is enabled in the rescue/net/tls/desktop/hypervisor
+# profiles, so the /mnt/win0 mount string is present there and absent in the
+# minimal kernel (the ungated probe label "NTFS (probe-only)" is not a token
+# match for the capitalised mount identifiers).
+NTFS_STRINGS=(win0)
 
 boot() { # log timeout
   # Build once outside the timeout: the config flip rebuilds three crates, and
@@ -108,6 +117,9 @@ done
 for s in "${IMAGER_STRINGS[@]}"; do
   elf_has_string "$ELF" "$s" || fail "net profile: imager command '$s' missing (CONFIG_IMAGER=y)"
 done
+for s in "${NTFS_STRINGS[@]}"; do
+  elf_has_string "$ELF" "$s" || fail "net profile: NTFS mount string '$s' missing (CONFIG_NTFS=y)"
+done
 if grep -q "shell: ready" "$NET_LOG" \
    && grep -q "net: lo0 up 127.0.0.1/8" "$NET_LOG" \
    && grep -q "rump: mbuf self-test ok" "$NET_LOG" \
@@ -135,11 +147,14 @@ if cargo tree -p fantuan-kernel --target x86_64-unknown-none -e normal --offline
      | grep -q "kernel-net"; then
   fail "minimal profile: cargo tree still has a kernel-net edge"
 fi
-for s in "${RESCUE_STRINGS[@]}" "${TOOL_STRINGS[@]}" "${IMAGER_STRINGS[@]}"; do
+for s in "${RESCUE_STRINGS[@]}" "${TOOL_STRINGS[@]}" "${IMAGER_STRINGS[@]}" "${NTFS_STRINGS[@]}"; do
   if elf_has_string "$ELF" "$s"; then
     fail "minimal profile: command string '$s' leaked into the kernel ELF"
   fi
 done
+if elf_has_string "$ELF" "$LS_STRING"; then
+  fail "minimal profile: the ls command help text leaked into the kernel ELF"
+fi
 for s in rump mbedtls "net:" "tls:"; do
   if elf_has_string "$ELF" "$s"; then
     fail "minimal profile: '$s' leaked into the kernel ELF"
@@ -150,9 +165,10 @@ if grep -q "shell: ready" "$MIN_LOG" \
    && grep -q "shell commands (root@Fantuan-MTF" "$MIN_LOG" \
    && grep -q "^  help        this table" "$MIN_LOG" \
    && grep -q "^  bootinfo    boot handover details" "$MIN_LOG" \
-   && ! grep -qE "^  (hwdiag|lsdev|lsos|lsmnt|mount|umount|cat|diskhealth|grub-fix|crypto-selftest|clone|ping|nslookup|wget) " "$MIN_LOG" \
+   && ! grep -qE "^  (hwdiag|lsdev|lsos|lsmnt|mount|umount|ls|cat|diskhealth|grub-fix|crypto-selftest|clone|ping|nslookup|wget) " "$MIN_LOG" \
    && ! grep -q "net: lo0 up" "$MIN_LOG" \
    && ! grep -q "rump:" "$MIN_LOG" \
+   && ! grep -q "ntfs:" "$MIN_LOG" \
    && ! grep -q "net: tcp" "$MIN_LOG"; then
   ok "minimal profile: shell + help lists only core builtins; ELF free of net/rump/tls/rescue/tool strings"
 else
@@ -169,6 +185,10 @@ cargo build -p fantuan-kernel --target x86_64-unknown-none --release \
   > build/smoke-config-rescue-build.log 2>&1 || fail "rescue profile x86_64 build"
 for s in diskhealth grub-fix; do
   elf_has_string "$ELF" "$s" || fail "rescue profile: '$s' missing from the ELF"
+done
+elf_has_string "$ELF" "$LS_STRING" || fail "rescue profile: ls help text missing from the ELF"
+for s in "${NTFS_STRINGS[@]}"; do
+  elf_has_string "$ELF" "$s" || fail "rescue profile: NTFS mount string '$s' missing (CONFIG_NTFS=y)"
 done
 for s in "${IMAGER_STRINGS[@]}"; do
   elf_has_string "$ELF" "$s" || fail "rescue profile: imager command '$s' missing (CONFIG_IMAGER=y)"

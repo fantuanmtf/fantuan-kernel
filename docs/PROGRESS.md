@@ -12,7 +12,7 @@
 | v0.0.1 | M0-M9 (x86_64 rescue + RISC-V port) | `[##########] 100%` | tag `v0.0.1` (local) |
 | v0.0.2 | M10 legacy BIOS boot + i686 | `[##########] 100%` | released as 0.0.2: `smoke.sh` 13/13, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3, `smoke-iso.sh` 2/2 |
 | v0.0.3 | M11 ARM64 + full TCP/HTTPS | `[##########] 100%` | released as 0.0.3: R1-R8 verified; C5 minimal/tools/bash-prep; R9a direct-FDT boot + R9b virtio-net/TLS (`smoke-aarch64.sh` 2/2), `smoke-net.sh` PASS, `smoke-config.sh` PASS, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3; aarch64 UEFI/AAVMF deferred to M14 |
-| v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[####------] 40%` | M12-1/M12-2/M12-3/M12-7 verified |
+| v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[########--] 85%` | M12-1/M12-2/M12-3/M12-4/M12-5/M12-7 verified |
 | v0.0.5 | M13 graphics/input + interface freeze | `[#---------] 10%` | design only |
 | v0.1.0 | M14 Linux userspace + bootstrap + hypervisor V2 | `[####------] 30%` | P3 bash 5.3 runs, `sh` is bash (working tree): `tools/smoke-bash.sh` PASS, `tools/smoke-dash.sh` PASS (dash selectable); P1 `tools/smoke-posix.sh` PASS |
 | v0.1.5 | M15 desktop + isolation + MinGW | `[----------] 0%` | - |
@@ -265,8 +265,39 @@ Design: `M12_TOOLS_HW.md`.
       (abort transcript, zero-filled partial copy, report ranges/counts/
       hashes, quick verdict) plus `tools/smoke-imager.sh` PASS and the
       zero-warning profile builds
-- [ ] M12-4 NTFS boot/MFT/attribute/runlist read path (fixture)
-- [ ] M12-5 NTFS listing/read + `/mnt/win0`; probe graduation
+- [x] M12-4 NTFS boot/MFT/attribute/runlist read path (fixture):
+      `CONFIG_NTFS` (default n; rescue/net/tls/desktop/hypervisor profiles)
+      gates `kernel-core/src/vfs/ntfs/` — boot sector/BPB validation (OEM,
+      512-byte sectors, clusters <= 4 KiB, MFT LCN/record size, cluster
+      count), the `$MFT` bootstrap (record 0's `$DATA` runlist, fragmented
+      runs), FILE records with update-sequence fixups
+      (`record.rs`/`runlist.rs`), attributes (`$STANDARD_INFORMATION`,
+      `$FILE_NAME` index keys, `$DATA` resident and non-resident), sparse
+      runs read as zeroes, compression/encryption/attribute lists rejected
+      with a clear `NtfsErr::text()`. Fixture: `tools/mkntfs.py` +
+      `tools/mkntfs_fs.py` hand-build a deterministic 16 MiB NTFS 3.1
+      volume (all standard metadata records, an `$I30` root with an INDX
+      block, a small resident index, resident files, a 3-run fragmented
+      file, a non-ASCII name and one deliberately corrupt FILE record);
+      `tools/mkdisk.py --ntfs` puts it on the delivered disk and the
+      builder output is validated by ntfs-3g (`ntfsls`/`ntfscat`).
+      Verify `tools/smoke-ntfs.sh` PASS plus the zero-warning profile
+      builds
+- [x] M12-5 NTFS listing/read + `/mnt/win0`; probe graduation:
+      `$I30` directory enumeration (`index.rs`, INDEX_ROOT + a bounded
+      breadth-first INDEX_ALLOCATION walk with INDX fixups), `$DATA` reads
+      through the runlist with a 2 x 4 KiB cluster cache (`file.rs`/
+      `cache.rs`), path resolve/list/read on the mounted volume and the
+      read-only `/mnt/win0` mount (`vfs/mod.rs` + `vfs/ntfs/api.rs`) with
+      the probe label graduating to `NTFS (mounted ro)`. The shell gains
+      `ls [path]` and `cat /mnt/win0/...` (full-file SHA-256 on cat) and
+      the POSIX fd layer serves reads/readdir/stat under `/mnt/win0` while
+      every write intent fails with `SYS_ERR_ROFS` (`vfs/ntfs_fd.rs`)
+      — there is no write entry point in the NTFS reader at all. Verify
+      `tools/smoke-ntfs.sh` PASS (mount/volume facts, listing equality,
+      resident + fragmented hash equality, corrupt-record rejection,
+      EROFS write attempt) and `tools/smoke-config.sh` PASS (minimal ELF
+      free of the NTFS mount)
 - [ ] M12-6 AMD GPU report (identity/BAR/PCIe link/thermal)
 - [x] M12-7 virtualization detection: hypervisor vendor (CPUID.40000000h),
       VMX (+ IA32_FEATURE_CONTROL lock/enable, EPT/VPID caps), SVM + NPT,
@@ -331,6 +362,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | M12-4/M12-5 NTFS read-only (working tree): `CONFIG_NTFS` gates `kernel-core/src/vfs/ntfs/` (boot/BPB + `$MFT` bootstrap, FILE records with fixups, attributes/runlists with sparse zero-fill, `$I30` INDEX_ROOT + INDEX_ALLOCATION walk, `$DATA` reads with a 2 x 4 KiB cache) and the read-only `/mnt/win0` mount; `tools/mkntfs.py` hand-builds a deterministic fixture (validated by ntfs-3g `ntfsls`/`ntfscat`) with a 3-run fragmented file, a non-ASCII name and one corrupt FILE record. `tools/smoke-ntfs.sh` PASS: `ntfs: mounted ro — label 'FANTUANNTFS', 4096 clusters of 4096 B, MFT record 1024 B at LCN 4` + `ntfs: mounted ro at /mnt/win0 (part 2)` + probe `part 2: NTFS (mounted ro)`; root/Users listing equality; kernel SHA-256 of hello.txt (`eb399ef1…`), frag.bin (`2800da22…`, 3 runs, truncated dump), résumé.txt and alice.txt equal to the host fixture hashes; `cat: NTFS: record corrupt (update sequence mismatch)` for the broken record; userland bash `ls`/`cat` over `/mnt/win0` work and `echo x > /mnt/win0/new.txt` returns `Read-only file system`; `cmp` of the rebuilt image shows the volume byte-identical after the run. Regressions: `smoke.sh` 13/13, `smoke-bios.sh` 2/2, `smoke-config.sh` PASS (minimal NTFS-free), `smoke-imager.sh` PASS, `smoke-imager-bad.sh` PASS; x86_64 minimal/rescue/net/tls, riscv64, i686, aarch64 builds zero warnings. No real Windows 10 image is available on this host, so the optional Win10 `Windows/System32` check stays an OPERATIONS manual path | PASS |
 | 2026-09 | M12-3 bad-sector policy + report (working tree): `clone --continue` retries, isolates per sector, zero-fills and records bad ranges; every copy run writes `/tmp/clone-report.txt` (tmpfs) and mirrors it to serial with `clone-report:` lines (source/destination, policy, full/quick verify, source/stream/destination SHA-256, `bad-range lba=… count=… errors=… retries=…`, totals, `verdict verified/partial/failed`); `--quick` samples the first/last 1 MiB + 1 MiB at 25/50/75%. Fixture: `tools/mkdisk.py --badclusters 100:4,700:2` writes the source + `.bad` sidecar and `tools/run.sh --imager-bad` injects each sector as a real blkdebug `read_aio` error (the AHCI path now kicks `PxCI` after a failure so retries and later sectors work). `tools/smoke-imager-bad.sh` PASS: default abort at LBA 100 (nothing written), `--continue` completes with the destination SHA-256 = the host pattern-with-bad-ranges-zeroed (`06741878…`), report `bad-ranges 2 / errors 6 / retries 18 / verdict partial`, quick run `verdict verified`. `tools/smoke-imager.sh` PASS, `tools/smoke-config.sh` PASS, `tools/smoke.sh` 13/13, `tools/smoke-bios.sh` 2/2; x86_64 minimal/imager/rescue/net/tls, riscv64, i686, aarch64 builds zero warnings | PASS |
 | 2026-09 | M12-2 disk imager (working tree): `CONFIG_IMAGER` + `clone` landed. `tools/smoke-imager.sh` PASS: the plan/size-gate/YES-gate transcripts, the kernel's pre-copy and destination hashes equal to the host sha256 of the pattern source, the destination prefix identical to the source, the untouched destination tail all-zero, and the read-only message linked in the rescue ELF. The AHCI C probe registers every populated port (blk0/blk1 = two SATA disks); i686 keeps its `blk_write` -1 stub, so its rescue/IMAGER build carries the read-only branch (no i686 shell yet, documented). `tools/smoke-config.sh` covers the IMAGER string gate (minimal absent, net/rescue present); profile builds zero warnings | PASS |
 | 2026-09 | P3 bash (working tree): bash 5.3 (GPLv3 app layer) builds against libc-fantuan and runs as the default `sh`; dash stays selectable. Spike before -> after: missing headers 12 -> 0 of 43, probed symbols still missing 25 -> 0 of 102 (libc-fantuan provides 102/102). `tools/build-bash.sh` configures with the freestanding clang and `-nostdlib` (host glibc cannot leak), `--without-bash-malloc --disable-nls --disable-readline --enable-static-link`, replays `patches/0001-netopen-no-network-decls.patch`, links the static ELF (743,312 bytes stripped, sha256 `38ec6a3028d8...`, byte-reproducible), embeds it as `kernel/bash_program.bin`. `tools/smoke-bash.sh` PASS asserts `sh -c` = bash, `bash -c 'echo ...'`, `exit 7` (0x700), interactive prompt/echo, `$((2+3))=5`, `x=41; echo $((x+1))=42`, a function, `echo \| cat`, `>`/`<`, `$(...)`, `^C` -> 130, `exit`, the reaps, and dash selectable. Kernel fixes: ELF loader lost its 64-page table (loads through a segment page walk, ~190 pages for bash) and page-table frames are zeroed on allocation (a recycled frame's stale entries caused a #GP); `sigsetjmp` became a call-site macro. The P2 `apps/dash` lock orphan is fixed (dash pinned), so `smoke-gpl` is green again. `tools/smoke-dash.sh` PASS (dash selected explicitly), `smoke-posix.sh` PASS | PASS |
@@ -608,15 +640,15 @@ mmap, `/bin` enumeration; bash is P3.
 
 ## Next action
 
-**M12 W-b** (M11 released as 0.0.3): the disk imager is complete through the
-bad-sector policy — M12-2 (`clone` + hash verification) and M12-3
-(`--quick`/`--continue`, the zero-fill ledger, the `/tmp/clone-report.txt`
-report, the AHCI error-recovery kick and the blkdebug bad-sector fixture) are
-landed in the working tree and verified by `tools/smoke-imager.sh` and
-`tools/smoke-imager-bad.sh`; the next M12 step is the NTFS read path
-(M12-4/M12-5). The remaining M12 checkboxes are listed above and the design
-is `docs/M12_TOOLS_HW.md` (§2a records the M12-2 implementation, §2b the
-M12-3 policy and fault injection). **P3 is landed in the working tree
+**M12 W-c** (M11 released as 0.0.3): the NTFS read path is complete —
+M12-4/M12-5 landed behind `CONFIG_NTFS` with the hand-built deterministic
+fixture (`tools/mkntfs.py`), `/mnt/win0`, `ls`/`cat`, the POSIX read-only
+view and `tools/smoke-ntfs.sh` PASS. The disk imager through the bad-sector
+policy (M12-2/M12-3) stays verified by `tools/smoke-imager.sh` and
+`tools/smoke-imager-bad.sh`. The remaining M12 step is **M12-6** (AMD GPU
+report: identity/BAR/link/thermal). The design is
+`docs/M12_TOOLS_HW.md` (§2a M12-2, §2b M12-3, §3a M12-4/M12-5).
+**P3 is landed in the working tree
 and verified** (`tools/smoke-bash.sh` PASS plus `tools/smoke-dash.sh`,
 `tools/smoke-posix.sh` and the regression smokes); bash 5.3 now builds
 against libc-fantuan and **`sh` is bash**: the `sh` command and

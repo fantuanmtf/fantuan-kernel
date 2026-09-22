@@ -102,6 +102,18 @@ config IMAGER
         Off in the default minimal kernel; the rescue/net/tls/desktop
         profiles enable it.
 
+config NTFS
+    bool "NTFS read-only (M12-4/M12-5)"
+    default n
+    help
+        The read-only NTFS reader: boot sector/$MFT validation, FILE
+        records with fixups, attributes and runlists, $I30 directory
+        enumeration, $DATA reads and the /mnt/win0 mount. It never writes
+        to a Windows volume (there is no write entry point) and rejects
+        compression/encryption/attribute-list structures with a clear
+        error. Off in the default minimal kernel; the rescue/net/tls/
+        desktop/hypervisor profiles enable it.
+
 config SMBIOS
     bool "SMBIOS parsing (identity/DIMM/slots)"
     default n

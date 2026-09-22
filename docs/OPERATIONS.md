@@ -17,6 +17,7 @@ itself see [USAGE.md](USAGE.md); for builds see [BUILD.md](BUILD.md).
 | `tools/smoke-net.sh` | M11 offline network gate (loopback/SLIRP/DNS/TLS/UDP) | ~8 min |
 | `tools/smoke-imager.sh` | M12 `clone` gate: verified round trip, size/YES gates, read-only branch | ~2 min |
 | `tools/smoke-imager-bad.sh` | M12-3 bad-sector gate: default abort, `--continue` zero-fill, report ranges/counts, `--quick` | ~1 min |
+| `tools/smoke-ntfs.sh` | M12-4/M12-5 NTFS gate: `/mnt/win0` mount/facts, listing equality, resident + fragmented hashes, corrupt-record rejection, no-write | ~1 min |
 | `tools/smoke-bios.sh` | legacy BIOS chain: x86_64 + i686 (2 phases) | ~2 min |
 | `tools/smoke-riscv.sh` | riscv acceptance suite (3 phases) | ~4 min |
 | `tools/smoke-aarch64.sh` | aarch64 direct FDT + virtio-net/TLS offline gate (2 phases) | ~4 min |
@@ -161,6 +162,7 @@ tools/smoke-aarch64.sh                 # bounded acceptance run (PASS/SKIP)
 | `--grub-regen` | autorun runs `grub-fix install` (implies `--two-fs`) |
 | `--imager` | M12 `clone` fixtures on one AHCI controller: test disk (blk0) + pattern source (blk1) + larger/smaller empty destinations (blk2/blk3); autorun runs the gate transcript |
 | `--imager-bad` | M12-3 bad-sector fixtures: blk1 pattern with QEMU blkdebug read errors, blk2 empty destination, blk3 clean pattern; autorun runs abort/`--continue`/`--quick` (ranges default `100:4,700:2`, override with `BADCLUSTERS`) |
+| `--ntfs` | M12-4/M12-5 NTFS fixture: `mkdisk.py --ntfs` adds the hand-built read-only NTFS volume (partition 2) and the `/mnt/win0` autorun (listings, reads, corrupt-record and write-refusal probes) |
 | `--smm` | x86 on q35 with SMM OVMF (required for SetVariable) |
 | `--no-smbios` | boot without `-smbios` overrides (firmware defaults) |
 | `--nvme` | attach the disk as NVMe instead of AHCI |
@@ -184,6 +186,7 @@ to `build/esp/fantuan/kernel.bin` on every run.
 | Hybrid ISO | `tools/build-iso.sh` then `qemu-system-x86_64 -cdrom build/fantuan.iso -nographic` | the same kernel via El Torito on BIOS; OVMF boots the 0xEF ESP path (`smoke-iso.sh` shows the exact invocation) |
 | RISC-V | `tools/run.sh --arch riscv64 --disk --two-fs` | OpenSBI + virtio-blk + VFS/shell |
 | aarch64 | `tools/run.sh --arch aarch64 [--net]` | QEMU `virt` raw-Image direct FDT boot: PL011, 4K-granule MMU + direct map, GICv2 + 100 Hz timer, demo tasks and the shared shell; `--net` adds the polled virtio-net-device MMIO NIC on SLIRP (needs `-global virtio-mmio.force-legacy=false`, which run.sh sets) |
+| NTFS (optional, real image) | boot with a real Windows volume as the **first AHCI disk**: take the `run.sh` QEMU line and replace `-drive file=build/test.img,...` with `-drive file=<win.img>,format=raw,if=none,id=td0 -device ide-hd,drive=td0,bus=sata.0` (the ESP drive stays), then `ls /mnt/win0` and `ls /mnt/win0/Windows/System32` | a read-only listing/read of a production NTFS volume; no Windows image ships with the repo, so this is a manual/CI-optional check (the fixture gate is `tools/smoke-ntfs.sh`) |
 
 Useful shell commands: `help`, `bootinfo` (both in the minimal kernel), and
 with the `rescue` profile `lsos`, `diskhealth` (SMART needs AHCI/NVMe; the

@@ -22,6 +22,8 @@ pub mod cmds;
 #[cfg(kconfig_imager)]
 pub mod imager;
 #[cfg(kconfig_rescue_repair)]
+pub mod ls;
+#[cfg(kconfig_rescue_repair)]
 pub mod rescue;
 
 const LINE_MAX: usize = 128;

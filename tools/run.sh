@@ -4,6 +4,7 @@
 #                     [--broken-shim] [--smm] [--no-smbios] [--two-fs]
 #                     [--keys] [--shell-repair] [--nvme] [--bigcluster]
 #                     [--liar] [--grub-regen] [--net] [--imager] [--imager-bad]
+#                     [--ntfs]
 #   --net:    attach the kernel-net NIC on QEMU user networking (SLIRP):
 #             the e1000 on x86_64, the virtio-net-device MMIO transport on
 #             aarch64 (with -global virtio-mmio.force-legacy=false); without
@@ -19,6 +20,8 @@
 #   --imager-bad: M12-3 bad-sector phase: the clone autorun plus a bad-cluster
 #             pattern source whose ranges QEMU blkdebug turns into real AHCI
 #             read errors (tools/mkimagerdisks.sh --bad).
+#   --ntfs:   M12-4/M12-5 NTFS phase: the disk gains a hand-built read-only
+#             NTFS partition and the ESP autorun lists/reads /mnt/win0.
 #   --smm:    run on q35 with the SMM OVMF build (build/ovmf-smm/). Runtime
 #             NVRAM writes (SetVariable, M7.6) only work in this mode — the
 #             plain non-SMM OVMF build rejects them.
@@ -113,12 +116,14 @@ KBD_TEST=0
 NET=0
 IMAGER=0
 IMAGER_BAD=0
+NTFS=0
 for a in "$@"; do
   case "$a" in
     --graphics)    GRAPHICS=1 ;;
     --net)         NET=1 ;;
     --imager)      IMAGER=1 ;;
     --imager-bad)  IMAGER_BAD=1 ;;
+    --ntfs)        NTFS=1 ;;
     --broken)      BROKEN=1 ;;
     --broken-shim) BROKEN=1; NOSHIM=1 ;;
     --smm)         SMM=1 ;;
@@ -220,6 +225,9 @@ if [ "$GRUB_REGEN" = "1" ]; then
 fi
 if [ "$KBD_TEST" = "1" ]; then
   MKDISK_ARGS="$MKDISK_ARGS --kbd-test"
+fi
+if [ "$NTFS" = "1" ]; then
+  MKDISK_ARGS="$MKDISK_ARGS --ntfs"
 fi
 # Storage attachment: AHCI (reference) or NVMe (the same blk_ops table).
 if [ "$IMAGER" = "1" ]; then

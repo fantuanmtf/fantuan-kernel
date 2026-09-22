@@ -54,6 +54,10 @@ pub mod fat_dir;
 pub mod fat_write;
 pub mod fd;
 pub mod io;
+#[cfg(kconfig_ntfs)]
+pub mod ntfs;
+#[cfg(kconfig_ntfs)]
+mod ntfs_fd;
 pub mod part;
 pub mod pipe;
 pub mod posix;
@@ -78,6 +82,12 @@ pub struct Vfs {
     pub root: Option<ext4::Ext4>,
     /// Partition index of ROOT (valid when root is Some).
     pub root_part: usize,
+    /// First readable NTFS volume, mounted ro at /mnt/win0 (M12-5).
+    #[cfg(kconfig_ntfs)]
+    pub win: Option<ntfs::Ntfs>,
+    /// Partition index of WIN (valid when win is Some).
+    #[cfg(kconfig_ntfs)]
+    pub win_part: usize,
 }
 
 // --- FAT 8.3 name helpers (shared with bootrepair via re-export) ----------
@@ -144,7 +154,7 @@ pub fn find_path(fs: &fat::Fat32, start: u32, components: &[&[u8; 11]]) -> Optio
 }
 
 /// Format an 8.3 name as "NAME.EXT" into a fixed buffer.
-fn fmt_name(name: &[u8; 11], buf: &mut [u8; 13]) -> usize {
+pub fn fmt_name(name: &[u8; 11], buf: &mut [u8; 13]) -> usize {
     let mut n = 0;
     for i in 0..8 {
         let c = name[i];
@@ -265,7 +275,16 @@ pub fn init() -> Option<Vfs> {
         let _ = writeln!(s, "vfs: no ext4 root mounted");
     }
 
-    unsafe { probe::init(&table, target_index, root_index) };
+    // M12-5: mount the first readable NTFS volume read-only at /mnt/win0.
+    #[cfg(kconfig_ntfs)]
+    let (win, win_part) = match ntfs::mount_first(&table, &mut s) {
+        Some((n, i)) => (Some(n), Some(i)),
+        None => (None, None),
+    };
+    #[cfg(not(kconfig_ntfs))]
+    let win_part: Option<usize> = None;
+
+    unsafe { probe::init(&table, target_index, root_index, win_part) };
 
     Some(Vfs {
         fs,
@@ -273,5 +292,9 @@ pub fn init() -> Option<Vfs> {
         fat_part: target_index,
         root,
         root_part: root_index.unwrap_or(0),
+        #[cfg(kconfig_ntfs)]
+        win,
+        #[cfg(kconfig_ntfs)]
+        win_part: win_part.unwrap_or(0),
     })
 }

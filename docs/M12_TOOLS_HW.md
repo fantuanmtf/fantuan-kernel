@@ -165,6 +165,72 @@ source pre-hash fails before anything is written) with the exact LBA.
   NTFS with one directory and two files), plus a real Windows disk image
   smoke; listing must match `ntfsls` output for the fixture.
 
+### 3a. Implemented in M12-4/M12-5 (2026-09)
+
+The read-only reader landed behind **`CONFIG_NTFS`** (default n; the
+rescue/net/tls/desktop/hypervisor profiles enable it) and the minimal
+kernel carries no NTFS code or `/mnt/win0` string.
+
+- **Reader** (`kernel-core/src/vfs/ntfs/`, split per the line rule):
+  `mod.rs` validates the boot sector (OEM `NTFS    `, 512-byte sectors,
+  power-of-two clusters up to 4 KiB, MFT LCN/record size and cluster
+  count) and bootstraps `$MFT` from record 0's `$DATA` runlist (fragmented
+  runs included); `record.rs` parses FILE records with update-sequence
+  fixups and the attribute list (`$STANDARD_INFORMATION` attributes,
+  resident/non-resident `$DATA`); `runlist.rs` decodes packed runs
+  (fragmented and sparse, <= 24 runs) and `file.rs` streams `$DATA`
+  through them, zero-filling sparse runs and anything past the initialized
+  size; `index.rs` walks `$I30` from the resident INDEX_ROOT through the
+  INDEX_ALLOCATION B-tree (breadth-first, bounded queue, INDX fixups);
+  `cache.rs` is the bounded read cache (two 4 KiB cluster slots, an
+  `IrqLock` around slot access, the device read unlocked). Compression,
+  encryption and attribute lists are detected and rejected with a clear
+  error (`NtfsErr::text()`); attribute lists that would span MFT records
+  are the documented v2 item.
+- **Mount and tools**: `vfs::init` mounts the first parseable NTFS volume
+  read-only at `/mnt/win0` (`vfs/ntfs/api.rs` holds the shared mount), the
+  probe label graduates to `NTFS (mounted ro)`, `lsmnt` lists it and the
+  new `ls [path]` command lists NTFS/FAT/ext4 directories. `cat
+  /mnt/win0/...` dumps up to 4 KiB and prints the full-file SHA-256 (the
+  smoke compares it to the host fixture). The POSIX fd layer
+  (`vfs/ntfs_fd.rs`) serves read/readdir/stat under `/mnt/win0` so
+  userland `ls`/`cat` work under `sh`/`bash`; every write intent
+  (`open` with O_WRONLY/O_RDWR/O_TRUNC/O_APPEND/O_CREAT, unlink, mkdir,
+  rename) returns `EROFS` ("Read-only file system") before any filesystem
+  code runs. The NTFS reader itself has **no write entry point at all**.
+- **Fixture** (`tools/mkntfs.py` + `tools/mkntfs_fs.py`): the host has
+  `mkfs.ntfs`/ntfs-3g (mkntfs v2026.7.7), but the smoke must stay
+  deterministic and host-tool-free, so the fixture is a hand-built 16 MiB
+  NTFS 3.1 volume (2048 4 KiB clusters, 1024-byte MFT records): `$MFT`
+  with `$MFTMirr`/`$LogFile`/`$Volume`/`$AttrDef`/`$Bitmap`/`$Boot`/
+  `$BadClus`/`$Secure`/`$UpCase`/`$Extend`, a root directory indexed
+  through `$I30` + one INDX block, a small resident-index `Users`
+  directory, resident files (`hello.txt`, `résumé.txt` with a UTF-16
+  non-ASCII name, `Users/alice.txt`, `Users/logs/boot.log`), a
+  non-resident **three-run fragmented** file (`frag.bin`, 10000 bytes) and
+  one FILE record with a deliberately broken update sequence
+  (`corrupt.txt`). Every byte is deterministic; the image is validated
+  against ntfs-3g (`ntfsls`, `ntfscat`, `ntfsinfo`) at development time.
+  `mkdisk.py --ntfs` places it on the delivered GPT disk (partition 2, or
+  partition 4 after `--two-fs`) and installs the ESP autorun transcript.
+- **Smoke** (`tools/smoke-ntfs.sh`): one bounded boot asserts the mount
+  line and volume facts (`4096 clusters of 4096 B, MFT record 1024 B at
+  LCN 4`), root/`Users` listing equality, the kernel SHA-256 of the
+  resident, fragmented and non-ASCII files against `sha256sum` of the
+  extracted fixture bytes, the corrupt-record rejection and the missing
+  path error, the userland `sh -c` transcript including
+  `Read-only file system`, and that the rebuilt image is byte-identical
+  after the run (`cmp`) — a write could not have reached the volume.
+- **Limits/out of scope (v1)**: compression, encryption (EFS), sparse-file
+  materialisation (sparse runs read as zeroes), `$ATTRIBUTE_LIST`
+  continuation records, `$Bitmap`/`$LogFile` semantics (they are present
+  and parsed as ordinary metadata, never interpreted), alternate data
+  streams, disk quotas/reparse points, and any write path. 512-byte
+  sectors, clusters <= 4 KiB, MFT records <= 1 KiB and runlists <= 24 runs
+  are the validated geometry. The real Windows image check stays optional:
+  this host has no Windows 10 image, so the Win10
+  `Windows/System32` listing is an OPERATIONS manual/CI-optional path.
+
 ## 4. AMD GPU probe (report-only)
 
 Measured signals only; no vendor-table guesswork without a documentation
