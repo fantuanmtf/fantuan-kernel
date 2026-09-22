@@ -327,7 +327,7 @@ Design: `M12_TOOLS_HW.md`.
 
 Design: `M13_GRAPHICS.md`.
 
-- [ ] M13-1 `fb_info` + blit/fill/damage; GOP console on top
+- [x] M13-1 `fb_info` + blit/fill/damage; GOP console on top (V-a)
 - [ ] M13-2 double buffer + present + kernel demo app
 - [ ] M13-3 input event ring + PS/2 mouse
 - [ ] M13-4 dumb buffers + ADDFB/SETCRTC/PAGE_FLIP + events
@@ -380,6 +380,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | M13-1 V-a framebuffer core (working tree): `kernel-core::graphics` (`FbInfo` + `Format::Bpp32/24/16` + `Rect` + `fill`/`fill_xor`/`blit`/`copy_rect`/`blit_glyph` + a bounded coalescing `Damage` + the `Present` trait with `DirectPresent`) gated by `CONFIG_GRAPHICS`, with both consoles refactored on top (x86_64 GOP console `kernel/src/console.rs`, i686 VBE console `kernel-i686/src/fb.rs`: font = blit_glyph, clear/scroll = fill/copy_rect, cursor = fill_xor, damage marked and a single-buffered present per character) and the GOP console/font now themselves `CONFIG_GRAPHICS`-gated so minimal/net stay graphics-free. `tools/smoke-graphics.sh` PASS (x86_64 UEFI screendump 1280x800 bright=927 + `graphics: damage self-test ok`; i686 VBE screendump 1024x768 bright=1206 + `fb:` lines; i686 `-vga none` serial byte-identical after the `fb:` lines). Regressions: `smoke.sh` 12/13 in one run with the SMM NVRAM phase (13) hitting the known host-load timeout and passing on the isolated rerun (A=1 B=1 C=1); `smoke-bios.sh` 2/2, `smoke-config.sh` PASS (minimal graphics-free), `smoke-gpu.sh` PASS; x86_64 minimal/rescue/net/tls, riscv64, i686, aarch64 builds zero warnings | PASS |
 | 2026-09 | M12 released as 0.0.4: disk imager (`clone` + `--continue` bad-sector policy and report), read-only NTFS (`/mnt/win0`), the read-only AMD/PCI GPU report (QEMU-only acceptance) and virtualization V1 detection. `tools/smoke-imager.sh` PASS, `tools/smoke-imager-bad.sh` PASS, `tools/smoke-ntfs.sh` PASS, `tools/smoke-gpu.sh` PASS, `tools/smoke-config.sh` PASS, `tools/smoke-bios.sh` 2/2; x86_64 minimal/rescue/net/tls, riscv64, i686 and aarch64 builds zero warnings; workspace/banners/locks/docs at 0.0.4 | PASS |
 | 2026-09 | M12-6 GPU/PCI report (working tree): `CONFIG_GRAPHICS` gates the read-only probe (`kernel/src/arch/x86_64/pci_probe.rs`: subsystem IDs, bounded capability walk, write-1s BAR sizing with restore, PCIe Link Capabilities/Status; `kernel/src/diag/gpu.rs`: known-ID names incl. QEMU stdvga 0x1234:0x1111, Cirrus GD5446 0x1013:0x00B8, AMD RX 500/5000/6000, each memory BAR mapped through PHYS_OFFSET and read once, 256 MiB cap, 64-bit BARs) and the `rescue` profile now selects it. The boot prints `  gpu: 00:02.0 1234:1111 QEMU stdvga [display] ss=1af4:1100` + `  gpu: bar0 0x80000000 size 16M (mapped ro)` + `  gpu: pcie n/a (no PCIe capability)` + `  gpu: pci display devices found: 1` + `  gpu: thermal unavailable (no ACPI TZ)`; the shell `gpu` command re-prints the same block. ACPI walks FADT->DSDT and scans `_TZ_` (hook presence only; `acpi: … dsdt=true tz=false` on QEMU). `tools/smoke-gpu.sh` PASS twice (std BAR0 16M, cirrus BAR0 32M, virtio 16K 64-bit BAR above 4 GiB mapped ro, each with identity/BAR asserts, `pcie n/a`, no TZ and the shell reprint). `smoke.sh` phases 1 and 8 PASS with the GPU assertions (`shell: autorun 10 command(s)`); under the host's LLVM-build load the two full-suite runs timed out in the unrelated phases 7 and 9, which pass on individual reruns with longer budgets (as do 10, the keyboard phase and the 11-13 SMM sequence). `smoke-config.sh` PASS (minimal has no `gpu` token, rescue links it; net stays graphics-free); `smoke-bios.sh` 2/2. Builds zero warnings: x86_64 minimal/rescue/net/tls, riscv64, i686, aarch64. QEMU-only acceptance per owner decision: QEMU display models expose no PCIe capability and its DSDT has no thermal zone, so the real AMD RX 500/6000 `pcie link`/thermal capture stays the OPERATIONS §5.1 manual follow-up | PASS |
 | 2026-09 | M12-4/M12-5 NTFS read-only (working tree): `CONFIG_NTFS` gates `kernel-core/src/vfs/ntfs/` (boot/BPB + `$MFT` bootstrap, FILE records with fixups, attributes/runlists with sparse zero-fill, `$I30` INDEX_ROOT + INDEX_ALLOCATION walk, `$DATA` reads with a 2 x 4 KiB cache) and the read-only `/mnt/win0` mount; `tools/mkntfs.py` hand-builds a deterministic fixture (validated by ntfs-3g `ntfsls`/`ntfscat`) with a 3-run fragmented file, a non-ASCII name and one corrupt FILE record. `tools/smoke-ntfs.sh` PASS: `ntfs: mounted ro — label 'FANTUANNTFS', 4096 clusters of 4096 B, MFT record 1024 B at LCN 4` + `ntfs: mounted ro at /mnt/win0 (part 2)` + probe `part 2: NTFS (mounted ro)`; root/Users listing equality; kernel SHA-256 of hello.txt (`eb399ef1…`), frag.bin (`2800da22…`, 3 runs, truncated dump), résumé.txt and alice.txt equal to the host fixture hashes; `cat: NTFS: record corrupt (update sequence mismatch)` for the broken record; userland bash `ls`/`cat` over `/mnt/win0` work and `echo x > /mnt/win0/new.txt` returns `Read-only file system`; `cmp` of the rebuilt image shows the volume byte-identical after the run. Regressions: `smoke.sh` 13/13, `smoke-bios.sh` 2/2, `smoke-config.sh` PASS (minimal NTFS-free), `smoke-imager.sh` PASS, `smoke-imager-bad.sh` PASS; x86_64 minimal/rescue/net/tls, riscv64, i686, aarch64 builds zero warnings. No real Windows 10 image is available on this host, so the optional Win10 `Windows/System32` check stays an OPERATIONS manual path | PASS |
@@ -660,8 +661,18 @@ mmap, `/bin` enumeration; bash is P3.
 
 ## Next action
 
-**M13 V-a** (M12 released as 0.0.4): `fb_info` + blit/fill/damage core with
-the GOP console refactored on top (`docs/M13_GRAPHICS.md` §2, §7 M13-1).
+**M13 V-b** (V-a landed): the double buffer + present (M13-2). V-a landed the
+`kernel-core::graphics` core (`FbInfo` + fill/fill_xor/blit/copy_rect/
+blit_glyph, a bounded coalescing `Damage` list and the `Present` trait with
+`DirectPresent`) gated by `CONFIG_GRAPHICS`, and refactored both consoles
+(the x86_64 GOP console and the i686 VBE console) onto it: font = blit_glyph,
+clear/scroll = fill/copy_rect, cursor = fill_xor, damage marked and a
+single-buffered present per character. The GOP console (and its embedded
+font) is now itself `CONFIG_GRAPHICS`-gated, so the minimal/net profiles are
+graphics-free. `tools/smoke-graphics.sh` covers the non-blank screendumps
+(GOP + VBE) and the i686 serial parity. V-b adds the off-screen buffer +
+`BufferedPresent` (swap the `&'static dyn Present` in the console state; no
+console change) and the kernel demo app (docs/M13_GRAPHICS.md §2.2).
 M12 shipped and is verified by its gates: the disk imager
 (`tools/smoke-imager.sh`), the bad-sector policy (`tools/smoke-imager-bad.sh`),
 read-only NTFS with `/mnt/win0` (`tools/smoke-ntfs.sh`) and the report-only

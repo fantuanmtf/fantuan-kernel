@@ -8,8 +8,10 @@ pub const COM1: u16 = 0x3F8;
 /// Optional framebuffer mirror (M10-5); set once the console is up. Every
 /// byte written to COM1 is also handed to the sink, so the two channels stay
 /// in lockstep and the serial output is unchanged when no framebuffer exists.
+#[cfg(kconfig_graphics)]
 static mut MIRROR: Option<fn(u8)> = None;
 
+#[cfg(kconfig_graphics)]
 pub fn set_mirror(f: fn(u8)) {
     unsafe { core::ptr::addr_of_mut!(MIRROR).write(Some(f)) };
 }
@@ -27,9 +29,12 @@ pub fn init() {
 pub fn putc(c: u8) {
     while inb(COM1 + 5) & 0x20 == 0 {}
     outb(COM1, c);
-    let m = unsafe { core::ptr::addr_of!(MIRROR).read() };
-    if let Some(f) = m {
-        f(c);
+    #[cfg(kconfig_graphics)]
+    {
+        let m = unsafe { core::ptr::addr_of!(MIRROR).read() };
+        if let Some(f) = m {
+            f(c);
+        }
     }
 }
 

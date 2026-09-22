@@ -163,6 +163,18 @@ it. The probe is read-only (config-space reads plus the standard write-1s
 BAR sizing with the original value restored, and a bounded MMIO aperture
 read); the ACPI `_TZ_` scan is hook-presence only.
 
+Gated in M13-1: the same `CONFIG_GRAPHICS` symbol now also selects
+`kernel-core::graphics` (the `FbInfo`/fill/blit/damage/present core) and
+gates the x86_64 GOP console (`kernel/src/{console,font}.rs`) and the i686
+VBE console (`kernel-i686/src/fb.rs`) that sit on top of it, plus the
+console mirror in the serial driver. The `minimal` and `net` profiles stay
+graphics-free: with `CONFIG_GRAPHICS=n` the x86_64 kernel prints
+`console: none (serial-only; GOP unavailable)`, the i686 kernel prints
+`fb: unavailable (serial console)` and neither links the framebuffer core,
+the console or the font (riscv/aarch64 are serial-only as before). The
+`rescue` profile (and `smoke.sh`, which flips `GRAPHICS=Y`) keeps the full
+framebuffer console and the boot `graphics: damage self-test ok` line.
+
 ## Implemented in C5 (2026-09)
 
 The default `minimal` profile is now the Live boot set only: SHELL (plus the

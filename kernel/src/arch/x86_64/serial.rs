@@ -110,6 +110,7 @@ impl Serial {
             outb(self.port, c);
         }
         if MIRROR.load(Ordering::Relaxed) {
+            #[cfg(kconfig_graphics)]
             crate::console::global_putc(c);
         }
     }

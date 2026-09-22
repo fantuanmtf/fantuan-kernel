@@ -17,6 +17,7 @@ use fantuan_abi::{BootInfo, BOOT_MAGIC, BOOT_VERSION, PHYS_OFFSET};
 
 mod ata;
 mod cpu;
+#[cfg(kconfig_graphics)]
 mod fb;
 mod idt;
 mod pic;
@@ -75,6 +76,7 @@ fn kmain(bi: *const BootInfo) -> ! {
     let bi = unsafe { &*bi };
     // M10-5: bring the VBE console up first and mirror serial to it, so the
     // banner and every milestone below are visible on both channels.
+    #[cfg(kconfig_graphics)]
     if fb::init(bi) {
         serial::set_mirror(fb::putc);
     }

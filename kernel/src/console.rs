@@ -1,38 +1,41 @@
-//! GOP framebuffer console with the embedded Spleen 8x16 font.
+//! GOP framebuffer console (M13-1): character rendering through the shared
+//! graphics core (font = blit_glyph, clear/scroll = fill/copy_rect, cursor =
+//! XOR fill), with damage marked and a single-buffered present. The surface
+//! IS the scanout, so `present` clears the damage list; a double-buffered
+//! present replaces it in M13-2.
 //!
 //! v1 policy (DESIGN.md §3): ASCII only, channel-symmetric colors only — the
 //! same 32-bit value renders identically in RGB8 and BGR8, so no pixel-format
 //! branching is needed for the M0 palette.
-//!
-//! M8.5b: the console lives in one global state. `Console::new` initializes
-//! it; the facade methods, the fmt::Write impl and the serial mirror
-//! (`serial::enable_mirror` -> global_putc) all write through the same
-//! cursor, so shell output is visible on the GOP even without a serial port.
 
 use core::fmt;
 
-use crate::font::FONT_8X16;
 use fantuan_abi::FrameBuffer;
+use kernel_core::graphics::{Damage, DirectPresent, FbInfo, Format, Present, Rect};
+
+use crate::font::FONT_8X16;
 
 const GLYPH_W: u32 = 8;
 const GLYPH_H: u32 = 16;
+const CURSOR_H: u32 = 2;
 const FG: u32 = 0x00D8_D8_D8; // light gray, symmetric in RGB/BGR
 const BG: u32 = 0x0000_0000;
 
+static DIRECT: DirectPresent = DirectPresent;
+
 struct State {
-    base: *mut u32,
-    stride: u32, // pixels per scanline
+    fb: FbInfo,
+    damage: Damage,
+    present: &'static dyn Present,
     cols: u32,
     rows: u32,
     row: u32,
     col: u32,
+    cursor: bool,
 }
 
 static mut STATE: Option<State> = None;
 
-/// The console handle. `new` validates the framebuffer and initializes the
-/// single global console; a returned handle is only a marker (all state is
-/// global so the serial mirror can share the cursor).
 pub struct Console;
 
 fn state() -> Option<&'static mut State> {
@@ -44,37 +47,36 @@ impl Console {
         if fb.size == 0 || fb.base == 0 || fb.width < GLYPH_W || fb.height < GLYPH_H {
             return None;
         }
-        // The backing store must cover every pixel we address; a QEMU or
-        // firmware bug that reports a short buffer must not turn into wild
-        // writes. 32 bpp only.
         let needed = (fb.stride as u64).checked_mul(fb.height as u64)?.checked_mul(4)?;
         if fb.size < needed {
             return None;
         }
-        // v1 supports RGB8/BGR8 only (channel-symmetric colors); bit-mask
-        // formats need per-channel shifts and are rejected rather than
-        // rendered incorrectly.
-        match fb.format {
-            0 | 1 => {}
+        let format = match fb.format {
+            0 | 1 => Format::Bpp32,
             _ => return None,
-        }
+        };
+        let info = FbInfo {
+            base: crate::mm::paging::phys_to_virt(fb.base) as *mut u8,
+            width: fb.width,
+            height: fb.height,
+            pitch: fb.stride * 4,
+            format,
+        };
         unsafe {
             *core::ptr::addr_of_mut!(STATE) = Some(State {
-                // Access the framebuffer through the PHYS_OFFSET alias, not
-                // the identity-mapped physical address: the alias exists in
-                // every address space (user tasks clone PML4 entry 256),
-                // while the identity map does not. With the serial mirror
-                // (M8.5b), a user task's sys_write can reach this code.
-                base: crate::mm::paging::phys_to_virt(fb.base) as *mut u32,
-                stride: fb.stride,
+                fb: info,
+                damage: Damage::new(),
+                present: &DIRECT,
                 cols: fb.width / GLYPH_W,
                 rows: fb.height / GLYPH_H,
                 row: 0,
                 col: 0,
+                cursor: false,
             });
         }
         if let Some(st) = state() {
             state_clear(st);
+            state_present(st);
         }
         Some(Console)
     }
@@ -98,52 +100,40 @@ impl fmt::Write for Console {
     }
 }
 
-// --- state operations ------------------------------------------------------
-
-fn state_height(st: &State) -> u32 {
-    st.rows * GLYPH_H
+fn state_present(st: &mut State) {
+    st.present.present(&st.fb, &mut st.damage);
 }
 
-fn state_put_pixel(st: &mut State, x: u32, y: u32, color: u32) {
-    unsafe {
-        *st.base.add((y * st.stride + x) as usize) = color;
+fn state_cursor(st: &mut State, on: bool) {
+    if st.cursor == on {
+        return;
     }
-}
-
-fn state_draw_glyph(st: &mut State, c: u8) {
-    let bits = &FONT_8X16[c as usize];
-    let x0 = st.col * GLYPH_W;
-    let y0 = st.row * GLYPH_H;
-    for (y, row) in bits.iter().enumerate() {
-        for x in 0..8u32 {
-            let on = (row >> (7 - x)) & 1 == 1; // MSB = leftmost pixel
-            state_put_pixel(st, x0 + x, y0 + y as u32, if on { FG } else { BG });
-        }
+    st.cursor = on;
+    let x = st.col * GLYPH_W;
+    let y = st.row * GLYPH_H + (GLYPH_H - CURSOR_H);
+    if let Some(c) = st.fb.fill_xor(Rect::new(x, y, GLYPH_W, CURSOR_H), FG) {
+        st.damage.add(c);
     }
 }
 
 fn state_clear(st: &mut State) {
-    let n = (st.stride * state_height(st)) as usize;
-    unsafe {
-        for i in 0..n {
-            *st.base.add(i) = BG;
-        }
+    if let Some(c) = st.fb.fill(Rect::new(0, 0, st.fb.width, st.fb.height), BG) {
+        st.damage.add(c);
     }
     st.row = 0;
     st.col = 0;
+    st.cursor = false;
 }
 
 fn state_scroll(st: &mut State) {
-    let line = GLYPH_H * st.stride;
-    let total = (st.stride * state_height(st)) as usize;
-    unsafe {
-        let base = st.base;
-        for i in 0..(total - line as usize) {
-            *base.add(i) = *base.add(i + line as usize);
-        }
-        for i in (total - line as usize)..total {
-            *base.add(i) = BG;
-        }
+    let w = st.fb.width;
+    let h = st.fb.height;
+    let line = GLYPH_H;
+    if let Some(c) = st.fb.copy_rect(Rect::new(0, line, w, h - line), Rect::new(0, 0, w, h - line)) {
+        st.damage.add(c);
+    }
+    if let Some(c) = st.fb.fill(Rect::new(0, h - line, w, line), BG) {
+        st.damage.add(c);
     }
     st.row -= 1;
 }
@@ -156,7 +146,21 @@ fn state_newline(st: &mut State) {
     }
 }
 
+fn state_draw_glyph(st: &mut State, c: u8) {
+    let x = st.col * GLYPH_W;
+    let y = st.row * GLYPH_H;
+    if let Some(r) = st.fb.blit_glyph(
+        Rect::new(x, y, GLYPH_W, GLYPH_H),
+        &FONT_8X16[c as usize],
+        FG,
+        BG,
+    ) {
+        st.damage.add(r);
+    }
+}
+
 fn state_putc(st: &mut State, c: u8) {
+    state_cursor(st, false);
     match c {
         b'\n' => state_newline(st),
         b'\r' => st.col = 0,
@@ -174,4 +178,6 @@ fn state_putc(st: &mut State, c: u8) {
         }
         _ => {}
     }
+    state_cursor(st, true);
+    state_present(st);
 }

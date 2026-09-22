@@ -28,6 +28,43 @@ A stable, documented platform surface for GUI software:
 - Formats: start with the GOP `Bgrx8888`/`Bgra8888` set plus 16-bit
   fallback; conversion helpers for XRGB/BGR.
 
+### 2.1 Implemented in M13-1 (V-a)
+
+The core landed as `kernel-core::graphics` (gated by `CONFIG_GRAPHICS`,
+`no_std`, platform-neutral, no allocation, assert-free):
+
+- `FbInfo { base, width, height, pitch, format }` — `base` is a
+  kernel-visible address (each kernel supplies it: GOP via `phys_to_virt`,
+  VBE via the `0xBFC00000` PSE slot); `pitch` is bytes per scanline;
+  `format` is `Bpp32 | Bpp24 | Bpp16` (the three modes the consoles render).
+  `Format::{store,load,xor}` centralise the per-bpp 0x00RRGGBB conversion.
+- `Rect { x, y, w, h }` with `intersect`/`union` (the hard-clip primitive).
+- `FbInfo::{fill, fill_xor, blit, copy_rect, blit_glyph}` — each hard-clips
+  to the surface and returns the clipped `Rect` actually drawn (`None` when
+  it clips to nothing). `fill` = solid rect, `fill_xor` = cursor overlay,
+  `blit` = raw same-format source pixels with a source pitch, `copy_rect` =
+  overlap-safe (memmove) move for scrolling, `blit_glyph` = an 8x16 1bpp
+  font blit (the "font blitting = blit" path).
+- `Damage` — a bounded (16-entry) dirty-rect list with overlap coalescing; a
+  full list merges into the entry whose union grows least, so the dirty
+  region stays fully covered. `rects()`/`clear()` are the flush/clear seam.
+- `Present` trait + `DirectPresent` — the scanout seam. Single-buffered, the
+  render surface IS the device, so `DirectPresent` just clears the damage
+  list. Both consoles mark damage after every operation and call `present`
+  per character.
+
+### 2.2 Extension points (frozen for M13-2 / M13-4)
+
+- **M13-2 double buffer**: allocate an off-screen `FbInfo` from the frame
+  allocator, point the console at it, and replace `DirectPresent` with a
+  `BufferedPresent` that copies each damaged rect from the off-screen
+  surface to the device `FbInfo` and then clears the list. No console change
+  is needed beyond swapping the `&'static dyn Present` in the console state.
+- **M13-4 dumb buffers / ADDFB**: `FbInfo::blit` (raw same-format source +
+  source pitch) is the primitive a userspace dumb buffer maps to; `Format`
+  and `Rect` are the values `DRM_IOCTL_MODE_ADDFB` carries into the KMS
+  contract of §4. New formats are additive enum variants.
+
 ## 3. Input event API (kernel)
 
 - `struct input_event { type, code, value }` (Linux evdev-compatible names
@@ -90,7 +127,7 @@ numbers/structs where they are stable enough to copy field-for-field:
 
 | Step | Deliverable |
 |---|---|
-| M13-1 | `fb_info` + blit/fill/damage core; GOP console refactored onto it |
+| M13-1 | `fb_info` + blit/fill/damage core; GOP console refactored onto it | landed (V-a) |
 | M13-2 | Double buffer + present; demo app (kernel task) |
 | M13-3 | Input event ring + PS/2 mouse; console + demo consumers |
 | M13-4 | Dumb-buffer objects, ADDFB/SETCRTC/PAGE_FLIP semantics + events |
@@ -100,6 +137,11 @@ numbers/structs where they are stable enough to copy field-for-field:
 
 ## 8. Verification
 
+- `tools/smoke-graphics.sh` (M13-1): boots the x86_64 UEFI image with
+  `-vga std` and the i686 VBE image, takes headless screendumps and asserts
+  non-blank pixel statistics, the in-kernel `graphics: damage self-test ok`
+  and the i686 serial parity (identical to `-vga none` after the `fb:`
+  header lines).
 - Demo smoke: two GOP screendumps differ while the demo runs; damage
   accounting covers every changed pixel (checked in a test mode).
 - Input: injected PS/2 events (existing QEMU monitor path) reach the ring

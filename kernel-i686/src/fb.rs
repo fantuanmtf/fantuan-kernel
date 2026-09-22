@@ -1,4 +1,7 @@
-//! VBE linear-framebuffer text console (M10-5).
+//! VBE linear-framebuffer text console (M10-5, M13-1): character rendering
+//! through the shared graphics core (font = blit_glyph, clear/scroll =
+//! fill/copy_rect, cursor = XOR fill) with damage marked and a
+//! single-buffered present.
 //!
 //! stage2 sets one VBE linear mode and leaves the geometry, the LFB physical
 //! base and a BIOS-copied 8x16 font in BootInfo. The kernel reaches the LFB
@@ -12,6 +15,7 @@
 use core::ptr;
 
 use fantuan_abi::BootInfo;
+use kernel_core::graphics::{Damage, DirectPresent, FbInfo, Format, Present, Rect};
 
 use crate::serial;
 
@@ -23,16 +27,18 @@ const CURSOR_H: u32 = 2;
 const FG: u32 = 0x00D8_D8_D8;
 const BG: u32 = 0x0000_0000;
 
+static DIRECT: DirectPresent = DirectPresent;
+
 struct State {
-    base: *mut u8,
-    pitch: u32,
-    height: u32,
-    bpp: u32,
+    fb: FbInfo,
     font: *const u8,
+    damage: Damage,
+    present: &'static dyn Present,
     cols: u32,
     rows: u32,
     row: u32,
     col: u32,
+    cursor: bool,
 }
 
 static mut STATE: Option<State> = None;
@@ -61,24 +67,37 @@ pub fn init(bi: &BootInfo) -> bool {
         serial::puts("fb: unavailable (serial console)\n");
         return false;
     }
+    let format = match bpp {
+        32 => Format::Bpp32,
+        24 => Format::Bpp24,
+        _ => Format::Bpp16,
+    };
     let base = (FB_SLOT + (bi.fb_phys as u32 & 0x3F_FFFF)) as *mut u8;
     let font = crate::phys_to_virt(bi.fb_font_phys as u64) as *const u8;
     unsafe {
         *ptr::addr_of_mut!(STATE) = Some(State {
-            base,
-            pitch,
-            height,
-            bpp,
+            fb: FbInfo {
+                base,
+                width,
+                height,
+                pitch,
+                format,
+            },
             font,
+            damage: Damage::new(),
+            present: &DIRECT,
             cols: width / GLYPH_W,
             rows: height / GLYPH_H,
             row: 0,
             col: 0,
+            cursor: false,
         });
     }
     if let Some(st) = state() {
         clear(st);
-        cursor_toggle(st);
+        present(st);
+        cursor_toggle(st, true);
+        present(st);
     }
     serial::puts("fb: ");
     serial::put_dec(width as u64);
@@ -120,10 +139,7 @@ pub fn putc(c: u8) {
     let Some(st) = state() else {
         return;
     };
-    // The cursor is an XOR overlay, so toggling it off restores whatever was
-    // underneath (a glyph drawn earlier, or blank); toggling again draws it at
-    // the new position without destructive erasing.
-    cursor_toggle(st);
+    cursor_toggle(st, false);
     match c {
         b'\n' => {
             st.col = 0;
@@ -145,7 +161,12 @@ pub fn putc(c: u8) {
         }
         _ => {}
     }
-    cursor_toggle(st);
+    cursor_toggle(st, true);
+    present(st);
+}
+
+fn present(st: &mut State) {
+    st.present.present(&st.fb, &mut st.damage);
 }
 
 fn newline(st: &mut State) {
@@ -155,84 +176,44 @@ fn newline(st: &mut State) {
     }
 }
 
-fn put_pixel(st: &State, x: u32, y: u32, color: u32) {
-    let off = y * st.pitch + x * st.bpp / 8;
-    unsafe {
-        let p = st.base.add(off as usize);
-        match st.bpp {
-            32 => (p as *mut u32).write_volatile(color),
-            24 => {
-                p.write((color & 0xFF) as u8);
-                p.add(1).write(((color >> 8) & 0xFF) as u8);
-                p.add(2).write(((color >> 16) & 0xFF) as u8);
-            }
-            16 => {
-                let v = (((color >> 19) & 0x1F) << 11)
-                    | (((color >> 10) & 0x3F) << 5)
-                    | ((color >> 3) & 0x1F);
-                (p as *mut u16).write_volatile(v as u16);
-            }
-            _ => {}
-        }
+fn draw_glyph(st: &mut State, c: u8) {
+    let glyph: &[u8; 16] =
+        unsafe { &*(st.font.add(c as usize * GLYPH_H as usize) as *const [u8; 16]) };
+    let x = st.col * GLYPH_W;
+    let y = st.row * GLYPH_H;
+    if let Some(r) = st.fb.blit_glyph(Rect::new(x, y, GLYPH_W, GLYPH_H), glyph, FG, BG) {
+        st.damage.add(r);
     }
 }
 
-fn draw_glyph(st: &State, c: u8) {
-    let glyph = unsafe { st.font.add(c as usize * GLYPH_H as usize) };
-    let x0 = st.col * GLYPH_W;
-    let y0 = st.row * GLYPH_H;
-    for y in 0..GLYPH_H {
-        let bits = unsafe { glyph.add(y as usize).read() };
-        for x in 0..GLYPH_W {
-            let on = (bits >> (7 - x)) & 1 == 1;
-            put_pixel(st, x0 + x, y0 + y, if on { FG } else { BG });
-        }
+fn cursor_toggle(st: &mut State, on: bool) {
+    if st.cursor == on {
+        return;
+    }
+    st.cursor = on;
+    let x = st.col * GLYPH_W;
+    let y = st.row * GLYPH_H + (GLYPH_H - CURSOR_H);
+    if let Some(c) = st.fb.fill_xor(Rect::new(x, y, GLYPH_W, CURSOR_H), FG) {
+        st.damage.add(c);
     }
 }
 
-fn toggle_pixel(st: &State, x: u32, y: u32, color: u32) {
-    let off = y * st.pitch + x * st.bpp / 8;
-    unsafe {
-        let p = st.base.add(off as usize);
-        match st.bpp {
-            32 => (p as *mut u32).write_volatile((p as *mut u32).read_volatile() ^ color),
-            24 => {
-                p.write(p.read() ^ (color & 0xFF) as u8);
-                p.add(1).write(p.add(1).read() ^ ((color >> 8) & 0xFF) as u8);
-                p.add(2).write(p.add(2).read() ^ ((color >> 16) & 0xFF) as u8);
-            }
-            16 => {
-                let v = (((color >> 19) & 0x1F) << 11)
-                    | (((color >> 10) & 0x3F) << 5)
-                    | ((color >> 3) & 0x1F);
-                (p as *mut u16).write_volatile((p as *mut u16).read_volatile() ^ v as u16);
-            }
-            _ => {}
-        }
+fn clear(st: &mut State) {
+    if let Some(c) = st.fb.fill(Rect::new(0, 0, st.fb.width, st.fb.height), BG) {
+        st.damage.add(c);
     }
-}
-
-fn cursor_toggle(st: &State) {
-    let x0 = st.col * GLYPH_W;
-    let y0 = st.row * GLYPH_H;
-    for y in (GLYPH_H - CURSOR_H)..GLYPH_H {
-        for x in 0..GLYPH_W {
-            toggle_pixel(st, x0 + x, y0 + y, FG);
-        }
-    }
-}
-
-fn clear(st: &State) {
-    let total = st.pitch as usize * st.height as usize;
-    unsafe { ptr::write_bytes(st.base, 0, total) };
+    st.cursor = false;
 }
 
 fn scroll(st: &mut State) {
-    let line = GLYPH_H * st.pitch;
-    let total = st.height * st.pitch;
-    unsafe {
-        ptr::copy(st.base.add(line as usize), st.base, total as usize - line as usize);
-        ptr::write_bytes(st.base.add((total - line) as usize), 0, line as usize);
+    let w = st.fb.width;
+    let h = st.fb.height;
+    let line = GLYPH_H;
+    if let Some(c) = st.fb.copy_rect(Rect::new(0, line, w, h - line), Rect::new(0, 0, w, h - line)) {
+        st.damage.add(c);
+    }
+    if let Some(c) = st.fb.fill(Rect::new(0, h - line, w, line), BG) {
+        st.damage.add(c);
     }
     st.row -= 1;
 }

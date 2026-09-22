@@ -32,12 +32,14 @@ mod arch;
 #[cfg(kconfig_rescue_repair)]
 mod bootrepair;
 mod bootlog;
+#[cfg(kconfig_graphics)]
 mod console;
 mod consts;
 mod crypto;
 mod demo;
 mod diag;
 mod drivers;
+#[cfg(kconfig_graphics)]
 mod font;
 mod input;
 mod kbd;
@@ -127,13 +129,25 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         "framebuffer: base={:#x} size={:#x} {}x{} stride={} format={}",
         fb.base, fb.size, fb.width, fb.height, fb.stride, fb.format
     );
+    #[cfg(kconfig_graphics)]
     let mut con = console::Console::new(fb);
+    #[cfg(kconfig_graphics)]
     if let Some(c) = con.as_mut() {
         let _ = writeln!(c, "fantuan v0.0.4");
         let _ = writeln!(c, "handshake ok: magic={:#x} version={}", bi.magic, bi.version);
         let _ = writeln!(c, "console: GOP framebuffer {}x{}", fb.width, fb.height);
     } else {
         let _ = writeln!(s, "console: none (serial-only; GOP unavailable)");
+    }
+    #[cfg(not(kconfig_graphics))]
+    let _ = writeln!(s, "console: none (serial-only; GOP unavailable)");
+
+    // M13-1: the framebuffer core self-test (pure logic, no drawing).
+    #[cfg(kconfig_graphics)]
+    if kernel_core::graphics::selftest() {
+        let _ = writeln!(s, "graphics: damage self-test ok");
+    } else {
+        let _ = writeln!(s, "graphics: damage self-test FAILED");
     }
 
     // --- M1: interrupt machinery -----------------------------------------
@@ -333,6 +347,7 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
 
     // --- §10 Minimal shell -------------------------------------------------
     // M8.5b: mirror serial to the GOP so the shell works without a serial port.
+    #[cfg(kconfig_graphics)]
     if con.is_some() {
         serial::enable_mirror();
         let _ = writeln!(s, "console: serial output mirrored to GOP (keyboard + display)");

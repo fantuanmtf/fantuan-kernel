@@ -16,6 +16,8 @@ pub mod diag;
 pub mod drv;
 pub mod elf;
 pub mod frame;
+#[cfg(kconfig_graphics)]
+pub mod graphics;
 pub mod heartbeat;
 #[cfg(kconfig_imager)]
 pub mod imager;
