@@ -28,6 +28,7 @@ All repository artifacts are in English. The authoritative design lives in
 |---|---|
 | [docs/USAGE.md](docs/USAGE.md) | Live operators: booting, the shell, profiles, rescue workflows, support matrix |
 | [docs/APPS.md](docs/APPS.md) | app/package authors: branch model, vendoring, manifests, licensing |
+| [docs/CLAUDE_CODE.md](docs/CLAUDE_CODE.md) | dispatch Claude Code as a subagent (headless wrapper, model routing) |
 | [docs/BUILD.md](docs/BUILD.md) | building from source: toolchains, all three arches, disk fixtures |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | the smoke suites, the boot/test matrix, `run.sh` flags, troubleshooting |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | conventions, extension recipes, testing, debugging |
