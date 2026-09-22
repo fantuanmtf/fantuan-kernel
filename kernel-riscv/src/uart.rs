@@ -20,7 +20,7 @@ pub const LOGO: &str = concat!(
     "| |_ / _` | '  \\| __| | | |/ _` | '  \\\n",
     "|  _| (_| | | | | |_| |_| | (_| | | | |\n",
     "|_|  \\__,_|_| |_|\\__|\\__,_|\\__,_|_| |_|\n",
-    "  fantuan v0.0.3 - fantuan-is-mtf\n",
+    "  fantuan v0.0.4 - fantuan-is-mtf\n",
 );
 
 /// Non-blocking byte read (LSR bit 0 = data ready, RBR at offset 0).

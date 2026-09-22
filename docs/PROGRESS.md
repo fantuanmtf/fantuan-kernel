@@ -12,14 +12,14 @@
 | v0.0.1 | M0-M9 (x86_64 rescue + RISC-V port) | `[##########] 100%` | tag `v0.0.1` (local) |
 | v0.0.2 | M10 legacy BIOS boot + i686 | `[##########] 100%` | released as 0.0.2: `smoke.sh` 13/13, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3, `smoke-iso.sh` 2/2 |
 | v0.0.3 | M11 ARM64 + full TCP/HTTPS | `[##########] 100%` | released as 0.0.3: R1-R8 verified; C5 minimal/tools/bash-prep; R9a direct-FDT boot + R9b virtio-net/TLS (`smoke-aarch64.sh` 2/2), `smoke-net.sh` PASS, `smoke-config.sh` PASS, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3; aarch64 UEFI/AAVMF deferred to M14 |
-| v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[##########] 100%` | M12-1..M12-7 verified (M12-6 QEMU-only per owner decision; the real AMD link/thermal capture is a manual follow-up) |
+| v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[##########] 100%` | released as 0.0.4: M12-1..M12-7 verified (M12-6 QEMU-only per owner decision; the real AMD link/thermal capture is a manual follow-up) |
 | v0.0.5 | M13 graphics/input + interface freeze | `[#---------] 10%` | design only |
 | v0.1.0 | M14 Linux userspace + bootstrap + hypervisor V2 | `[####------] 30%` | P3 bash 5.3 runs, `sh` is bash (working tree): `tools/smoke-bash.sh` PASS, `tools/smoke-dash.sh` PASS (dash selectable); P1 `tools/smoke-posix.sh` PASS |
 | v0.1.5 | M15 desktop + isolation + MinGW | `[----------] 0%` | - |
 | v0.5.0/1.0.0 | M16 finalize | `[----------] 0%` | - |
 
-To v0.0.5: roughly **35%** (M10 and M11 are released; M12-M13 have
-their designs done).
+To v0.0.5: roughly **55%** (M10, M11 and M12 are released; M13 has its
+design done).
 
 ## v0.0.2 - M10 (BIOS boot + i686)
 
@@ -380,6 +380,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | M12 released as 0.0.4: disk imager (`clone` + `--continue` bad-sector policy and report), read-only NTFS (`/mnt/win0`), the read-only AMD/PCI GPU report (QEMU-only acceptance) and virtualization V1 detection. `tools/smoke-imager.sh` PASS, `tools/smoke-imager-bad.sh` PASS, `tools/smoke-ntfs.sh` PASS, `tools/smoke-gpu.sh` PASS, `tools/smoke-config.sh` PASS, `tools/smoke-bios.sh` 2/2; x86_64 minimal/rescue/net/tls, riscv64, i686 and aarch64 builds zero warnings; workspace/banners/locks/docs at 0.0.4 | PASS |
 | 2026-09 | M12-6 GPU/PCI report (working tree): `CONFIG_GRAPHICS` gates the read-only probe (`kernel/src/arch/x86_64/pci_probe.rs`: subsystem IDs, bounded capability walk, write-1s BAR sizing with restore, PCIe Link Capabilities/Status; `kernel/src/diag/gpu.rs`: known-ID names incl. QEMU stdvga 0x1234:0x1111, Cirrus GD5446 0x1013:0x00B8, AMD RX 500/5000/6000, each memory BAR mapped through PHYS_OFFSET and read once, 256 MiB cap, 64-bit BARs) and the `rescue` profile now selects it. The boot prints `  gpu: 00:02.0 1234:1111 QEMU stdvga [display] ss=1af4:1100` + `  gpu: bar0 0x80000000 size 16M (mapped ro)` + `  gpu: pcie n/a (no PCIe capability)` + `  gpu: pci display devices found: 1` + `  gpu: thermal unavailable (no ACPI TZ)`; the shell `gpu` command re-prints the same block. ACPI walks FADT->DSDT and scans `_TZ_` (hook presence only; `acpi: … dsdt=true tz=false` on QEMU). `tools/smoke-gpu.sh` PASS twice (std BAR0 16M, cirrus BAR0 32M, virtio 16K 64-bit BAR above 4 GiB mapped ro, each with identity/BAR asserts, `pcie n/a`, no TZ and the shell reprint). `smoke.sh` phases 1 and 8 PASS with the GPU assertions (`shell: autorun 10 command(s)`); under the host's LLVM-build load the two full-suite runs timed out in the unrelated phases 7 and 9, which pass on individual reruns with longer budgets (as do 10, the keyboard phase and the 11-13 SMM sequence). `smoke-config.sh` PASS (minimal has no `gpu` token, rescue links it; net stays graphics-free); `smoke-bios.sh` 2/2. Builds zero warnings: x86_64 minimal/rescue/net/tls, riscv64, i686, aarch64. QEMU-only acceptance per owner decision: QEMU display models expose no PCIe capability and its DSDT has no thermal zone, so the real AMD RX 500/6000 `pcie link`/thermal capture stays the OPERATIONS §5.1 manual follow-up | PASS |
 | 2026-09 | M12-4/M12-5 NTFS read-only (working tree): `CONFIG_NTFS` gates `kernel-core/src/vfs/ntfs/` (boot/BPB + `$MFT` bootstrap, FILE records with fixups, attributes/runlists with sparse zero-fill, `$I30` INDEX_ROOT + INDEX_ALLOCATION walk, `$DATA` reads with a 2 x 4 KiB cache) and the read-only `/mnt/win0` mount; `tools/mkntfs.py` hand-builds a deterministic fixture (validated by ntfs-3g `ntfsls`/`ntfscat`) with a 3-run fragmented file, a non-ASCII name and one corrupt FILE record. `tools/smoke-ntfs.sh` PASS: `ntfs: mounted ro — label 'FANTUANNTFS', 4096 clusters of 4096 B, MFT record 1024 B at LCN 4` + `ntfs: mounted ro at /mnt/win0 (part 2)` + probe `part 2: NTFS (mounted ro)`; root/Users listing equality; kernel SHA-256 of hello.txt (`eb399ef1…`), frag.bin (`2800da22…`, 3 runs, truncated dump), résumé.txt and alice.txt equal to the host fixture hashes; `cat: NTFS: record corrupt (update sequence mismatch)` for the broken record; userland bash `ls`/`cat` over `/mnt/win0` work and `echo x > /mnt/win0/new.txt` returns `Read-only file system`; `cmp` of the rebuilt image shows the volume byte-identical after the run. Regressions: `smoke.sh` 13/13, `smoke-bios.sh` 2/2, `smoke-config.sh` PASS (minimal NTFS-free), `smoke-imager.sh` PASS, `smoke-imager-bad.sh` PASS; x86_64 minimal/rescue/net/tls, riscv64, i686, aarch64 builds zero warnings. No real Windows 10 image is available on this host, so the optional Win10 `Windows/System32` check stays an OPERATIONS manual path | PASS |
 | 2026-09 | M12-3 bad-sector policy + report (working tree): `clone --continue` retries, isolates per sector, zero-fills and records bad ranges; every copy run writes `/tmp/clone-report.txt` (tmpfs) and mirrors it to serial with `clone-report:` lines (source/destination, policy, full/quick verify, source/stream/destination SHA-256, `bad-range lba=… count=… errors=… retries=…`, totals, `verdict verified/partial/failed`); `--quick` samples the first/last 1 MiB + 1 MiB at 25/50/75%. Fixture: `tools/mkdisk.py --badclusters 100:4,700:2` writes the source + `.bad` sidecar and `tools/run.sh --imager-bad` injects each sector as a real blkdebug `read_aio` error (the AHCI path now kicks `PxCI` after a failure so retries and later sectors work). `tools/smoke-imager-bad.sh` PASS: default abort at LBA 100 (nothing written), `--continue` completes with the destination SHA-256 = the host pattern-with-bad-ranges-zeroed (`06741878…`), report `bad-ranges 2 / errors 6 / retries 18 / verdict partial`, quick run `verdict verified`. `tools/smoke-imager.sh` PASS, `tools/smoke-config.sh` PASS, `tools/smoke.sh` 13/13, `tools/smoke-bios.sh` 2/2; x86_64 minimal/imager/rescue/net/tls, riscv64, i686, aarch64 builds zero warnings | PASS |
@@ -659,37 +660,21 @@ mmap, `/bin` enumeration; bash is P3.
 
 ## Next action
 
-**M12 W-c** (M11 released as 0.0.3): the NTFS read path is complete —
-M12-4/M12-5 landed behind `CONFIG_NTFS` with the hand-built deterministic
-fixture (`tools/mkntfs.py`), `/mnt/win0`, `ls`/`cat`, the POSIX read-only
-view and `tools/smoke-ntfs.sh` PASS. The disk imager through the bad-sector
-policy (M12-2/M12-3) stays verified by `tools/smoke-imager.sh` and
-`tools/smoke-imager-bad.sh`. The remaining M12 step is **M12-6** (AMD GPU
-report: identity/BAR/link/thermal). The design is
-`docs/M12_TOOLS_HW.md` (§2a M12-2, §2b M12-3, §3a M12-4/M12-5).
-**P3 is landed in the working tree
-and verified** (`tools/smoke-bash.sh` PASS plus `tools/smoke-dash.sh`,
-`tools/smoke-posix.sh` and the regression smokes); bash 5.3 now builds
-against libc-fantuan and **`sh` is bash**: the `sh` command and
-`execve("/bin/sh")` resolve to the embedded bash, `/bin/dash` and the new
-`dash` command keep the P2 shell selectable, and the built-in shell stays
-the boot console/rescue fallback. The next POSIX step is **P4** - the
-musl vs libc-fantuan decision per `docs/POSIX_PLAN.md`, driven by its
-triggers (TLS/threads/in-system toolchain), not by the shell; M14-1
-(demand paging/COW/kernel heap) and M14-5..M14-7 remain as listed.
-M14-8 is closed: the spike reports 0/43 missing headers and 102/102
-probed symbols against libc-fantuan, and the bash artifact is
-byte-reproducible.
-M11-8 is closed: aarch64 direct FDT + virtio-net
-MMIO + TLS verified by `tools/smoke-aarch64.sh` (2 phases), the x86_64
-offline gate by `tools/smoke-net.sh`. The aarch64 UEFI/AAVMF path is
-deferred to M14 with the loader-port reason recorded in `M11_PLAN.md`; the
-direct-FDT path is the supported aarch64 boot for 0.0.3. riscv/i686 stay
-without `kernel-net` (documented). bash now builds and runs against
-libc-fantuan (P3), so the remaining GPL-provision item is the in-image
-`/usr/src/bash` sources bundle at image assembly; the manifest keeps
-`requires = ["posix-libc"]` until `app_manifest.AVAILABLE_REQUIRES`
-advertises the layer (M14-4/menu decision). Stop after each batch so the
-owner can push.
+**M13 V-a** (M12 released as 0.0.4): `fb_info` + blit/fill/damage core with
+the GOP console refactored on top (`docs/M13_GRAPHICS.md` §2, §7 M13-1).
+M12 shipped and is verified by its gates: the disk imager
+(`tools/smoke-imager.sh`), the bad-sector policy (`tools/smoke-imager-bad.sh`),
+read-only NTFS with `/mnt/win0` (`tools/smoke-ntfs.sh`) and the report-only
+GPU/PCI probe (`tools/smoke-gpu.sh`, QEMU-only acceptance; the real AMD
+RX 500/6000 link/thermal capture is the OPERATIONS §5.1 manual follow-up).
+**P3 is landed in the working tree and verified** (`tools/smoke-bash.sh`
+PASS plus `tools/smoke-dash.sh`, `tools/smoke-posix.sh` and the regression
+smokes); the next POSIX step is **P4** — the musl vs libc-fantuan decision
+per `docs/POSIX_PLAN.md`, driven by its triggers (TLS/threads/in-system
+toolchain), not by the shell. M14-1 (demand paging/COW/kernel heap) and
+M14-5..M14-7 remain as listed; M14-8 (bash as the default `sh`) is closed.
+The aarch64 UEFI/AAVMF path stays deferred to M14 (loader-port reason in
+`M11_PLAN.md`); the direct-FDT path is the supported aarch64 boot. Stop
+after each batch so the owner can push.
 Housekeeping: hunt the intermittent riscv `uart::log_bytes` fault and the
 i686 PIO ATA polling-to-IRQ conversion when the i686 shell work needs it.

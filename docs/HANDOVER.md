@@ -18,32 +18,35 @@ as product: the same portable core now runs on two architectures.
 - **Primary target**: x86_64 UEFI Live kernel (the product).
 - **Second target**: riscv64 under OpenSBI on QEMU `virt` (portability
   proof of the arch split, not a hardware-support claim).
-- **v0.0.3 adds**: the NetBSD-derived IPv4/TCP stack (DHCP, DNS, ICMP,
-  HTTP) on x86_64 (e1000) and aarch64 (polled virtio-net MMIO on QEMU
-  `virt`), pinned-CA HTTPS through mbedTLS, the aarch64 direct-FDT boot and
-  its network/TLS smoke phase. riscv64/i686 stay without kernel-net.
-- **Previous releases**: v0.0.2 = self-written legacy-BIOS chain + i686
-  (paging, scheduler, ring 3/ELF32, read-only PIO ATA VFS, VBE console) +
-  hybrid ISO; v0.0.1 = x86_64 UEFI + riscv64.
-- **Out of v0.0.3 scope**: SMP, USB, PAE / >1 GiB on i686, graphics beyond
-  the text consoles, real RISC-V/aarch64 boards, aarch64 UEFI (AAVMF;
+- **v0.0.4 adds**: the verified disk imager (`clone` + `--continue`
+  bad-sector policy and report), read-only NTFS (`/mnt/win0`), the
+  read-only AMD/PCI GPU report (QEMU-validated) and virtualization V1
+  detection.
+- **Previous releases**: v0.0.3 = the NetBSD-derived IPv4/TCP stack (DHCP,
+  DNS, ICMP, HTTP) on x86_64 (e1000) and aarch64 (polled virtio-net MMIO on
+  QEMU `virt`), pinned-CA HTTPS through mbedTLS, the aarch64 direct-FDT
+  boot; v0.0.2 = self-written legacy-BIOS chain + i686 (paging, scheduler,
+  ring 3/ELF32, read-only PIO ATA VFS, VBE console) + hybrid ISO; v0.0.1 =
+  x86_64 UEFI + riscv64.
+- **Out of v0.0.4 scope**: SMP, USB, PAE / >1 GiB on i686, the framebuffer/
+  KMS graphics API (M13), real RISC-V/aarch64 boards, aarch64 UEFI (AAVMF;
   deferred to M14 with the loader port).
 
 ## 2. Release status
 
-- **Version**: v0.0.3 (workspace + banners). The annotated `v0.0.3` tag is
+- **Version**: v0.0.4 (workspace + banners). The annotated `v0.0.4` tag is
   prepared for the owner and stays **local only** — nothing has been
   pushed; this repository does not create tags.
-- **Verified at R9b**: `tools/smoke-aarch64.sh` PASS (direct FDT boot +
-  virtio-net/TLS phase), `tools/smoke-net.sh` PASS (x86_64 offline gate),
-  `tools/smoke-config.sh` PASS, `tools/smoke-bios.sh` 2/2,
-  `tools/smoke-riscv.sh` 3/3; zero warnings on the x86_64 minimal/net/tls,
-  riscv64, i686 and aarch64 minimal/net/tls builds; no source file > 300
-  lines. The full matrix is in `docs/PROGRESS.md` snapshots.
+- **Verified at M12**: `tools/smoke-imager.sh` PASS,
+  `tools/smoke-imager-bad.sh` PASS, `tools/smoke-ntfs.sh` PASS,
+  `tools/smoke-gpu.sh` PASS (QEMU-only acceptance), `tools/smoke-config.sh`
+  PASS, `tools/smoke-bios.sh` 2/2; zero warnings on the x86_64
+  minimal/rescue/net/tls, riscv64, i686 and aarch64 builds; no source file >
+  300 lines. The full matrix is in `docs/PROGRESS.md` snapshots.
 - **Audit**: `docs/M9_AUDIT.md` (v0.0.1, 18 checks); open items are
   tracked under "Known issues" in `docs/PROGRESS.md`.
-- **Milestone plans**: `docs/M11_PLAN.md` (R9b closed; next M12 W-a) and
-  `docs/M11_NET.md` (M11 design of record); the v0.0.1 plan is
+- **Milestone plans**: `docs/M12_TOOLS_HW.md` (M12 closed; next M13 V-a)
+  and `docs/M11_NET.md` (M11 design of record); the v0.0.1 plan is
   `docs/M9_KERNEL_v0.0.1.md`; M10 is `docs/M10_PLAN.md`.
 - **Current direction (C5, 2026-09)**: the default `minimal` profile is the
   kernel + boot + shell only; the diagnostic commands and boot repair live
@@ -169,10 +172,10 @@ The full post-v0.0.2 plan is `docs/ROADMAP_v0.0.2+.md` (M11–M16):
    design: `M10_BOOT_32BIT.md`, plan/verification: `M10_PLAN.md` and
    `PROGRESS.md`. Windows boot repair is permanently out of
    scope (WinPE recommended; see `WINDOWS.md`).
-2. **M11 — v0.0.3**: ARM64 (QEMU virt) + `net_ops` + full TCP/HTTPS
+2. **M11 — v0.0.3 (shipped)**: ARM64 (QEMU virt) + `net_ops` + full TCP/HTTPS
    (NetBSD-derived stack + mbedTLS; no Linux net/ code — license;
    design: `M11_NET.md`).
-3. **M12 — v0.0.4**: disk imager, NTFS read-only, AMD GPU probe,
+3. **M12 — v0.0.4 (shipped)**: disk imager, NTFS read-only, AMD GPU probe,
    virtualization V1 detection.
 4. **M13 — v0.0.5**: graphics/input API and the KMS-like + repair-IPC
    contracts.

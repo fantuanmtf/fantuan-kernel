@@ -1,6 +1,6 @@
 [package]
 name = "kernel-i686"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 description = "fantuan kernel - 32-bit x86 (M10)"
 

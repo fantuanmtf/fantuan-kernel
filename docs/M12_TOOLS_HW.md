@@ -354,3 +354,16 @@ re-prints it; the minimal/net profiles link neither.
 | Imager silently corrupts a destination | mandatory plan print, size check, hash verify, YES gate; `--continue` is never silent: every zero-filled range is counted in the report and the verdict becomes `partial` |
 | ACPI parser bugs | minimal table walker, checksum-verified, never trusts lengths |
 | Virtualization claims overreach | matrix states exactly what was detected; isolation claims deferred to M15's threat model |
+
+## 9. Shipped (v0.0.4)
+
+The four M12 workstreams shipped and are verified by their gates:
+**W-a** (disk imager + `clone`, `tools/smoke-imager.sh`), **W-b** (bad-sector
+policy + report, `tools/smoke-imager-bad.sh`), **W-c** (read-only NTFS with
+`/mnt/win0`, `tools/smoke-ntfs.sh`) and **W-d** (report-only GPU/PCI probe,
+`tools/smoke-gpu.sh`). M12-6 shipped with **QEMU-only acceptance** (an owner
+decision): QEMU display models expose no PCIe capability and its DSDT has no
+thermal zone, so the real AMD RX 500/6000 `pcie link`/thermal capture stays
+the OPERATIONS §5.1 manual follow-up. The i686 read-only imager branch is
+documented rather than runtime-tested — i686 has no shell, so there is no
+interactive `clone` transcript there (see §2a).

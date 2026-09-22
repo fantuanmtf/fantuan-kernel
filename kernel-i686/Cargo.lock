@@ -14,7 +14,7 @@ dependencies = [
 
 [[package]]
 name = "fantuan-abi"
-version = "0.0.3"
+version = "0.0.4"
 
 [[package]]
 name = "find-msvc-tools"
@@ -24,14 +24,14 @@ checksum = "ef25905e51abafe4dcea6c15fec58c57b601cdbd0ee53d22ea1d3016c587d39b"
 
 [[package]]
 name = "kernel-core"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "fantuan-abi",
 ]
 
 [[package]]
 name = "kernel-i686"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "cc",
  "fantuan-abi",

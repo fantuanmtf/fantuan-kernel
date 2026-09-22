@@ -94,7 +94,7 @@ Known limitations across the matrix:
   network phase needs a QEMU binary with the SLIRP `user` backend (the
   script prints SKIP when it is missing) and is virtio-net MMIO only.
 - **aarch64 UEFI/AAVMF is not implemented**: only the direct-FDT path is
-  supported in v0.0.3; the loader port (aarch64 UEFI application, exact
+  supported in v0.0.4; the loader port (aarch64 UEFI application, exact
   load address, cache/MMU-off trampoline, DTB from the FDT config table) is
   deferred to M14.
 
@@ -237,6 +237,18 @@ the flags table above.
   `abi`, `user`, `boot`, `drivers` may exceed 300 lines.
 
 ## 9. Release operations
+
+The v0.0.4 release (M12) bumped the workspace to `0.0.4`, updated the
+banners to `fantuan v0.0.4` / `fantuan-boot v0.0.4`, and added the disk
+imager (`clone` + `--continue` bad-sector policy and report), read-only
+NTFS (`/mnt/win0`), the read-only AMD/PCI GPU report (QEMU-only
+acceptance) and virtualization V1 detection. Verification:
+`tools/smoke-imager.sh` PASS, `tools/smoke-imager-bad.sh` PASS,
+`tools/smoke-ntfs.sh` PASS, `tools/smoke-gpu.sh` PASS,
+`tools/smoke-config.sh` PASS, `tools/smoke-bios.sh` 2/2, zero-warning
+builds on x86_64 minimal/rescue/net/tls, riscv64, i686 and aarch64. The
+v0.0.4 tag stays local and owner-gated (see `M12_TOOLS_HW.md`); this
+repository does not create or push tags.
 
 The v0.0.3 release (M11) bumped the workspace to `0.0.3`, updated the
 banners to `fantuan v0.0.3` / `fantuan-boot v0.0.3`, added the aarch64

@@ -90,7 +90,7 @@ pub extern "C" fn rust_entry(dtb: usize) -> ! {
     uart::init();
     kernel_core::log::set_sink(uart::log_bytes);
     puts(uart::LOGO);
-    puts("fantuan v0.0.3 (aarch64) - QEMU virt\n");
+    puts("fantuan v0.0.4 (aarch64) - QEMU virt\n");
     // The boot protocol (QEMU raw `Image` path) passes the DTB in x0; the
     // ELF path does not, so a missing pointer is a usage error, not a fault.
     if dtb == 0 {

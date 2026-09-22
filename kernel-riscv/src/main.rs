@@ -141,7 +141,7 @@ fn build_bootinfo(mem: &fdt::MemInfo, hartid: usize, dtb: usize) -> &'static Boo
 pub extern "C" fn rust_entry(hartid: usize, dtb: usize) -> ! {
     kernel_core::log::set_sink(uart::log_bytes);
     puts(uart::LOGO);
-    puts("fantuan v0.0.3 (riscv64) - OpenSBI S-mode bring-up\n");
+    puts("fantuan v0.0.4 (riscv64) - OpenSBI S-mode bring-up\n");
     puts("boot: hartid=");
     put_hex(hartid as u64);
     puts(" dtb=");
@@ -221,7 +221,7 @@ pub extern "C" fn rust_entry(hartid: usize, dtb: usize) -> ! {
 
 extern "C" fn high_main() -> ! {
     paging::use_alias();
-    puts("fantuan v0.0.3 (riscv64) - high half online\n");
+    puts("fantuan v0.0.4 (riscv64) - high half online\n");
     puts("mm: usable ");
     put_dec(kernel_core::frame::get().usable_mib());
     puts(" MiB\n");

@@ -66,7 +66,7 @@ phase_r9a() {
   local ticks
   ticks=$(awk '/shell: ready/{seen=1} seen && /^tick: /{n++} END{print n+0}' "$log")
 
-  if grep -q "fantuan v0.0.3 (aarch64) - QEMU virt" "$log" \
+  if grep -q "fantuan v0.0.4 (aarch64) - QEMU virt" "$log" \
      && grep -q "boot: EL1, dtb=0x" "$log" \
      && grep -q "uart: pl011 up" "$log" \
      && grep -q "fdt: memory 0x40000000" "$log" \
@@ -93,7 +93,7 @@ phase_r9a() {
      && ! grep -q "fdt: parse failed" "$log" \
      && ! grep -q "PANIC" "$log"; then
     echo "SMOKE PASS (aarch64 R9a: direct FDT boot, PL011, 4K MMU + direct map, GICv2, 100 Hz, BRK resume, tasks, shell)"
-    grep -aE "fantuan v0.0.3 \(aarch64|boot: |uart: |fdt: |cpu: |mm: |mmu: |intc: |timer: |trap: |exc: |sched: |task [12] |shell|help|bootinfo|kernel_base" "$log" | head -40 || true
+    grep -aE "fantuan v0.0.4 \(aarch64|boot: |uart: |fdt: |cpu: |mm: |mmu: |intc: |timer: |trap: |exc: |sched: |task [12] |shell|help|bootinfo|kernel_base" "$log" | head -40 || true
     return 0
   fi
   echo "SMOKE FAIL (aarch64 R9a) - log tail:"

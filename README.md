@@ -46,7 +46,17 @@ All repository artifacts are in English. The authoritative design lives in
 | [THIRD_PARTY.md](THIRD_PARTY.md) | third-party components, licenses and origin register |
 | [docs/PROGRESS.md](docs/PROGRESS.md) | live progress tracker for v0.0.2 -> v0.1.5 |
 
-## Current state: v0.0.3 — M11 complete (ARM64 + network)
+## Current state: v0.0.4 — M12 complete (disk tools + NTFS + GPU + virt detect)
+
+M12 adds the disk imager and the hardware-facing field tools: `clone`
+(copy a raw disk to another, hash-verified, with a `--continue` bad-sector
+policy and a deterministic `/tmp/clone-report.txt`), read-only NTFS mounted
+at `/mnt/win0` (`ls`/`cat` over the POSIX fd layer; there is no write
+path), the read-only AMD/PCI GPU report (`gpu`, QEMU-validated) and
+virtualization V1 detection (hypervisor vendor, VMX/SVM, EPT/NPT,
+DMAR/IVRS). This is the v0.0.4 release; the full verification is in
+[PROGRESS.md](docs/PROGRESS.md) and [OPERATIONS.md](docs/OPERATIONS.md)
+§3.
 
 M11 adds the NetBSD-derived network stack and the aarch64 port. The stack
 (`kernel-net/`, built from the vendored `third_party/netbsd/` rump subset)
@@ -64,11 +74,8 @@ allocator/scheduler/heartbeat/shell. Build/boot with
 gate with `tools/smoke-aarch64.sh` (direct FDT + virtio-net/TLS phases)
 and `tools/smoke-net.sh` (x86_64 offline gate). The aarch64 UEFI/AAVMF
 path is deferred to M14 (the loader port is a batch of its own; the
-direct-FDT path is the supported one). This is the v0.0.3 release; the
-full verification is in [PROGRESS.md](docs/PROGRESS.md) and
-[OPERATIONS.md](docs/OPERATIONS.md)
-§3. Windows boot repair stays permanently unsupported
-([WINDOWS.md](docs/WINDOWS.md)).
+direct-FDT path is the supported one). M11 shipped as v0.0.3; Windows boot
+repair stays permanently unsupported ([WINDOWS.md](docs/WINDOWS.md)).
 
 M9 brings up a second architecture and splits the portable half of the
 kernel into `kernel-core`: the riscv64 kernel boots under OpenSBI (QEMU

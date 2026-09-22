@@ -115,7 +115,7 @@ tls_build_request(void)
 	unsigned n;
 
 	n = tls_append((char *)tls_tx, sizeof(tls_tx), off,
-	    "%s %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: fantuan-wget/0.0.3\r\n"
+	    "%s %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: fantuan-wget/0.0.4\r\n"
 	    "Accept: */*\r\nConnection: close\r\n",
 	    tls_method, tls_path, tls_host);
 	if (n == 0)

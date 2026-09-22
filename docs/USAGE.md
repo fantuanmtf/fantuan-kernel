@@ -25,10 +25,11 @@ writes after an explicit `YES`. The main paths:
 | UEFI/NVRAM repair | yes (Runtime Services) | no (diagnosis only, honest degrade) |
 | Shell commands | 2 core; `rescue` adds 12; `net`/`tls` add 3 tools | 2 core; `rescue` adds 7 |
 
-Current release: **v0.0.3** (see [HANDOVER.md](HANDOVER.md) for status).
-The release adds a self-written legacy-BIOS boot chain (x86_64 and i686)
-that works on machines without UEFI; the i686 kernel is read-only against
-disks. See §9 for the support matrix.
+Current release: **v0.0.4** (see [HANDOVER.md](HANDOVER.md) for status).
+The release adds the verified disk imager (`clone` with a `--continue`
+bad-sector policy and report), read-only NTFS (`/mnt/win0`), the read-only
+AMD/PCI GPU report and virtualization V1 detection. See §9 for the support
+matrix.
 
 ## 2. Quick start
 
@@ -47,7 +48,7 @@ x86: bootloader banner -> `handshake ok` -> memory map summary ->
 hardware diagnostics (the storage stage is part of the `rescue` profile) ->
 VFS mount -> userland demo tasks -> the shell prompt `root@Fantuan-MTF> `.
 
-riscv: OpenSBI banner -> `fantuan v0.0.3 (riscv64)` -> FDT memory/CPU
+riscv: OpenSBI banner -> `fantuan v0.0.4 (riscv64)` -> FDT memory/CPU
 report -> Sv39 tables -> `blk: virtio registered` -> VFS + read-only
 boot-repair diagnosis -> scheduler and user tasks -> `root@Fantuan-MTF> `.
 
@@ -55,7 +56,7 @@ BIOS (x86_64): `fantuan-bios stage2 (M10-3)` -> E820 -> `handshake ok` ->
 long-mode kernel -> tasks, userland, `root@Fantuan-MTF> ` on serial only (the BIOS
 path has no GOP console).
 
-BIOS (i686): `fantuan v0.0.3 (i686) - BIOS handoff` -> VBE text console
+BIOS (i686): `fantuan v0.0.4 (i686) - BIOS handoff` -> VBE text console
 (serial mirror) or `fb: unavailable (serial console)` -> memmap, frame
 allocator, IDT/PIC/PIT, scheduler, ELF32 user tasks and the read-only VFS
 -> the kernel halts after the demo lines; there is no interactive shell on
@@ -215,17 +216,17 @@ writes to Windows volumes — the reader has no write entry point and every
 write intent from the POSIX layer is rejected with EROFS.
 Full rationale and commands: [WINDOWS.md](WINDOWS.md).
 
-## 9. Support matrix (v0.0.3)
+## 9. Support matrix (v0.0.4)
 
-| Area | now (v0.0.3) | planned |
+| Area | now (v0.0.4) | planned |
 |---|---|---|
 | Firmware / boot | UEFI (x86_64), legacy BIOS (x86_64 + i686), OpenSBI (riscv64), direct FDT (aarch64) | aarch64 UEFI/AAVMF deferred to M14 |
 | Architecture | x86_64, i686 (32-bit, nightly toolchain), riscv64, aarch64 (stable) | more boards (M14+) |
-| Storage | AHCI (every populated port), NVMe, virtio-mmio; i686 legacy PIO ATA (read-only, so `clone` destinations there are read-only) | verified disk imager (`clone` + `--continue` bad-sector policy and report, v0.0.4); more drivers (v0.0.4) |
+| Storage | AHCI (every populated port), NVMe, virtio-mmio; i686 legacy PIO ATA (read-only, so `clone` destinations there are read-only); verified disk imager (`clone` + `--continue` bad-sector policy and report) | more drivers (v0.0.4+) |
 | Filesystems | FAT32 (write-gated on x86_64/riscv), ext4 (ro), NTFS read-only (`/mnt/win0`, M12-4/M12-5), others probe-only; i686 read-only | NTFS per-file write (never planned), more read-only filesystems (v0.0.4+) |
 | Network | NetBSD-derived IPv4/TCP on x86_64 (e1000) + aarch64 (virtio-net MMIO); DHCP/DNS/ping/wget, HTTP and pinned-CA HTTPS (mbedTLS); riscv/i686 have no NIC yet | user sockets (M14), IPv6/IPsec later |
 | Graphics | serial + GOP console; VBE text console (i686, serial mirror); read-only GPU/PCI report (`gpu`, M12-6: identity/IDs, BARs + mapped aperture, PCIe link, ACPI-TZ availability; QEMU-validated — the real AMD RX 500/6000 link/thermal capture is a manual follow-up) | framebuffer/KMS API (v0.0.5), XFCE/Qt (v0.1.5) |
-| Virtualization | none | detect (v0.0.4), minimal hypervisor (v0.1.0), isolated mounting (v0.1.5) |
+| Virtualization | detect (CPUID hypervisor vendor, VMX/SVM, EPT/NPT, DMAR/IVRS matrix) | minimal hypervisor (v0.1.0), isolated mounting (v0.1.5) |
 | Windows boot repair | not supported | not supported — use WinPE |
 
 Boot paths and their repair capability:

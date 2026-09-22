@@ -14,18 +14,18 @@ dependencies = [
 
 [[package]]
 name = "fantuan-abi"
-version = "0.0.3"
+version = "0.0.4"
 
 [[package]]
 name = "fantuan-boot"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "fantuan-abi",
 ]
 
 [[package]]
 name = "fantuan-kernel"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "cc",
  "fantuan-abi",
@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "fantuan-user"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "fantuan-abi",
 ]
@@ -48,7 +48,7 @@ checksum = "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890"
 
 [[package]]
 name = "kernel-aarch64"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "fantuan-abi",
  "kernel-core",
@@ -57,21 +57,21 @@ dependencies = [
 
 [[package]]
 name = "kernel-core"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "fantuan-abi",
 ]
 
 [[package]]
 name = "kernel-net"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "kernel-riscv"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "cc",
  "fantuan-abi",

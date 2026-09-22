@@ -64,7 +64,7 @@ timeout --signal=KILL 90 qemu-system-x86_64 -machine pc -m 512M -cpu max \
   -device ide-hd,drive=td0,bus=sata.0 \
   -nographic -no-reboot -no-shutdown \
   < /dev/null > "$LOG2" 2>&1 || true
-if grep -q "fantuan-boot v0.0.3" "$LOG2" \
+if grep -q "fantuan-boot v0.0.4" "$LOG2" \
    && grep -q "kernel: loaded at 0x1000000" "$LOG2" \
    && grep -q "handshake ok: magic=0x46544e46" "$LOG2" \
    && grep -q "vfs: mounted FAT32 at /mnt/disk0" "$LOG2" \
