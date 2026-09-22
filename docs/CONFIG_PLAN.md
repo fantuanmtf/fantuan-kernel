@@ -29,6 +29,7 @@ CONFIG_VIRT             bool  default n    # hypervisor V2 (M14-7)
 CONFIG_GRAPHICS         bool  default n    # fb_info/KMS API (M13)
 CONFIG_DESKTOP          bool  depends GRAPHICS  # M15
 CONFIG_RESCUE_REPAIR    bool  default n    # rescue/diagnostic + bootrepair (C5)
+CONFIG_IMAGER           bool  default n    # disk imager + `clone` (M12-2)
 CONFIG_SMBIOS           bool  default n    # SMBIOS identity/DIMM/slots
 CONFIG_DEBUG_SELFTEST   bool  default n    # rump/scheduler self-tests
 CONFIG_SECURE_WIPE      bool  default n    # Live shutdown RAM wipe
@@ -38,7 +39,10 @@ Profiles (C5): `minimal` (SHELL only - the Live boot set), `rescue` (adds
 the diagnostic commands and boot repair), `net` (adds TOOLS + NET +
 drivers + self-test), `tls` (net + mbedTLS), `desktop`, `hypervisor`, `all`.
 The non-default `TOOLS` bridge is the R7 in-kernel ping/nslookup/wget; the
-catalog home is `apps/{ping,nslookup,wget}` from M14 (APPS.md).
+catalog home is `apps/{ping,nslookup,wget}` from M14 (APPS.md). M12-2 adds
+`IMAGER` (the verified `clone` raw-disk copy) to the rescue/tools profiles
+(rescue, net, tls, desktop, hypervisor), plus a standalone `imager` profile
+(SHELL + IMAGER) for gating tests; `minimal` stays imager-free.
 
 ## Mechanics
 
@@ -130,6 +134,14 @@ shell commands (`kernel/src/shell/cmds_net.rs`); the clients themselves
 live in `kernel-net` behind `CONFIG_NET`, and a TOOLS-without-NET build
 gets one-line `not built (CONFIG_NET=n)` stubs in the `help` table.  The
 minimal profile (`TOOLS=n`) links neither the commands nor the clients.
+
+Gated in M12-2: `CONFIG_IMAGER` selects `kernel-core::imager` (the 1 MiB
+bounce buffer, SHA-256 round-trip verification and the cancellation/retry
+loop) and the `clone` shell command in `kernel-core::shell::imager`,
+registered by the x86_64 and riscv64 command tables. It is independent of
+`RESCUE_REPAIR`; the rescue/net/tls/desktop/hypervisor profiles enable it,
+and the minimal kernel ELF carries neither the command nor the imager
+strings.
 
 ## Implemented in C5 (2026-09)
 

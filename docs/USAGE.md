@@ -70,7 +70,9 @@ The default minimal kernel's table holds only the **core builtins**
 (`help`, `bootinfo`). The `[rescue]` rows need `CONFIG_RESCUE_REPAIR=y`
 (`tools/kconfig.py --profile rescue`); the `[tools]` rows need
 `CONFIG_TOOLS=y` plus networking (the `net`/`tls` profiles) and are the
-non-default interim bridge until the app catalog takes over at M14.
+non-default interim bridge until the app catalog takes over at M14. The
+`clone` row needs `CONFIG_IMAGER=y` (the `rescue`/`net`/`tls`/`desktop`
+profiles enable it; the minimal kernel has no imager).
 
 | Command | Profile | What it does |
 |---|---|---|
@@ -86,6 +88,7 @@ non-default interim bridge until the app catalog takes over at M14.
 | `diskhealth [--scan]` | [rescue] | identity + SMART; `--scan` reads the surface (`q` cancels) |
 | `grub-fix [diagnose\|repair\|install]` | [rescue] | boot-repair chain (see below) |
 | `crypto-selftest` | [rescue] | SHA-256/RSA known-answer tests (x86 only) |
+| `clone <src> <dst> [--verify] [--yes]` | [imager] | verified raw-sector copy of `blk0`..`blk3` (M12) |
 | `ping <host> [count]` | [tools] | ICMP echo (count 1-5) |
 | `nslookup <name> [server]` | [tools] | DNS A-record lookup |
 | `wget [--insecure] http[s]://host/` | [tools] | HTTP/HTTPS GET, status/bytes |
@@ -98,6 +101,7 @@ root@Fantuan-MTF> mount esp0 /mnt/esp0
 root@Fantuan-MTF> cat /mnt/esp0/EFI/fantuan/shell.cmd
 root@Fantuan-MTF> diskhealth
 root@Fantuan-MTF> grub-fix                 # same as diagnose: read-only report
+root@Fantuan-MTF> clone blk0 blk1          # plan, then type YES; hash-verified
 ```
 
 On virtio storage `diskhealth` prints
@@ -127,8 +131,18 @@ minimal kernel cannot repair because it does not carry the rescue commands
   the NVRAM half reports `runtime services unavailable` and is skipped.
 - **On i686 (BIOS)** everything is read-only: the PIO ATA block layer has
   no write path, so `grub-fix repair`/`install` are unavailable and `cat`
-  is the deepest operation. There are also no Runtime Services on BIOS, so
-  NVRAM repair is absent on both BIOS paths.
+  is the deepest operation. `clone` reports `destination is read-only on
+  this build` and writes nothing. There are also no Runtime Services on
+  BIOS, so NVRAM repair is absent on both BIOS paths.
+- **`clone <src> <dst>`** copies raw block devices sector by sector
+  (`blk0`..`blk3`; on x86_64 the test rig exposes one AHCI disk per SATA
+  port). It prints a plan first, refuses when the source is larger than the
+  destination, and writes only after `YES`. Verification is mandatory: the
+  source is SHA-256-hashed before the copy and the destination is re-read
+  and hashed after; only matching hashes report success (`--yes` skips the
+  confirmation for scripts, `--verify` is accepted explicitly). `q` cancels
+  at a chunk boundary, leaving a partially written destination that the
+  output says is not verified.
 
 ## 6. Typical rescue workflows
 
@@ -145,6 +159,10 @@ minimal kernel cannot repair because it does not carry the rescue commands
    `YES`; a `GRUBCFG.BAK` is kept.
 6. **Check disk health** — `diskhealth`, and `diskhealth --scan` for a
    bounded (4 GiB cap) surface scan with live progress.
+7. **Clone a failing disk** — `lsdev` shows the drives and their sizes;
+   `clone blk0 blk1` prints the plan and asks for `YES`, then copies and
+   hash-verifies the destination. The source can be larger than the target
+   only if the target is bigger — the size gate refuses otherwise.
 
 ## 7. RISC-V notes
 
@@ -171,7 +189,7 @@ Full rationale and commands: [WINDOWS.md](WINDOWS.md).
 |---|---|---|
 | Firmware / boot | UEFI (x86_64), legacy BIOS (x86_64 + i686), OpenSBI (riscv64), direct FDT (aarch64) | aarch64 UEFI/AAVMF deferred to M14 |
 | Architecture | x86_64, i686 (32-bit, nightly toolchain), riscv64, aarch64 (stable) | more boards (M14+) |
-| Storage | AHCI, NVMe, virtio-mmio; i686 legacy PIO ATA (read-only) | more drivers (v0.0.4) |
+| Storage | AHCI (every populated port), NVMe, virtio-mmio; i686 legacy PIO ATA (read-only, so `clone` destinations there are read-only) | verified disk imager (`clone`, v0.0.4); more drivers (v0.0.4) |
 | Filesystems | FAT32 (write-gated on x86_64/riscv), ext4 (ro), others probe-only; i686 read-only | NTFS read-only (v0.0.4) |
 | Network | NetBSD-derived IPv4/TCP on x86_64 (e1000) + aarch64 (virtio-net MMIO); DHCP/DNS/ping/wget, HTTP and pinned-CA HTTPS (mbedTLS); riscv/i686 have no NIC yet | user sockets (M14), IPv6/IPsec later |
 | Graphics | serial + GOP console; VBE text console (i686, serial mirror) | framebuffer/KMS API (v0.0.5), XFCE/Qt (v0.1.5) |
@@ -184,7 +202,7 @@ Boot paths and their repair capability:
 |---|---|---|---|
 | x86_64 UEFI | GOP + serial | FAT + NVRAM (Runtime Services) | none for the rescue scope |
 | x86_64 BIOS | serial only | FAT only (no NVRAM) | no GOP/ACPI/SMBIOS in the BIOS boot yet |
-| i686 BIOS | VBE text + serial | none (read-only block layer) | 1 GiB direct-map cap, no PAE, no shell yet |
+| i686 BIOS | VBE text + serial | none (read-only block layer; `clone` refuses with the read-only error) | 1 GiB direct-map cap, no PAE, no shell yet |
 | riscv64 (OpenSBI) | NS16550 UART | FAT only (no NVRAM) | no UEFI, SMART unsupported on virtio, no network driver |
 | aarch64 (QEMU virt, direct FDT) | PL011 UART | none (no block driver yet) | no storage/user mode/UEFI yet; network is virtio-net MMIO only |
 | Hybrid ISO | as the firmware path | as the firmware path | CD-ROM only (no isohybrid/USB `dd`), 1 GiB budget |

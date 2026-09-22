@@ -34,6 +34,55 @@ Four hardware-facing capabilities for field rescue:
 - **UI**: shell command `clone <src> <dst> [--quick|--continue]` with
   progress every 1%; the M15 Qt frontend drives the same operation over IPC.
 
+### 2a. Implemented in M12-2 (2026-09)
+
+The core landed behind **`CONFIG_IMAGER`** (default n; the rescue/net/tls/
+desktop/hypervisor profiles enable it). This batch is raw-device-to-raw-device
+only; the image-file destination and the `--quick`/`--continue` policies are
+M12-3+.
+
+- **Addressing**: `clone <src> <dst> [--verify] [--yes]`, where the paths are
+  the block registry's handles `blk0..blk3` (`blk_open(index)`); the C AHCI
+  probe now registers **every populated port** (PX_SSTS.DET == 3) in port
+  order, so `blk0`/`blk1` are two disks on one controller. The copy is
+  sector-based with a 512-byte logical sector, which is what every
+  supported transport (AHCI/NVMe/virtio-blk/PIO ATA) reports.
+- **Policy** (`kernel-core/src/shell/imager.rs`): print the plan (source/
+  destination/name/sectors/KiB and the hashes that will run), enforce the
+  hard size gate (`source > destination` is refused before any write), then
+  the YES gate ("confirm by typing YES"); `--yes` is for scripted runs.
+  `--verify` is accepted but optional to type: verification always runs.
+  Only after consent does the command enable repair mode and take a
+  `RepairToken` (the type-level gate), mirroring `grub-fix`.
+- **Mechanism** (`kernel-core/src/imager/`): 1 MiB bounce buffer (BSS, split
+  per chunk; the C drivers bounce per sector internally), pre-copy SHA-256
+  of the source, buffered sector copy with progress every 5%, then the
+  destination is re-read over the copied range and hashed. Success is
+  printed only when the digests match; a mismatch prints both hashes and a
+  failure line. Reads and writes retry three times before aborting; errors
+  distinguish source-read, mid-copy write, cancel and the first-write case.
+- **Read-only destinations**: the first failed `blk_write` (no sector
+  written yet) reports `clone: destination is read-only on this build` —
+  what the i686 PIO ATA stub (`blk_write` returns -1) produces. i686 has no
+  shell yet, so there is no i686 runtime transcript; the rescue/IMAGER i686
+  build links the imager and its `blk_open`/`blk_name`/`blk_identity` seams
+  (`kernel-i686/src/ata.rs`), and `tools/smoke-imager.sh` asserts the
+  message is linked in the tested x86_64 rescue ELF. QEMU does not offer a
+  usable read-only IDE backend (it refuses `readonly=on`, and `blkdebug`
+  write injection is not traversed on the AHCI path), so the runtime
+  first-write failure is deferred to the i686 shell work.
+- **Cancellation**: `q` at any chunk boundary aborts and prints that the
+  destination is partially written and not verified.
+- **Smoke**: `tools/smoke-imager.sh` — one bounded boot with the test disk
+  (ESP autorun) plus a small pattern source and two empty destinations;
+  asserts the plan/gate transcripts, kernel hashes vs host sha256, the
+  verified round trip and the untouched destination tail.
+- **Route**: the kernel command is the immediate deliverable because raw
+  block devices have no user ABI yet; like the R7 ping/nslookup/wget bridge,
+  a userland imager against a later block-device ABI is the cleaner home and
+  the hard part (the hash-verified copy engine in `kernel-core::imager`)
+  already separates policy from mechanism for that migration (APPS.md).
+
 ## 3. NTFS read-only
 
 - **Scope (v1)**: boot sector/BPB, `$MFT` parse, FILE records (resident and

@@ -6,8 +6,8 @@ at the repo root and, with --emit, the content-hashed build/config/features.rs
 + build/config/features.env. Python stdlib only; no curses.
 
   menu (default)  interactive toggle UI   --symbol NAME=Y|N  set symbol
-  --text          print effective config  --profile minimal|rescue|net|
-  --olddefconfig  fill missing defaults       tls|desktop|hypervisor|all
+  --text          print effective config  --profile minimal|imager|rescue|
+  --olddefconfig  fill missing defaults       net|tls|desktop|hypervisor|all
   --check         validate depends only   --emit  regenerate features.{rs,env}
 
 A missing .config resolves to the `minimal` profile (SHELL only, plus the
@@ -31,11 +31,12 @@ NET = ["SHELL", "TOOLS", "NET", "NET_DRIVERS", "DEBUG_SELFTEST"]
 TLS = NET + ["TLS"]
 PROFILES = {
     "minimal": ["SHELL"],
-    "rescue": ["SHELL", "RESCUE_REPAIR"],
-    "net": NET,
-    "tls": TLS,
-    "desktop": NET + ["GRAPHICS", "DESKTOP"],
-    "hypervisor": ["SHELL", "RESCUE_REPAIR", "VIRT"],
+    "imager": ["SHELL", "IMAGER"],
+    "rescue": ["SHELL", "RESCUE_REPAIR", "IMAGER"],
+    "net": NET + ["IMAGER"],
+    "tls": TLS + ["IMAGER"],
+    "desktop": NET + ["GRAPHICS", "DESKTOP", "IMAGER"],
+    "hypervisor": ["SHELL", "RESCUE_REPAIR", "VIRT", "IMAGER"],
     "all": None,
 }
 

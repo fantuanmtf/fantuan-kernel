@@ -6,6 +6,25 @@
 
 use core::ffi::c_void;
 
+use kernel_core::drv::BlkIdentity;
+
+/// No block registry on this machine: the CONFIG_IMAGER core resolves its
+/// `blk_open`/`blk_identity` seams here and finds no device.
+#[no_mangle]
+pub extern "C" fn blk_open(_index: usize) -> *mut c_void {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
+pub extern "C" fn blk_name(_dev: *mut c_void) -> *const u8 {
+    b"?\0".as_ptr()
+}
+
+#[no_mangle]
+pub extern "C" fn blk_identity(_dev: *mut c_void, _out: *mut BlkIdentity) -> i32 {
+    -1
+}
+
 #[no_mangle]
 pub extern "C" fn blk_read(_dev: *mut c_void, _lba: u64, _buf: *mut c_void, _sectors: usize) -> i32 {
     -1

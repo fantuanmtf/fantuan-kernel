@@ -92,6 +92,16 @@ config RESCUE_REPAIR
         the grub-fix repair chain. Off in the default minimal kernel; the
         `rescue` profile enables it.
 
+config IMAGER
+    bool "Disk imager (clone)"
+    default n
+    help
+        The verified raw block-device imager and its `clone` shell command
+        (M12-2): a sector copy with a mandatory SHA-256 round-trip check,
+        behind the repair YES gate and a hard source/destination size check.
+        Off in the default minimal kernel; the rescue/net/tls/desktop
+        profiles enable it.
+
 config SMBIOS
     bool "SMBIOS parsing (identity/DIMM/slots)"
     default n

@@ -17,11 +17,14 @@ pub mod drv;
 pub mod elf;
 pub mod frame;
 pub mod heartbeat;
+#[cfg(kconfig_imager)]
+pub mod imager;
 pub mod input;
 pub mod log;
 pub mod mem;
 pub mod process;
 pub mod runtime;
+pub mod sha256;
 pub mod shell;
 pub mod signal;
 pub mod syscall;

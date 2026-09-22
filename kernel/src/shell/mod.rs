@@ -7,6 +7,7 @@
 //!   core    help, bootinfo
 //!   rescue  hwdiag, lsdev, lsos, lsmnt, mount, umount, cat, diskhealth,
 //!           grub-fix, crypto-selftest
+//!   imager  clone (CONFIG_IMAGER; independent of RESCUE_REPAIR)
 //!   tools   ping, nslookup, wget (CONFIG_TOOLS; CONFIG_NET=n stubs)
 
 use fantuan_abi::BootInfo;
@@ -27,12 +28,16 @@ const CORE_COMMANDS: usize = 5;
 const RESCUE_COMMANDS: usize = 10;
 #[cfg(not(kconfig_rescue_repair))]
 const RESCUE_COMMANDS: usize = 0;
+#[cfg(kconfig_imager)]
+const IMAGER_COMMANDS: usize = 1;
+#[cfg(not(kconfig_imager))]
+const IMAGER_COMMANDS: usize = 0;
 #[cfg(kconfig_tools)]
 const TOOL_COMMANDS: usize = 3;
 #[cfg(not(kconfig_tools))]
 const TOOL_COMMANDS: usize = 0;
 
-pub const N_COMMANDS: usize = CORE_COMMANDS + RESCUE_COMMANDS + TOOL_COMMANDS;
+pub const N_COMMANDS: usize = CORE_COMMANDS + RESCUE_COMMANDS + IMAGER_COMMANDS + TOOL_COMMANDS;
 
 /// The x86 command table: core commands, the rescue/diagnostic set and the
 /// CONFIG_TOOLS network tools, each block compiled only when selected.
@@ -62,6 +67,8 @@ pub static COMMANDS: [Command; N_COMMANDS] = [
     Command { name: "grub-fix", help: "boot repair [diagnose|repair|install]", run: rescue::cmd_grubfix },
     #[cfg(kconfig_rescue_repair)]
     Command { name: "crypto-selftest", help: "run the SHA-256/RSA known-answer tests", run: cmds::cmd_crypto },
+    #[cfg(kconfig_imager)]
+    Command { name: "clone", help: "clone <src> <dst> [--verify] [--yes] — verified raw disk copy", run: kernel_core::shell::imager::cmd_clone },
     #[cfg(kconfig_tools)]
     Command { name: "ping", help: "ping <host> [count] — ICMP echo (count 1-5)", run: cmds_net::cmd_ping },
     #[cfg(kconfig_tools)]

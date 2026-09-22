@@ -12,7 +12,7 @@
 | v0.0.1 | M0-M9 (x86_64 rescue + RISC-V port) | `[##########] 100%` | tag `v0.0.1` (local) |
 | v0.0.2 | M10 legacy BIOS boot + i686 | `[##########] 100%` | released as 0.0.2: `smoke.sh` 13/13, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3, `smoke-iso.sh` 2/2 |
 | v0.0.3 | M11 ARM64 + full TCP/HTTPS | `[##########] 100%` | released as 0.0.3: R1-R8 verified; C5 minimal/tools/bash-prep; R9a direct-FDT boot + R9b virtio-net/TLS (`smoke-aarch64.sh` 2/2), `smoke-net.sh` PASS, `smoke-config.sh` PASS, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3; aarch64 UEFI/AAVMF deferred to M14 |
-| v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[#---------] 10%` | design only |
+| v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[###-------] 30%` | M12-1/M12-2/M12-7 verified |
 | v0.0.5 | M13 graphics/input + interface freeze | `[#---------] 10%` | design only |
 | v0.1.0 | M14 Linux userspace + bootstrap + hypervisor V2 | `[####------] 30%` | P3 bash 5.3 runs, `sh` is bash (working tree): `tools/smoke-bash.sh` PASS, `tools/smoke-dash.sh` PASS (dash selectable); P1 `tools/smoke-posix.sh` PASS |
 | v0.1.5 | M15 desktop + isolation + MinGW | `[----------] 0%` | - |
@@ -232,7 +232,20 @@ Design: `M12_TOOLS_HW.md`.
 - [x] M12-1 ACPI table walker: RSDP/RSDT/XSDT validation, FADT/MADT
       (enabled CPUs)/DMAR/IVRS presence — verify the x86 boot log lines
       (UEFI only; the BIOS path has no RSDP yet)
-- [ ] M12-2 disk imager + `clone` command + hash verification
+- [x] M12-2 disk imager + `clone` command + hash verification:
+      `CONFIG_IMAGER` (default n; rescue/net/tls/desktop/hypervisor
+      profiles), `kernel-core::imager` (1 MiB bounce buffer, pre-copy
+      SHA-256 + destination re-read hash, progress every 5%, bounded
+      retries, `q` cancellation) and the `clone <src> <dst> [--verify]
+      [--yes]` command (plan print, hard source>destination refusal, YES
+      gate + `RepairToken`, raw `blk0..blk3` handles) on the x86_64 and
+      riscv64 command tables; the C AHCI probe registers every populated
+      port so blk0/blk1 are two disks, and i686 gained the shared
+      `blk_open`/`blk_name`/`blk_identity` seams with its read-only
+      `blk_write` stub feeding the "destination is read-only on this
+      build" error — verify `tools/smoke-imager.sh` PASS (plan/size/YES
+      transcripts, kernel hashes = host sha256, verified round trip,
+      untouched destination tail) plus the zero-warning profile builds
 - [ ] M12-3 bad-sector policy (`--continue`) + report file
 - [ ] M12-4 NTFS boot/MFT/attribute/runlist read path (fixture)
 - [ ] M12-5 NTFS listing/read + `/mnt/win0`; probe graduation
@@ -300,6 +313,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | M12-2 disk imager (working tree): `CONFIG_IMAGER` + `clone` landed. `tools/smoke-imager.sh` PASS: the plan/size-gate/YES-gate transcripts, the kernel's pre-copy and destination hashes equal to the host sha256 of the pattern source, the destination prefix identical to the source, the untouched destination tail all-zero, and the read-only message linked in the rescue ELF. The AHCI C probe registers every populated port (blk0/blk1 = two SATA disks); i686 keeps its `blk_write` -1 stub, so its rescue/IMAGER build carries the read-only branch (no i686 shell yet, documented). `tools/smoke-config.sh` covers the IMAGER string gate (minimal absent, net/rescue present); profile builds zero warnings | PASS |
 | 2026-09 | P3 bash (working tree): bash 5.3 (GPLv3 app layer) builds against libc-fantuan and runs as the default `sh`; dash stays selectable. Spike before -> after: missing headers 12 -> 0 of 43, probed symbols still missing 25 -> 0 of 102 (libc-fantuan provides 102/102). `tools/build-bash.sh` configures with the freestanding clang and `-nostdlib` (host glibc cannot leak), `--without-bash-malloc --disable-nls --disable-readline --enable-static-link`, replays `patches/0001-netopen-no-network-decls.patch`, links the static ELF (743,312 bytes stripped, sha256 `38ec6a3028d8...`, byte-reproducible), embeds it as `kernel/bash_program.bin`. `tools/smoke-bash.sh` PASS asserts `sh -c` = bash, `bash -c 'echo ...'`, `exit 7` (0x700), interactive prompt/echo, `$((2+3))=5`, `x=41; echo $((x+1))=42`, a function, `echo \| cat`, `>`/`<`, `$(...)`, `^C` -> 130, `exit`, the reaps, and dash selectable. Kernel fixes: ELF loader lost its 64-page table (loads through a segment page walk, ~190 pages for bash) and page-table frames are zeroed on allocation (a recycled frame's stale entries caused a #GP); `sigsetjmp` became a call-site macro. The P2 `apps/dash` lock orphan is fixed (dash pinned), so `smoke-gpl` is green again. `tools/smoke-dash.sh` PASS (dash selected explicitly), `smoke-posix.sh` PASS | PASS |
 | 2026-09 | P2 dash (working tree): dash 0.5.12 (BSD-3) runs as the default `sh`. Root causes fixed: the "0x400b85 #PF" was the M4 demo's deliberate fault test, not dash; dash's `setjobctl` foreground-pgrp spin (kernel `set_tty_pgrp` handover + `killpg(0,...)`); libc base-0 `strtoull`; `readdir`'s zero `getdents` length; missing `/bin` stat/open registry (now with `/bin/ls` + `/bin/cat`); a zombie-exit deadlock with IF=0 (arch `set_irq_enable` + TSC-backed `now_ticks`). `tools/smoke-dash.sh` PASS asserts `sh -c` (exit 0/7), interactive prompt/echo/erase/`^C`(130)/exit, `$((1+2))`, `$(...)`, `echo \| cat`, `>`/`<`, `ls /tmp`, `sh FILE`, `$?` and reaps; `tools/smoke-posix.sh` PASS, `smoke.sh` 13/13, `smoke-bios.sh` 2/2, `smoke-config.sh` PASS; x86_64 minimal/net/tls, riscv64, i686, aarch64 builds zero warnings. Limits: no job-control stop, no file-backed mmap, `/bin` not enumerable; bash is P3 | PASS |
 | 2026-09 | P1 POSIX/libc foundation (working tree): P1 ABI additions `SYS_OPEN 6`..`SYS_RENAME 28` (append-only; `SYS_VERSION` stays 1), kernel-core `vfs/{tmpfs,fd,posix}.rs` + `brk.rs` + `user::UserMemOps`, x86_64 `spawn_user_args` SysV stack, writable tmpfs with `/dev/{console,null}` (disk mounts stay ro); `libc-fantuan` (MIT) archive built deterministically by `tools/build-libc.sh --verify`; `user/hello.c` runs through the ELF loader under the minimal profile (`tools/smoke-posix.sh` PASS: argv printf, brk malloc, tmpfs round trip, pipe, clock, exit, reap); `smoke-config.sh` PASS (minimal ELF still free of net/rump/tls/rescue/tool strings, 2 MiB budget); `smoke-bios.sh` 2/2; x86_64 minimal/net/tls + riscv64 + i686 + aarch64 builds zero warnings; bash spike with libc-fantuan: configure exits 0 (was `cannot compute sizeof (size_t)`), missing headers 39 -> 13 of 43, 76 of 102 probed symbols defined (62 real + 14 stubs) - **bash does not run**, dash is the P2 target (`docs/POSIX_PLAN.md`) | PASS |
@@ -575,11 +589,13 @@ mmap, `/bin` enumeration; bash is P3.
 
 ## Next action
 
-**M12 W-a** (M11 released as 0.0.3): the owner pushes the R9b/0.0.3
-transition, then M12 starts with the disk imager (`clone`) and the NTFS
-read path; the remaining M12 checkboxes are listed above and the design is
-`docs/M12_TOOLS_HW.md`. **P3 is landed in the working tree and verified**
-(`tools/smoke-bash.sh` PASS plus `tools/smoke-dash.sh`,
+**M12 W-a** (M11 released as 0.0.3): the disk imager core + `clone` command
+(M12-2) is landed in the working tree and verified by
+`tools/smoke-imager.sh`; the next M12 step is the bad-sector policy
+(M12-3, `--continue` + report file), then the NTFS read path. The remaining
+M12 checkboxes are listed above and the design is `docs/M12_TOOLS_HW.md`
+(§2a records the M12-2 implementation). **P3 is landed in the working tree
+and verified** (`tools/smoke-bash.sh` PASS plus `tools/smoke-dash.sh`,
 `tools/smoke-posix.sh` and the regression smokes); bash 5.3 now builds
 against libc-fantuan and **`sh` is bash**: the `sh` command and
 `execve("/bin/sh")` resolve to the embedded bash, `/bin/dash` and the new

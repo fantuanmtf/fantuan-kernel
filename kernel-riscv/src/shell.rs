@@ -15,8 +15,12 @@ const CORE_COMMANDS: usize = 2;
 const RESCUE_COMMANDS: usize = 7;
 #[cfg(not(kconfig_rescue_repair))]
 const RESCUE_COMMANDS: usize = 0;
+#[cfg(kconfig_imager)]
+const IMAGER_COMMANDS: usize = 1;
+#[cfg(not(kconfig_imager))]
+const IMAGER_COMMANDS: usize = 0;
 
-const N_COMMANDS: usize = CORE_COMMANDS + RESCUE_COMMANDS;
+const N_COMMANDS: usize = CORE_COMMANDS + RESCUE_COMMANDS + IMAGER_COMMANDS;
 
 static COMMANDS: [Command; N_COMMANDS] = [
     Command { name: "help", help: "this table", run: kernel_core::shell::cmds::cmd_help },
@@ -35,6 +39,8 @@ static COMMANDS: [Command; N_COMMANDS] = [
     Command { name: "diskhealth", help: "disk health [--scan]", run: kernel_core::shell::rescue::cmd_diskhealth },
     #[cfg(kconfig_rescue_repair)]
     Command { name: "grub-fix", help: "boot repair [diagnose|repair|install]", run: kernel_core::shell::rescue::cmd_grubfix },
+    #[cfg(kconfig_imager)]
+    Command { name: "clone", help: "clone <src> <dst> [--verify] [--yes] — verified raw disk copy", run: kernel_core::shell::imager::cmd_clone },
 ];
 
 /// Enter the interactive shell (never returns); idle() is wfi, so the SBI

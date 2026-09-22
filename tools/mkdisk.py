@@ -9,6 +9,12 @@ and Secure Boot fixtures) and optional variant files:
   --liar / --bigcluster      crafted-input fixtures: oversized FAT entry,
                              4 KiB clusters with a short final write
   --grub-regen               autorun runs `grub-fix install` (implies --two-fs)
+  --imager                   autorun runs the M12 `clone` transcript (implies
+                             --keys) for the tools/smoke-imager.sh phase
+  --empty <sectors> <path>   write a zero-filled raw image (imager destination
+                             fixtures); no GPT/FAT build
+  --pattern <sectors> <path> write a deterministic per-sector pattern image
+                             (imager source fixture); no GPT/FAT build
 Zero host-tool dependencies (no sfdisk/mkfs.fat). The FAT32 fixture lives in
 mkdisk_fat.py and the ext4 root in mkdisk_ext4.py (file-size rule)."""
 
@@ -22,6 +28,23 @@ from mkdisk_ext4 import build as build_ext4  # noqa: E402
 from mkdisk_fat import build as build_fat  # noqa: E402
 
 SECTOR = 512
+
+# --empty / --pattern: raw imager fixture disks. Handled before the GPT/FAT
+# build so they can be used as the imager's source/destination disks.
+for _mode in ("--empty", "--pattern"):
+    if _mode in sys.argv:
+        _idx = sys.argv.index(_mode)
+        _sectors = int(sys.argv[_idx + 1])
+        _path = sys.argv[_idx + 2] if len(sys.argv) > _idx + 2 else "build/test.img"
+        with open(_path, "wb") as _f:
+            if _mode == "--empty":
+                _f.truncate(_sectors * SECTOR)
+            else:
+                for _s in range(_sectors):
+                    _f.write(bytes(((_s * 131 + _j * 7) & 0xFF) for _j in range(SECTOR)))
+        _what = "empty (zero-filled)" if _mode == "--empty" else "deterministic pattern"
+        print(f"{_path}: {_sectors * SECTOR} bytes, {_what}, {_sectors} sectors")
+        sys.exit(0)
 TWO_FS = "--two-fs" in sys.argv
 # Audit fixtures:
 #   --bigcluster  SPC=8 (4 KiB clusters): exercises the short-data cluster
@@ -57,7 +80,11 @@ DISK_SECTORS = _LAST_PART_END + BACKUP_GPT_SECTORS + 1  # 42 / 33.6 MiB
 out = bytearray(SECTOR * DISK_SECTORS)
 
 BROKEN = "--broken" in sys.argv or "--broken-shim" in sys.argv
-KEYS = "--keys" in sys.argv or "--shell-repair" in sys.argv or GRUB_REGEN or KBD_TEST
+# --imager: the M12 clone transcript lives in EFI/fantuan/SHELL.CMD like the
+# other autorun fixtures, so the imager phase is deterministic (no serial
+# timing) — it implies --keys for the ESP/fantuan tree.
+IMAGER = "--imager" in sys.argv
+KEYS = "--keys" in sys.argv or "--shell-repair" in sys.argv or GRUB_REGEN or KBD_TEST or IMAGER
 SHELL_REPAIR = "--shell-repair" in sys.argv
 # --broken-shim: the fallback loader AND the shim are gone, so the fallback
 # copy repair has nothing to copy from (exercises the NVRAM delete path).
@@ -176,6 +203,7 @@ flags = {
     "shell_repair": SHELL_REPAIR,
     "grub_regen": GRUB_REGEN,
     "kbd_test": KBD_TEST,
+    "imager": IMAGER,
 }
 SPC, SPF, CLUSTERS = build_fat(out, PART_LBA, PART_SECTORS, flags, FSTAB)
 
@@ -194,4 +222,5 @@ print(f"{path}: {len(out)} bytes, GPT + FAT32 ({CLUSTERS} clusters, SPC {SPC}), 
       + (" + no shim" if NOSHIM else "")
       + (" + 4 KiB clusters" if BIGCLUSTER else "")
       + (" + HELLO.TXT size lie" if LIAR else "")
+      + (" + clone imager transcript" if IMAGER else "")
       + (" + ext4 root + XFS probe fixtures" if TWO_FS else ""))

@@ -212,10 +212,41 @@ pub extern "C" fn blk_read(_dev: *mut c_void, lba: u64, buf: *mut c_void, sector
 }
 
 /// Write path is deliberately absent on the i686/BIOS kernel (W3 read-only):
-/// the shared repair code compiles against the same symbol.
+/// the shared repair code compiles against the same symbol. The disk imager
+/// sees the -1 and reports "destination is read-only on this build".
 #[no_mangle]
 pub extern "C" fn blk_write(_dev: *mut c_void, _lba: u64, _buf: *const c_void, _sectors: usize) -> i32 {
     -1
+}
+
+/// The shared block registry seams (CONFIG_IMAGER): the single PIO drive is
+/// index 0 behind a non-null dummy handle (blk_read/write ignore it).
+#[no_mangle]
+pub extern "C" fn blk_open(index: usize) -> *mut c_void {
+    if index == 0 && PRESENT.load(Ordering::Acquire) {
+        1usize as *mut c_void
+    } else {
+        ptr::null_mut()
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn blk_name(_dev: *mut c_void) -> *const u8 {
+    b"ata-pio\0".as_ptr()
+}
+
+#[no_mangle]
+pub extern "C" fn blk_identity(dev: *mut c_void, out: *mut BlkIdentity) -> i32 {
+    if dev.is_null() || out.is_null() {
+        return -1;
+    }
+    match drive_identity() {
+        Some(id) => {
+            unsafe { *out = id };
+            0
+        }
+        None => -1,
+    }
 }
 
 #[no_mangle]

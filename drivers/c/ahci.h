@@ -76,8 +76,11 @@ struct ahci_port {
 };
 
 
-/* The single controller this driver drives (defined in ahci.c). */
-extern struct ahci_port g_port;
+/* Per-device port state (defined in ahci.c): g_ports[n] belongs to the n-th
+ * registered device; the probe registers only ports with a device attached,
+ * so blk_open(0/1/...) addresses the disks in port order. */
+#define AHCI_MAX_PORTS 8
+extern struct ahci_port g_ports[AHCI_MAX_PORTS];
 
 /* The ops table registered by ahci_probe (defined in ahci_io.c). */
 extern const struct blk_ops AHCI_OPS;

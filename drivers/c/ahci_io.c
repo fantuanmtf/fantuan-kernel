@@ -10,10 +10,10 @@
  * For writes the caller's data (in DST) is copied into the DMA buffer
  * before the command is issued.  SECTOR_COUNT must be <= 8 (fits in the
  * 4K single-page DMA buffer). */
-static int ata_io_ex(uint8_t cmd, uint8_t device, uint64_t lba, uint8_t *dst,
-                     int write, uint8_t features, uint16_t sector_count)
+static int ata_io_ex(struct ahci_port *p, uint8_t cmd, uint8_t device,
+                     uint64_t lba, uint8_t *dst, int write, uint8_t features,
+                     uint16_t sector_count)
 {
-    struct ahci_port *p = &g_port;
     uint8_t *cfis = p->ct->cfis;
     uint32_t byte_count = (uint32_t)sector_count * 512u;
     int i;
@@ -79,16 +79,16 @@ static int ata_io_ex(uint8_t cmd, uint8_t device, uint64_t lba, uint8_t *dst,
 }
 
 /* Back-compat wrapper: 1 sector, features = 0. */
-static int ata_io(uint8_t cmd, uint8_t device, uint64_t lba, uint8_t *dst,
-                  int write)
+static int ata_io(struct ahci_port *p, uint8_t cmd, uint8_t device, uint64_t lba,
+                  uint8_t *dst, int write)
 {
-    return ata_io_ex(cmd, device, lba, dst, write, 0, 1);
+    return ata_io_ex(p, cmd, device, lba, dst, write, 0, 1);
 }
 
 /* --- single-sector read (READ SECTORS EXT) -------------------------------- */
-static int read_one(uint64_t lba, uint8_t *dst)
+static int read_one(struct ahci_port *p, uint64_t lba, uint8_t *dst)
 {
-    return ata_io(0x24, 0x40, lba, dst, 0);    /* device: LBA mode */
+    return ata_io(p, 0x24, 0x40, lba, dst, 0);    /* device: LBA mode */
 }
 
 /* --- identity decode (M5.5/M8: generic blk_identity) ---------------------- */
@@ -126,7 +126,7 @@ static int ahci_identity(void *priv, struct blk_identity *out)
     if (p == NULL || !p->inited || out == NULL) {
         return -1;
     }
-    if (ata_io(0xEC, 0xA0, 0, id, 0)) {
+    if (ata_io(p, 0xEC, 0xA0, 0, id, 0)) {
         return -1;
     }
     ata_string(id, 27, 20, out->model, BLK_MODEL_MAX + 1);
@@ -151,7 +151,7 @@ static int ahci_read(void *priv, uint64_t lba, void *buf, size_t sectors)
         return -1;
     }
     for (s = 0; s < sectors; s++) {
-        if (read_one(lba + s, (uint8_t *)buf + s * 512)) {
+        if (read_one(p, lba + s, (uint8_t *)buf + s * 512)) {
             return -1;
         }
     }
@@ -166,7 +166,7 @@ static int ahci_write(void *priv, uint64_t lba, const void *buf, size_t sectors)
         return -1;
     }
     for (s = 0; s < sectors; s++) {
-        if (ata_io(0x35, 0x40, lba + s, (uint8_t *)buf + s * 512, 1)) {
+        if (ata_io(p, 0x35, 0x40, lba + s, (uint8_t *)buf + s * 512, 1)) {
             return -1;
         }
     }
@@ -183,7 +183,7 @@ static int ahci_smart_read_data(void *priv, void *out_512)
         return -1;
     }
     sig = ((uint64_t)0xC2 << 16) | ((uint64_t)0x4F << 8);
-    return ata_io_ex(0xB0, 0x40, sig, (uint8_t *)out_512, 0, 0xD0, 1);
+    return ata_io_ex(p, 0xB0, 0x40, sig, (uint8_t *)out_512, 0, 0xD0, 1);
 }
 
 /* SMART READ LOG for LOG_PAGE: the page number goes in LBA low. */
@@ -195,7 +195,7 @@ static int ahci_smart_read_log(void *priv, uint8_t log_page, void *buf, size_t s
         return -1;
     }
     sig = ((uint64_t)0xC2 << 16) | ((uint64_t)0x4F << 8) | (uint64_t)log_page;
-    return ata_io_ex(0xB0, 0x40, sig, (uint8_t *)buf, 0, 0xD5, (uint16_t)sectors);
+    return ata_io_ex(p, 0xB0, 0x40, sig, (uint8_t *)buf, 0, 0xD5, (uint16_t)sectors);
 }
 
 const struct blk_ops AHCI_OPS = {

@@ -15,6 +15,7 @@ itself see [USAGE.md](USAGE.md); for builds see [BUILD.md](BUILD.md).
 | `tools/smoke-dash.sh` | P2 dash gate (dash selected explicitly): -c/interactive transcripts, pipes/redirects/scripts, SIGINT, reaps | ~2 min |
 | `tools/smoke-posix.sh` | P1 libc/ELF-loader gate (hello, brk, tmpfs, pipe) | ~1 min |
 | `tools/smoke-net.sh` | M11 offline network gate (loopback/SLIRP/DNS/TLS/UDP) | ~8 min |
+| `tools/smoke-imager.sh` | M12 `clone` gate: verified round trip, size/YES gates, read-only branch | ~2 min |
 | `tools/smoke-bios.sh` | legacy BIOS chain: x86_64 + i686 (2 phases) | ~2 min |
 | `tools/smoke-riscv.sh` | riscv acceptance suite (3 phases) | ~4 min |
 | `tools/smoke-aarch64.sh` | aarch64 direct FDT + virtio-net/TLS offline gate (2 phases) | ~4 min |
@@ -72,7 +73,10 @@ Known limitations across the matrix:
   (3G/1G split); the frame allocator caps usable RAM and logs the
   truncation (`510 MiB usable` in the 512 MiB QEMU run). No PAE.
 - **i686 is read-only**: the PIO ATA block layer has no write path, so
-  repair commands are unavailable there (no NVRAM on BIOS either).
+  repair commands are unavailable there (no NVRAM on BIOS either) and the
+  shared imager's first write fails with `destination is read-only on this
+  build`. i686 has no shell yet, so there is no interactive clone
+  transcript; the rescue/IMAGER build links the branch (W-a).
 - **i686 has no shell yet**: the kernel runs the demo/userland sequence
   and halts; VFS coverage is boot-time assertion, not shell.
 - **ISO is CD-ROM only**: no isohybrid MBR and no USB `dd` support; the
@@ -154,6 +158,7 @@ tools/smoke-aarch64.sh                 # bounded acceptance run (PASS/SKIP)
 | `--keys` | Secure Boot certs + autorun shell script |
 | `--shell-repair` | autorun runs `grub-fix repair` and answers YES |
 | `--grub-regen` | autorun runs `grub-fix install` (implies `--two-fs`) |
+| `--imager` | M12 `clone` fixtures on one AHCI controller: test disk (blk0) + pattern source (blk1) + larger/smaller empty destinations (blk2/blk3); autorun runs the gate transcript |
 | `--smm` | x86 on q35 with SMM OVMF (required for SetVariable) |
 | `--no-smbios` | boot without `-smbios` overrides (firmware defaults) |
 | `--nvme` | attach the disk as NVMe instead of AHCI |
@@ -180,9 +185,10 @@ to `build/esp/fantuan/kernel.bin` on every run.
 
 Useful shell commands: `help`, `bootinfo` (both in the minimal kernel), and
 with the `rescue` profile `lsos`, `diskhealth` (SMART needs AHCI/NVMe; the
-BIOS IDE path degrades) and `cat <path>`. Quit QEMU with `Ctrl-A X`. For
-fixture variants (`--broken`, `--keys`, `--shell-repair`, `--nvme`, `--smm`)
-see the flags table above.
+BIOS IDE path degrades), `cat <path>` and `clone <src> <dst>`
+(`CONFIG_IMAGER`). Quit QEMU with `Ctrl-A X`. For fixture variants
+(`--broken`, `--keys`, `--shell-repair`, `--nvme`, `--smm`, `--imager`) see
+the flags table above.
 
 ## 6. Driving and debugging a run
 

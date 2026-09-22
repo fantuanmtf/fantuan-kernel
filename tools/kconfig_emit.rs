@@ -31,6 +31,7 @@ fn kconfig_values() -> std::collections::BTreeMap<String, bool> {
         ("graphics", false),
         ("desktop", false),
         ("rescue_repair", false),
+        ("imager", false),
         ("debug_selftest", false),
         ("secure_wipe", false),
         ("smbios", false),
@@ -90,7 +91,7 @@ fn kconfig_emit() {
         }
     }
     for name in ["shell", "bash", "tools", "net", "net_drivers", "tls", "virt", "graphics",
-        "desktop", "rescue_repair", "debug_selftest", "secure_wipe", "smbios"] {
+        "desktop", "rescue_repair", "imager", "debug_selftest", "secure_wipe", "smbios"] {
         if !values.contains_key(name) {
             println!("cargo:rustc-check-cfg=cfg(kconfig_{name})");
         }

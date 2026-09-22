@@ -42,6 +42,7 @@ def build(out, part_lba, part_sectors, flags, fstab):
     two_fs = flags["two_fs"]
     shell_repair = flags["shell_repair"]
     grub_regen = flags["grub_regen"]
+    imager = flags["imager"]
 
     def wsect(lba, data):
         out[lba * SECTOR:(lba + 1) * SECTOR] = data
@@ -216,7 +217,19 @@ def build(out, part_lba, part_sectors, flags, fstab):
     # §10 shell autorun script. --shell-repair swaps in the confirmation-
     # gated repair sequence (the shell feeds the next script line as the YES
     # answer); --grub-regen runs the M7.9 install path instead.
-    if flags.get("kbd_test"):
+    if imager:
+        # M12-2 clone transcript: YES-gate abort, size-gate refusal and the
+        # verified happy path. blk0 is the mounted boot disk, blk1 the small
+        # pattern source, blk2 the larger empty destination and blk3 the
+        # smaller one (the size gate).
+        SHELL_CMD = (
+            b"clone blk1 blk2\n"
+            b"NO\n"
+            b"clone blk1 blk3 --yes\n"
+            b"clone blk1 blk2 --verify\n"
+            b"YES\n"
+        )
+    elif flags.get("kbd_test"):
         SHELL_CMD = b"help\nlsmnt\n"
     elif grub_regen:
         SHELL_CMD = (

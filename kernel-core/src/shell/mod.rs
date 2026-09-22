@@ -19,6 +19,8 @@ use crate::vfs::{self, Vfs};
 #[cfg(kconfig_rescue_repair)]
 pub mod cat;
 pub mod cmds;
+#[cfg(kconfig_imager)]
+pub mod imager;
 #[cfg(kconfig_rescue_repair)]
 pub mod rescue;
 

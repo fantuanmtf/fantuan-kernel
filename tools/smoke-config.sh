@@ -51,11 +51,14 @@ elf_has_string() { # elf name
 }
 
 # The command names that must disappear from the minimal/default ELF (their
-# tables and implementations are gated by CONFIG_RESCUE_REPAIR/CONFIG_TOOLS).
-# `clone` (M12) is included as a forward guard; `part` cannot be a string
-# invariant because the boot-time VFS already prints "part: LBA ...".
-RESCUE_STRINGS=(diskhealth lsmnt lsos mount umount cat hwdiag lsdev grub-fix crypto-selftest clone)
+# tables and implementations are gated by CONFIG_RESCUE_REPAIR/CONFIG_TOOLS/
+# CONFIG_IMAGER). `part` cannot be a string invariant because the boot-time
+# VFS already prints "part: LBA ...".
+RESCUE_STRINGS=(diskhealth lsmnt lsos mount umount cat hwdiag lsdev grub-fix crypto-selftest)
 TOOL_STRINGS=(ping nslookup wget)
+# M12: the imager is its own symbol, enabled in the rescue/net/tls/desktop
+# profiles (not minimal), so `clone` is present in net and absent in minimal.
+IMAGER_STRINGS=(clone)
 
 boot() { # log timeout
   # Build once outside the timeout: the config flip rebuilds three crates, and
@@ -102,6 +105,9 @@ for s in "${RESCUE_STRINGS[@]}"; do
     fail "net profile: rescue command '$s' leaked (CONFIG_RESCUE_REPAIR=n)"
   fi
 done
+for s in "${IMAGER_STRINGS[@]}"; do
+  elf_has_string "$ELF" "$s" || fail "net profile: imager command '$s' missing (CONFIG_IMAGER=y)"
+done
 if grep -q "shell: ready" "$NET_LOG" \
    && grep -q "net: lo0 up 127.0.0.1/8" "$NET_LOG" \
    && grep -q "rump: mbuf self-test ok" "$NET_LOG" \
@@ -129,7 +135,7 @@ if cargo tree -p fantuan-kernel --target x86_64-unknown-none -e normal --offline
      | grep -q "kernel-net"; then
   fail "minimal profile: cargo tree still has a kernel-net edge"
 fi
-for s in "${RESCUE_STRINGS[@]}" "${TOOL_STRINGS[@]}"; do
+for s in "${RESCUE_STRINGS[@]}" "${TOOL_STRINGS[@]}" "${IMAGER_STRINGS[@]}"; do
   if elf_has_string "$ELF" "$s"; then
     fail "minimal profile: command string '$s' leaked into the kernel ELF"
   fi
@@ -144,7 +150,7 @@ if grep -q "shell: ready" "$MIN_LOG" \
    && grep -q "shell commands (root@Fantuan-MTF" "$MIN_LOG" \
    && grep -q "^  help        this table" "$MIN_LOG" \
    && grep -q "^  bootinfo    boot handover details" "$MIN_LOG" \
-   && ! grep -qE "^  (hwdiag|lsdev|lsos|lsmnt|mount|umount|cat|diskhealth|grub-fix|crypto-selftest|ping|nslookup|wget) " "$MIN_LOG" \
+   && ! grep -qE "^  (hwdiag|lsdev|lsos|lsmnt|mount|umount|cat|diskhealth|grub-fix|crypto-selftest|clone|ping|nslookup|wget) " "$MIN_LOG" \
    && ! grep -q "net: lo0 up" "$MIN_LOG" \
    && ! grep -q "rump:" "$MIN_LOG" \
    && ! grep -q "net: tcp" "$MIN_LOG"; then
@@ -163,6 +169,9 @@ cargo build -p fantuan-kernel --target x86_64-unknown-none --release \
   > build/smoke-config-rescue-build.log 2>&1 || fail "rescue profile x86_64 build"
 for s in diskhealth grub-fix; do
   elf_has_string "$ELF" "$s" || fail "rescue profile: '$s' missing from the ELF"
+done
+for s in "${IMAGER_STRINGS[@]}"; do
+  elf_has_string "$ELF" "$s" || fail "rescue profile: imager command '$s' missing (CONFIG_IMAGER=y)"
 done
 for s in "${TOOL_STRINGS[@]}"; do
   if elf_has_string "$ELF" "$s"; then

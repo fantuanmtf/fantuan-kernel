@@ -6,7 +6,7 @@
 #include "ahci.h"
 
 static volatile uint32_t *g_abar;
-struct ahci_port g_port;
+struct ahci_port g_ports[AHCI_MAX_PORTS];
 
 /* --- helpers ------------------------------------------------------------- */
 int wait_until(volatile uint32_t *reg, uint32_t mask, uint32_t want,
@@ -22,9 +22,8 @@ int wait_until(volatile uint32_t *reg, uint32_t mask, uint32_t want,
 }
 
 /* --- port bring-up -------------------------------------------------------- */
-static int init_port(int port)
+static int init_port(struct ahci_port *p, int port)
 {
-    struct ahci_port *p = &g_port;
     uint64_t phys;
 
     p->px = &g_abar[PORT_BASE(port) / 4];
@@ -70,11 +69,13 @@ static int init_port(int port)
 
 
 /* --- exported probe -------------------------------------------------------- */
-/* Called from the Rust core with the ABAR (physical) found by PCI scan. */
+/* Called from the Rust core with the ABAR (physical) found by PCI scan.
+ * Registers every implemented port that reports a device (PX_SSTS.DET == 3),
+ * in port order, so blk_open(0..n) addresses the attached disks. */
 int ahci_probe(uint64_t abar_phys)
 {
     uint32_t pi;
-    int port;
+    int port, registered = 0;
 
     g_abar = (volatile uint32_t *)k_phys_to_virt(abar_phys);
     g_abar[HBA_GHC / 4] |= GHC_AE;
@@ -85,17 +86,36 @@ int ahci_probe(uint64_t abar_phys)
     k_log("\n");
 
     for (port = 0; port < 32; port++) {
-        if (pi & (1u << port)) {
-            if (init_port(port) != 0) {
-                return -1;
-            }
-            if (blk_register(&AHCI_OPS, &g_port) < 0) {
-                k_log("ahci: device table full\n");
-                return -1;
-            }
-            return 0;
+        volatile uint32_t *px;
+        if (!(pi & (1u << port))) {
+            continue;
         }
+        if (registered >= AHCI_MAX_PORTS) {
+            k_log("ahci: port table full\n");
+            break;
+        }
+        px = &g_abar[PORT_BASE(port) / 4];
+        if ((px[PX_SSTS / 4] & 0x0Fu) != 3) {
+            k_log("ahci: port ");
+            k_log_hex((uint64_t)port);
+            k_log(" empty\n");
+            continue;
+        }
+        if (init_port(&g_ports[registered], port) != 0) {
+            k_log("ahci: port ");
+            k_log_hex((uint64_t)port);
+            k_log(" unusable\n");
+            continue;
+        }
+        if (blk_register(&AHCI_OPS, &g_ports[registered]) < 0) {
+            k_log("ahci: device table full\n");
+            break;
+        }
+        registered++;
     }
-    k_log("ahci: no implemented ports");
-    return -1;
+    if (registered == 0) {
+        k_log("ahci: no device on any implemented port");
+        return -1;
+    }
+    return 0;
 }
