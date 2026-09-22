@@ -71,10 +71,14 @@ config VIRT
         profile except hypervisor/all.
 
 config GRAPHICS
-    bool "fb_info / KMS API (M13)"
+    bool "fb_info / KMS API (M13) + GPU/PCI report (M12-6)"
     default n
     help
-        The framebuffer/KMS graphics contract and its kernel demos.
+        The framebuffer/KMS graphics contract and its kernel demos, plus
+        the read-only GPU/PCI report (display IDs/BARs/mapped aperture,
+        PCIe link capability, ACPI thermal-zone hook) printed at boot and
+        by the rescue shell `gpu` command. The `rescue` and `desktop`
+        profiles select it; the minimal kernel links none of it.
 
 config DESKTOP
     bool "Desktop session (M15)"

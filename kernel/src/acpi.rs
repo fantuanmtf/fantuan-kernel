@@ -1,18 +1,35 @@
 //! Minimal ACPI table walker (M12-1): validates the RSDP, walks the
 //! RSDT/XSDT and reports the tables the later milestones need — FADT (power
 //! management flags), MADT (CPU count) and the IOMMU tables (DMAR/IVRS) for
-//! the virtualization work. Read-only and bounded: every structure is
+//! the virtualization work. M12-6 extends it with the FADT -> DSDT walk and
+//! a bounded AML scan for the `_TZ_` thermal-zone name (report-only; no AML
+//! is interpreted). Read-only and bounded: every structure is
 //! checksum-verified and every length is clamped before it is trusted.
 
 use core::fmt::Write;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::mm::paging::phys_to_virt;
 use crate::serial::{self, Serial};
 
 const RSDP_SIG: &[u8; 8] = b"RSD PTR ";
 const MAX_TABLES: usize = 64;
+const MAX_DSDT: usize = 1024 * 1024;
 
-#[allow(dead_code)] // has_fadt/cpu_count reserved for M12-6 (thermal)
+static ACPI_SEEN: AtomicBool = AtomicBool::new(false);
+static THERMAL_ZONE: AtomicBool = AtomicBool::new(false);
+
+/// Whether the last ACPI walk found a `_TZ_` thermal zone. None when no walk
+/// happened (BIOS boot, bad RSDP); Some(false) when ACPI parsed but no zone
+/// was exposed. Temperature evaluation is out of scope (M12-6, report-only).
+pub fn thermal_zone() -> Option<bool> {
+    if ACPI_SEEN.load(Ordering::Relaxed) {
+        Some(THERMAL_ZONE.load(Ordering::Relaxed))
+    } else {
+        None
+    }
+}
+
 pub struct Tables {
     pub revision: u8,
     pub count: usize,
@@ -20,6 +37,8 @@ pub struct Tables {
     pub has_madt: bool,
     pub has_dmar: bool,
     pub has_ivrs: bool,
+    pub has_dsdt: bool,
+    pub thermal_zone: bool,
     pub cpu_count: u32,
 }
 
@@ -91,10 +110,13 @@ pub fn init(rsdp_phys: u64) -> Option<Tables> {
         has_madt: false,
         has_dmar: false,
         has_ivrs: false,
+        has_dsdt: false,
+        thermal_zone: false,
         cpu_count: 0,
     };
     let mut found = [0u8; 4 * 8];
     let mut found_n = 0usize;
+    let mut fadt = 0u64;
     for i in 0..count {
         let off = 36 + i * entry;
         let table = if use64 { le64(sdt_bytes, off) } else { le32(sdt_bytes, off) as u64 };
@@ -109,7 +131,10 @@ pub fn init(rsdp_phys: u64) -> Option<Tables> {
         let sig = [hdr[0], hdr[1], hdr[2], hdr[3]];
         t.count += 1;
         match &sig {
-            b"FACP" => t.has_fadt = true,
+            b"FACP" => {
+                t.has_fadt = true;
+                fadt = table;
+            }
             b"APIC" => {
                 t.has_madt = true;
                 // MADT: local APIC entries (type 0) with the enabled bit set.
@@ -137,11 +162,51 @@ pub fn init(rsdp_phys: u64) -> Option<Tables> {
         }
     }
 
+    // M12-6: FADT -> DSDT (offset 40; the 64-bit X_DSDT at 140 when the FADT
+    // is ACPI 2.0+) and a bounded scan for the `_TZ_` thermal-zone name. The
+    // scan finds the name wherever it appears, so a match is a hook-presence
+    // signal, not an evaluated object.
+    let mut dsdt = 0u64;
+    if fadt != 0 {
+        let flen = le32(bytes(fadt, 8), 4) as usize;
+        if (36..=4096).contains(&flen) {
+            let f = bytes(fadt, flen);
+            dsdt = le32(f, 40) as u64;
+            if flen >= 148 {
+                let x = le64(f, 140);
+                if x != 0 {
+                    dsdt = x;
+                }
+            }
+        }
+    }
+    if dsdt != 0 {
+        let hdr = bytes(dsdt, 36);
+        let dlen = le32(hdr, 4) as usize;
+        if (36..=MAX_DSDT).contains(&dlen)
+            && &hdr[0..4] == b"DSDT"
+            && checksum(bytes(dsdt, dlen))
+        {
+            t.has_dsdt = true;
+            let d = bytes(dsdt, dlen);
+            let mut i = 0usize;
+            while i + 4 <= dlen {
+                if &d[i..i + 4] == b"_TZ_" {
+                    t.thermal_zone = true;
+                    break;
+                }
+                i += 1;
+            }
+        }
+    }
+    ACPI_SEEN.store(true, Ordering::Relaxed);
+    THERMAL_ZONE.store(t.thermal_zone, Ordering::Relaxed);
+
     let mut s = Serial::new(serial::COM1);
     let _ = writeln!(
         s,
         "acpi: rev {} {} ({} tables)",
-        revision,
+        t.revision,
         if use64 { "XSDT" } else { "RSDT" },
         t.count
     );
@@ -152,8 +217,8 @@ pub fn init(rsdp_phys: u64) -> Option<Tables> {
     }
     let _ = writeln!(
         s,
-        "acpi: fadt={} madt={} cpus={} dmar={} ivrs={}",
-        t.has_fadt, t.has_madt, t.cpu_count, t.has_dmar, t.has_ivrs
+        "acpi: fadt={} madt={} cpus={} dmar={} ivrs={} dsdt={} tz={}",
+        t.has_fadt, t.has_madt, t.cpu_count, t.has_dmar, t.has_ivrs, t.has_dsdt, t.thermal_zone
     );
     Some(t)
 }

@@ -32,7 +32,7 @@ TLS = NET + ["TLS"]
 PROFILES = {
     "minimal": ["SHELL"],
     "imager": ["SHELL", "IMAGER"],
-    "rescue": ["SHELL", "RESCUE_REPAIR", "IMAGER", "NTFS"],
+    "rescue": ["SHELL", "RESCUE_REPAIR", "GRAPHICS", "IMAGER", "NTFS"],
     "net": NET + ["IMAGER", "NTFS"],
     "tls": TLS + ["IMAGER", "NTFS"],
     "desktop": NET + ["GRAPHICS", "DESKTOP", "IMAGER", "NTFS"],

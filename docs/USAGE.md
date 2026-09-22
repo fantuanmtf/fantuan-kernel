@@ -23,7 +23,7 @@ writes after an explicit `YES`. The main paths:
 | Console | 16550 serial + GOP framebuffer mirror | NS16550 MMIO UART |
 | Storage | AHCI (reference) and NVMe | virtio-mmio block |
 | UEFI/NVRAM repair | yes (Runtime Services) | no (diagnosis only, honest degrade) |
-| Shell commands | 2 core; `rescue` adds 10; `net`/`tls` add 3 tools | 2 core; `rescue` adds 7 |
+| Shell commands | 2 core; `rescue` adds 12; `net`/`tls` add 3 tools | 2 core; `rescue` adds 7 |
 
 Current release: **v0.0.3** (see [HANDOVER.md](HANDOVER.md) for status).
 The release adds a self-written legacy-BIOS boot chain (x86_64 and i686)
@@ -68,8 +68,9 @@ The shell is also fed by an autorun script when the ESP contains
 
 The default minimal kernel's table holds only the **core builtins**
 (`help`, `bootinfo`). The `[rescue]` rows need `CONFIG_RESCUE_REPAIR=y`
-(`tools/kconfig.py --profile rescue`); the `[tools]` rows need
-`CONFIG_TOOLS=y` plus networking (the `net`/`tls` profiles) and are the
+(`tools/kconfig.py --profile rescue`); the `gpu` row additionally needs
+`CONFIG_GRAPHICS=y` (the `rescue` profile selects it). The `[tools]` rows
+need `CONFIG_TOOLS=y` plus networking (the `net`/`tls` profiles) and are the
 non-default interim bridge until the app catalog takes over at M14. The
 `clone` row needs `CONFIG_IMAGER=y` (the `rescue`/`net`/`tls`/`desktop`
 profiles enable it; the minimal kernel has no imager).
@@ -89,6 +90,7 @@ profiles enable it; the minimal kernel has no imager).
 | `diskhealth [--scan]` | [rescue] | identity + SMART; `--scan` reads the surface (`q` cancels) |
 | `grub-fix [diagnose\|repair\|install]` | [rescue] | boot-repair chain (see below) |
 | `crypto-selftest` | [rescue] | SHA-256/RSA known-answer tests (x86 only) |
+| `gpu` | [rescue] | re-prints the read-only GPU/PCI report: display IDs/names, BARs, mapped aperture, PCIe link, ACPI thermal hook (x86, M12-6) |
 | `clone <src> <dst> [--quick] [--continue] [--retries N] [--verify] [--yes]` | [imager] | verified raw-sector copy of `blk0`..`blk3` (M12); bad-sector policy + report (M12-3) |
 | `ping <host> [count]` | [tools] | ICMP echo (count 1-5) |
 | `nslookup <name> [server]` | [tools] | DNS A-record lookup |
@@ -222,7 +224,7 @@ Full rationale and commands: [WINDOWS.md](WINDOWS.md).
 | Storage | AHCI (every populated port), NVMe, virtio-mmio; i686 legacy PIO ATA (read-only, so `clone` destinations there are read-only) | verified disk imager (`clone` + `--continue` bad-sector policy and report, v0.0.4); more drivers (v0.0.4) |
 | Filesystems | FAT32 (write-gated on x86_64/riscv), ext4 (ro), NTFS read-only (`/mnt/win0`, M12-4/M12-5), others probe-only; i686 read-only | NTFS per-file write (never planned), more read-only filesystems (v0.0.4+) |
 | Network | NetBSD-derived IPv4/TCP on x86_64 (e1000) + aarch64 (virtio-net MMIO); DHCP/DNS/ping/wget, HTTP and pinned-CA HTTPS (mbedTLS); riscv/i686 have no NIC yet | user sockets (M14), IPv6/IPsec later |
-| Graphics | serial + GOP console; VBE text console (i686, serial mirror) | framebuffer/KMS API (v0.0.5), XFCE/Qt (v0.1.5) |
+| Graphics | serial + GOP console; VBE text console (i686, serial mirror); read-only GPU/PCI report (`gpu`, M12-6: identity/IDs, BARs + mapped aperture, PCIe link, ACPI-TZ availability; QEMU-validated — the real AMD RX 500/6000 link/thermal capture is a manual follow-up) | framebuffer/KMS API (v0.0.5), XFCE/Qt (v0.1.5) |
 | Virtualization | none | detect (v0.0.4), minimal hypervisor (v0.1.0), isolated mounting (v0.1.5) |
 | Windows boot repair | not supported | not supported — use WinPE |
 

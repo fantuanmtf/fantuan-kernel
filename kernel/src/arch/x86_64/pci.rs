@@ -46,6 +46,18 @@ pub fn read32(bus: u8, dev: u8, func: u8, off: u8) -> u32 {
     }
 }
 
+/// Byte-sized config-space read (capability-list walkers, M12-6).
+#[cfg(kconfig_graphics)]
+pub fn read8(bus: u8, dev: u8, func: u8, off: u8) -> u8 {
+    (read32(bus, dev, func, off & 0xFC) >> ((off & 3) * 8)) as u8
+}
+
+/// Word-sized config-space read (status/PCIe link registers, M12-6).
+#[cfg(kconfig_graphics)]
+pub fn read16(bus: u8, dev: u8, func: u8, off: u8) -> u16 {
+    (read32(bus, dev, func, off & 0xFC) >> ((off & 2) * 8)) as u16
+}
+
 /// Raw config-space dword write (the e1000 driver enables memory space +
 /// bus mastering and assigns no bars itself; firmware did that).
 pub fn write32(bus: u8, dev: u8, func: u8, off: u8, val: u32) {

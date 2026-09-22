@@ -52,9 +52,10 @@ elf_has_string() { # elf name
 
 # The command names that must disappear from the minimal/default ELF (their
 # tables and implementations are gated by CONFIG_RESCUE_REPAIR/CONFIG_TOOLS/
-# CONFIG_IMAGER). `part` cannot be a string invariant because the boot-time
-# VFS already prints "part: LBA ...".
-RESCUE_STRINGS=(diskhealth lsmnt lsos mount umount cat hwdiag lsdev grub-fix crypto-selftest)
+# CONFIG_IMAGER; `gpu` additionally needs CONFIG_GRAPHICS, M12-6). `part`
+# cannot be a string invariant because the boot-time VFS already prints
+# "part: LBA ...".
+RESCUE_STRINGS=(diskhealth lsmnt lsos mount umount cat hwdiag lsdev grub-fix crypto-selftest gpu)
 # `ls` cannot be a token invariant: the embedded /bin/ls userland binary
 # carries "ls:" strings in every profile, and adjacent .rodata literals glue
 # the name to the help text. The ls help wording is unique to the table.
@@ -165,7 +166,7 @@ if grep -q "shell: ready" "$MIN_LOG" \
    && grep -q "shell commands (root@Fantuan-MTF" "$MIN_LOG" \
    && grep -q "^  help        this table" "$MIN_LOG" \
    && grep -q "^  bootinfo    boot handover details" "$MIN_LOG" \
-   && ! grep -qE "^  (hwdiag|lsdev|lsos|lsmnt|mount|umount|ls|cat|diskhealth|grub-fix|crypto-selftest|clone|ping|nslookup|wget) " "$MIN_LOG" \
+   && ! grep -qE "^  (hwdiag|lsdev|gpu|lsos|lsmnt|mount|umount|ls|cat|diskhealth|grub-fix|crypto-selftest|clone|ping|nslookup|wget) " "$MIN_LOG" \
    && ! grep -q "net: lo0 up" "$MIN_LOG" \
    && ! grep -q "rump:" "$MIN_LOG" \
    && ! grep -q "ntfs:" "$MIN_LOG" \
@@ -183,7 +184,7 @@ echo "[phase rescue] .config = rescue profile..."
 python3 tools/kconfig.py --profile rescue >/dev/null || fail "writing the rescue profile"
 cargo build -p fantuan-kernel --target x86_64-unknown-none --release \
   > build/smoke-config-rescue-build.log 2>&1 || fail "rescue profile x86_64 build"
-for s in diskhealth grub-fix; do
+for s in diskhealth grub-fix gpu; do
   elf_has_string "$ELF" "$s" || fail "rescue profile: '$s' missing from the ELF"
 done
 elf_has_string "$ELF" "$LS_STRING" || fail "rescue profile: ls help text missing from the ELF"

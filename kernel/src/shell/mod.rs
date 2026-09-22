@@ -6,7 +6,7 @@
 //! of CONFIG_RESCUE_REPAIR (C5) and CONFIG_TOOLS/CONFIG_NET stays correct:
 //!   core    help, bootinfo
 //!   rescue  hwdiag, lsdev, lsos, lsmnt, mount, umount, cat, diskhealth,
-//!           grub-fix, crypto-selftest
+//!           grub-fix, crypto-selftest; gpu when CONFIG_GRAPHICS is on
 //!   imager  clone (CONFIG_IMAGER; independent of RESCUE_REPAIR)
 //!   tools   ping, nslookup, wget (CONFIG_TOOLS; CONFIG_NET=n stubs)
 
@@ -24,7 +24,9 @@ pub mod cmds_net;
 pub mod sh;
 
 const CORE_COMMANDS: usize = 5;
-#[cfg(kconfig_rescue_repair)]
+#[cfg(all(kconfig_rescue_repair, kconfig_graphics))]
+const RESCUE_COMMANDS: usize = 12;
+#[cfg(all(kconfig_rescue_repair, not(kconfig_graphics)))]
 const RESCUE_COMMANDS: usize = 11;
 #[cfg(not(kconfig_rescue_repair))]
 const RESCUE_COMMANDS: usize = 0;
@@ -69,6 +71,8 @@ pub static COMMANDS: [Command; N_COMMANDS] = [
     Command { name: "grub-fix", help: "boot repair [diagnose|repair|install]", run: rescue::cmd_grubfix },
     #[cfg(kconfig_rescue_repair)]
     Command { name: "crypto-selftest", help: "run the SHA-256/RSA known-answer tests", run: cmds::cmd_crypto },
+    #[cfg(all(kconfig_rescue_repair, kconfig_graphics))]
+    Command { name: "gpu", help: "GPU/PCI report: IDs, BARs, PCIe link, ACPI thermal (ro)", run: cmds::cmd_gpu },
     #[cfg(kconfig_imager)]
     Command { name: "clone", help: "clone <src> <dst> [--verify] [--yes] — verified raw disk copy", run: kernel_core::shell::imager::cmd_clone },
     #[cfg(kconfig_tools)]

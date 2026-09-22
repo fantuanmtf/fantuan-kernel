@@ -12,7 +12,7 @@
 | v0.0.1 | M0-M9 (x86_64 rescue + RISC-V port) | `[##########] 100%` | tag `v0.0.1` (local) |
 | v0.0.2 | M10 legacy BIOS boot + i686 | `[##########] 100%` | released as 0.0.2: `smoke.sh` 13/13, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3, `smoke-iso.sh` 2/2 |
 | v0.0.3 | M11 ARM64 + full TCP/HTTPS | `[##########] 100%` | released as 0.0.3: R1-R8 verified; C5 minimal/tools/bash-prep; R9a direct-FDT boot + R9b virtio-net/TLS (`smoke-aarch64.sh` 2/2), `smoke-net.sh` PASS, `smoke-config.sh` PASS, `smoke-bios.sh` 2/2, `smoke-riscv.sh` 3/3; aarch64 UEFI/AAVMF deferred to M14 |
-| v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[########--] 85%` | M12-1/M12-2/M12-3/M12-4/M12-5/M12-7 verified |
+| v0.0.4 | M12 disk tools + NTFS + GPU + virt detect | `[##########] 100%` | M12-1..M12-7 verified (M12-6 QEMU-only per owner decision; the real AMD link/thermal capture is a manual follow-up) |
 | v0.0.5 | M13 graphics/input + interface freeze | `[#---------] 10%` | design only |
 | v0.1.0 | M14 Linux userspace + bootstrap + hypervisor V2 | `[####------] 30%` | P3 bash 5.3 runs, `sh` is bash (working tree): `tools/smoke-bash.sh` PASS, `tools/smoke-dash.sh` PASS (dash selectable); P1 `tools/smoke-posix.sh` PASS |
 | v0.1.5 | M15 desktop + isolation + MinGW | `[----------] 0%` | - |
@@ -298,7 +298,25 @@ Design: `M12_TOOLS_HW.md`.
       resident + fragmented hash equality, corrupt-record rejection,
       EROFS write attempt) and `tools/smoke-config.sh` PASS (minimal ELF
       free of the NTFS mount)
-- [ ] M12-6 AMD GPU report (identity/BAR/PCIe link/thermal)
+- [x] M12-6 AMD/PCI GPU report (identity/BAR/PCIe link/thermal): report-only
+      probe behind `CONFIG_GRAPHICS` (the `rescue` profile now selects it,
+      so `--profile rescue` prints the block and registers the shell `gpu`
+      command; minimal/net link neither). Mechanics:
+      `kernel/src/arch/x86_64/pci_probe.rs` (subsystem IDs, bounded
+      capability walk, the write-1s BAR sizing probe with the original value
+      restored, PCIe Link Capabilities/Status) and `kernel/src/diag/gpu.rs`
+      (known-ID names — QEMU stdvga 0x1234:0x1111, Cirrus GD5446
+      0x1013:0x00B8, virtio-gpu/QXL, AMD RX 500/5000/6000 plus iGPUs —, the
+      aperture mapped through PHYS_OFFSET and read once, 256 MiB cap, 64-bit
+      BARs included, no writes and no unbounded walks). `kernel/src/acpi.rs`
+      walks FADT -> DSDT and scans for `_TZ_` (hook presence only; no AML);
+      the summary line gains `dsdt=… tz=…`. Verify `tools/smoke-gpu.sh`
+      PASS (std/cirrus/virtio identity + BAR lines, 64-bit aperture mapped,
+      `pcie n/a`, no ACPI TZ, shell reprint) plus the `smoke.sh` main/shell
+      phases and `smoke-config.sh` gating. QEMU-only acceptance (owner
+      decision): QEMU display devices expose no PCIe capability and its DSDT
+      has no thermal zone, so the RX 500/6000 link/thermal capture is the
+      OPERATIONS §5.1 manual follow-up
 - [x] M12-7 virtualization detection: hypervisor vendor (CPUID.40000000h),
       VMX (+ IA32_FEATURE_CONTROL lock/enable, EPT/VPID caps), SVM + NPT,
       VT-d/AMD-Vi via DMAR/IVRS, ROADMAP sec. 9 matrix row, TCG caveat and
@@ -362,6 +380,7 @@ Design: `M14_LINUXUSERS.md`.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09 | M12-6 GPU/PCI report (working tree): `CONFIG_GRAPHICS` gates the read-only probe (`kernel/src/arch/x86_64/pci_probe.rs`: subsystem IDs, bounded capability walk, write-1s BAR sizing with restore, PCIe Link Capabilities/Status; `kernel/src/diag/gpu.rs`: known-ID names incl. QEMU stdvga 0x1234:0x1111, Cirrus GD5446 0x1013:0x00B8, AMD RX 500/5000/6000, each memory BAR mapped through PHYS_OFFSET and read once, 256 MiB cap, 64-bit BARs) and the `rescue` profile now selects it. The boot prints `  gpu: 00:02.0 1234:1111 QEMU stdvga [display] ss=1af4:1100` + `  gpu: bar0 0x80000000 size 16M (mapped ro)` + `  gpu: pcie n/a (no PCIe capability)` + `  gpu: pci display devices found: 1` + `  gpu: thermal unavailable (no ACPI TZ)`; the shell `gpu` command re-prints the same block. ACPI walks FADT->DSDT and scans `_TZ_` (hook presence only; `acpi: … dsdt=true tz=false` on QEMU). `tools/smoke-gpu.sh` PASS twice (std BAR0 16M, cirrus BAR0 32M, virtio 16K 64-bit BAR above 4 GiB mapped ro, each with identity/BAR asserts, `pcie n/a`, no TZ and the shell reprint). `smoke.sh` phases 1 and 8 PASS with the GPU assertions (`shell: autorun 10 command(s)`); under the host's LLVM-build load the two full-suite runs timed out in the unrelated phases 7 and 9, which pass on individual reruns with longer budgets (as do 10, the keyboard phase and the 11-13 SMM sequence). `smoke-config.sh` PASS (minimal has no `gpu` token, rescue links it; net stays graphics-free); `smoke-bios.sh` 2/2. Builds zero warnings: x86_64 minimal/rescue/net/tls, riscv64, i686, aarch64. QEMU-only acceptance per owner decision: QEMU display models expose no PCIe capability and its DSDT has no thermal zone, so the real AMD RX 500/6000 `pcie link`/thermal capture stays the OPERATIONS §5.1 manual follow-up | PASS |
 | 2026-09 | M12-4/M12-5 NTFS read-only (working tree): `CONFIG_NTFS` gates `kernel-core/src/vfs/ntfs/` (boot/BPB + `$MFT` bootstrap, FILE records with fixups, attributes/runlists with sparse zero-fill, `$I30` INDEX_ROOT + INDEX_ALLOCATION walk, `$DATA` reads with a 2 x 4 KiB cache) and the read-only `/mnt/win0` mount; `tools/mkntfs.py` hand-builds a deterministic fixture (validated by ntfs-3g `ntfsls`/`ntfscat`) with a 3-run fragmented file, a non-ASCII name and one corrupt FILE record. `tools/smoke-ntfs.sh` PASS: `ntfs: mounted ro — label 'FANTUANNTFS', 4096 clusters of 4096 B, MFT record 1024 B at LCN 4` + `ntfs: mounted ro at /mnt/win0 (part 2)` + probe `part 2: NTFS (mounted ro)`; root/Users listing equality; kernel SHA-256 of hello.txt (`eb399ef1…`), frag.bin (`2800da22…`, 3 runs, truncated dump), résumé.txt and alice.txt equal to the host fixture hashes; `cat: NTFS: record corrupt (update sequence mismatch)` for the broken record; userland bash `ls`/`cat` over `/mnt/win0` work and `echo x > /mnt/win0/new.txt` returns `Read-only file system`; `cmp` of the rebuilt image shows the volume byte-identical after the run. Regressions: `smoke.sh` 13/13, `smoke-bios.sh` 2/2, `smoke-config.sh` PASS (minimal NTFS-free), `smoke-imager.sh` PASS, `smoke-imager-bad.sh` PASS; x86_64 minimal/rescue/net/tls, riscv64, i686, aarch64 builds zero warnings. No real Windows 10 image is available on this host, so the optional Win10 `Windows/System32` check stays an OPERATIONS manual path | PASS |
 | 2026-09 | M12-3 bad-sector policy + report (working tree): `clone --continue` retries, isolates per sector, zero-fills and records bad ranges; every copy run writes `/tmp/clone-report.txt` (tmpfs) and mirrors it to serial with `clone-report:` lines (source/destination, policy, full/quick verify, source/stream/destination SHA-256, `bad-range lba=… count=… errors=… retries=…`, totals, `verdict verified/partial/failed`); `--quick` samples the first/last 1 MiB + 1 MiB at 25/50/75%. Fixture: `tools/mkdisk.py --badclusters 100:4,700:2` writes the source + `.bad` sidecar and `tools/run.sh --imager-bad` injects each sector as a real blkdebug `read_aio` error (the AHCI path now kicks `PxCI` after a failure so retries and later sectors work). `tools/smoke-imager-bad.sh` PASS: default abort at LBA 100 (nothing written), `--continue` completes with the destination SHA-256 = the host pattern-with-bad-ranges-zeroed (`06741878…`), report `bad-ranges 2 / errors 6 / retries 18 / verdict partial`, quick run `verdict verified`. `tools/smoke-imager.sh` PASS, `tools/smoke-config.sh` PASS, `tools/smoke.sh` 13/13, `tools/smoke-bios.sh` 2/2; x86_64 minimal/imager/rescue/net/tls, riscv64, i686, aarch64 builds zero warnings | PASS |
 | 2026-09 | M12-2 disk imager (working tree): `CONFIG_IMAGER` + `clone` landed. `tools/smoke-imager.sh` PASS: the plan/size-gate/YES-gate transcripts, the kernel's pre-copy and destination hashes equal to the host sha256 of the pattern source, the destination prefix identical to the source, the untouched destination tail all-zero, and the read-only message linked in the rescue ELF. The AHCI C probe registers every populated port (blk0/blk1 = two SATA disks); i686 keeps its `blk_write` -1 stub, so its rescue/IMAGER build carries the read-only branch (no i686 shell yet, documented). `tools/smoke-config.sh` covers the IMAGER string gate (minimal absent, net/rescue present); profile builds zero warnings | PASS |

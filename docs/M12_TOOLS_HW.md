@@ -249,6 +249,59 @@ for thermal zones and IOMMU tables); it is small and also feeds M12's
 virtualization detection (DMAR/IVRS). VBIOS/ATOM firmware interpretation is
 explicitly deferred until the M12 spike collects vendor documentation.
 
+### 4a. Implemented in M12-6 (2026-09, report-only; QEMU-only acceptance)
+
+The probe landed behind the existing **`CONFIG_GRAPHICS`** gate (shared with
+the M5.5 GPU presence check and the C4 gating), and the `rescue` profile now
+selects `GRAPHICS` so the rescue console carries the report. The boot stage
+prints the block and the x86 rescue table registers a `gpu` command that
+re-prints it; the minimal/net profiles link neither.
+
+- **Mechanics** (`kernel/src/arch/x86_64/pci_probe.rs`, `kernel/src/diag/
+  gpu.rs`): display-class devices (base class 0x03) are enumerated by the
+  existing `pci.rs` catalog. Config space only: subsystem IDs (0x2C), the
+  capability-list walk (bounded to 48 hops, alignment/cycle-checked), the
+  standard write-1s BAR sizing probe (the original value is restored
+  immediately; no MMIO register is written), and the PCIe capability
+  (Link Capabilities at +0x0C, Link Status at +0x12). Each memory BAR up to
+  256 MiB is mapped through the `PHYS_OFFSET` window (`map_mmio`, 2 MiB
+  pages, PCD/PWT; interrupts off across the page-table update) and its first
+  dword is read once as a reachability probe. Larger VRAM BARs are reported
+  unmapped — no walk, no write, no unbounded loop.
+- **Report lines** (stable, greppable; two-space diag-stage indent):
+  `gpu: 00:02.0 1234:1111 QEMU stdvga [display] ss=1af4:1100`,
+  `gpu: bar0 0x80000000 size 16M (mapped ro)` (or
+  `(mapped ro, 64-bit)` / `(not mapped[, 64-bit])`),
+  `gpu: pcie link 2.5GT/s x1` (or `(max …)` when the maximum differs, or
+  `gpu: pcie n/a (no PCIe capability)`),
+  `gpu: pci display devices found: N`, and
+  `gpu: thermal unavailable (no ACPI TZ)` /
+  `gpu: thermal zone present (ACPI _TZ_; temperature read not implemented)`.
+  Known IDs: QEMU stdvga (0x1234:0x1111), Cirrus GD5446 (0x1013:0x00B8),
+  virtio-gpu, QXL, and the AMD RX 500/5000/6000 families plus common iGPUs;
+  unknown IDs still print the raw vendor:device and the vendor name.
+- **ACPI thermal hook** (`kernel/src/acpi.rs`): the FADT is parsed for the
+  DSDT (offset 40, or X_DSDT at 140 on ACPI 2.0+), the DSDT header is
+  checksum-verified and clamped to 1 MiB, and the image is scanned for the
+  `_TZ_` thermal-zone name. This is a hook-presence signal only — no AML is
+  interpreted and no temperature is read; the ACPI summary line gained
+  `dsdt=… tz=…`.
+- **Acceptance (QEMU-only, accepted by the owner)**: `tools/smoke-gpu.sh`
+  boots `-vga std` (0x1234:0x1111, BAR0 16 MiB mapped ro), `-vga cirrus`
+  (0x1013:0x00B8, BAR0 32 MiB) and `-vga virtio` (a 64-bit MMIO BAR above
+  4 GiB mapped ro) on the rescue profile, asserting the identity/BAR lines
+  from both the boot block and the shell `gpu` command plus the
+  `pcie n/a`/no-TZ lines. `tools/smoke.sh`'s main and shell phases assert
+  the std block; `tools/smoke-config.sh` asserts the minimal ELF has no
+  `gpu` token while the rescue profile links it.
+- **Deferred to real hardware (manual follow-up)**: QEMU display models
+  expose no PCIe capability (checked on i440fx and q35), so the `pcie link`
+  decode and the DSDT `_TZ_`-present branch are exercised only as code
+  paths here. On one real AMD RX 500/6000 GPU the operator records the
+  `pcie link` line and the thermal line (see OPERATIONS §5.1); the identity
+  line and BAR sizes come from the same probe. VBIOS/ATOM interpretation
+  and any temperature evaluation stay out of scope.
+
 ## 5. Virtualization V1 detection
 
 - CPU: `CPUID.1:ECX[31]` hypervisor present; `CPUID.40000000h` vendor
@@ -281,8 +334,12 @@ explicitly deferred until the M12 spike collects vendor documentation.
   zero-fill expectation and the report (`tools/smoke-imager-bad.sh`).
 - NTFS: fixture listing/read equality; a real Windows 10 image lists
   `Windows/System32` entries (read-only).
-- GPU: on QEMU (boot VGA/cirrus) identity+BARs only; on one real AMD GPU
-  (RX 500/6000 series) the link/thermal report is recorded.
+- GPU: `tools/smoke-gpu.sh` boots QEMU std/cirrus/virtio and asserts the
+  identity, known-ID name, BAR sizes and the mapped aperture (QEMU exposes
+  no PCIe capability and no ACPI thermal zone, so those report as `pcie
+  n/a` / `thermal unavailable`, which is asserted). On one real AMD GPU
+  (RX 500/6000 series) the link/thermal report is recorded manually —
+  OPERATIONS §5.1; the QEMU-only acceptance of M12-6 is an owner decision.
 - Virtualization: on a bare host (matrix rows for the local CPU), inside
   KVM/Xen guests (hypervisor vendor string), and on a pre-2010 VM without
   EPT/NPT (fallback wording).

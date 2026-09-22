@@ -26,7 +26,7 @@ extern "C" {
     static __bss_end: u8;
 }
 
-#[cfg(kconfig_virt)]
+#[cfg(any(kconfig_virt, kconfig_graphics))]
 mod acpi;
 mod arch;
 #[cfg(kconfig_rescue_repair)]
@@ -279,12 +279,12 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         smbios::init_from_entry(bi.smbios_table);
         smbios::init(0xF_0000, 0x1_0000);
     }
-    // M12-1/M12-7: ACPI tables + virtualization report (CONFIG_VIRT; the
-    // IOMMU walk is ACPI's only consumer today).
+    // M12-1/M12-7/M12-6: ACPI tables feed the virtualization report
+    // (CONFIG_VIRT) and the GPU thermal hook (CONFIG_GRAPHICS).
+    #[cfg(any(kconfig_virt, kconfig_graphics))]
+    let _acpi = acpi::init(bi.rsdp);
     #[cfg(kconfig_virt)]
-    let acpi = acpi::init(bi.rsdp);
-    #[cfg(kconfig_virt)]
-    diag::virt::report(acpi.as_ref());
+    diag::virt::report(_acpi.as_ref());
 
     let stage1 = [
         diag::Check { name: "cpu", run: diag::cpu::check },

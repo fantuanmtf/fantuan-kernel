@@ -37,8 +37,9 @@ CONFIG_SECURE_WIPE      bool  default n    # Live shutdown RAM wipe
 ```
 
 Profiles (C5): `minimal` (SHELL only - the Live boot set), `rescue` (adds
-the diagnostic commands and boot repair), `net` (adds TOOLS + NET +
-drivers + self-test), `tls` (net + mbedTLS), `desktop`, `hypervisor`, `all`.
+the diagnostic commands and boot repair; also `GRAPHICS` for the M12-6 GPU
+report), `net` (adds TOOLS + NET + drivers + self-test), `tls` (net +
+mbedTLS), `desktop`, `hypervisor`, `all`.
 The non-default `TOOLS` bridge is the R7 in-kernel ping/nslookup/wget; the
 catalog home is `apps/{ping,nslookup,wget}` from M14 (APPS.md). M12-2 adds
 `IMAGER` (the verified `clone` raw-disk copy) to the rescue/tools profiles
@@ -152,6 +153,15 @@ with the symbol. The minimal profile stays NTFS-free: `smoke-config.sh`
 asserts the minimal ELF has no `win0` string and no `ntfs:` boot line,
 while the rescue/net/tls/desktop/hypervisor profiles mount the fixture
 read-only (`tools/smoke-ntfs.sh`).
+
+Gated in M12-6: `CONFIG_GRAPHICS` selects the read-only GPU/PCI report
+(`kernel/src/arch/x86_64/pci_probe.rs`, `kernel/src/diag/gpu.rs`) that the
+boot stage prints and the rescue shell re-prints as `gpu`. The `rescue`
+profile selects `GRAPHICS` (the minimal/net profiles do not): `smoke-config.sh`
+asserts the minimal ELF has no `gpu` token while the rescue profile links
+it. The probe is read-only (config-space reads plus the standard write-1s
+BAR sizing with the original value restored, and a bounded MMIO aperture
+read); the ACPI `_TZ_` scan is hook-presence only.
 
 ## Implemented in C5 (2026-09)
 

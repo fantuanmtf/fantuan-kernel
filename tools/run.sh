@@ -4,7 +4,8 @@
 #                     [--broken-shim] [--smm] [--no-smbios] [--two-fs]
 #                     [--keys] [--shell-repair] [--nvme] [--bigcluster]
 #                     [--liar] [--grub-regen] [--net] [--imager] [--imager-bad]
-#                     [--ntfs]
+#                     [--ntfs] [--vga std|cirrus|virtio|none]
+#   --vga: x86 display model (default std); the M12-6 GPU probe smoke uses it.
 #   --net:    attach the kernel-net NIC on QEMU user networking (SLIRP):
 #             the e1000 on x86_64, the virtio-net-device MMIO transport on
 #             aarch64 (with -global virtio-mmio.force-legacy=false); without
@@ -39,9 +40,10 @@ RISC_BROKEN=0
 RISC_NOSHIM=0
 RISC_KEYS=0
 AARCH64_NET=0
+VGA=""
 prev=""
 for a in "$@"; do
-  if [ "$prev" = "--arch" ]; then ARCH="$a"; fi
+  case "$prev" in --arch) ARCH="$a" ;; --vga) VGA="$a" ;; esac
   if [ "$a" = "--disk" ]; then RISC_DISK=1; fi
   if [ "$a" = "--two-fs" ]; then RISC_TWO_FS=1; fi
   if [ "$a" = "--broken" ]; then RISC_BROKEN=1; fi
@@ -264,6 +266,9 @@ QEMU_ARGS=(
 )
 # Storage attachment comes from $AHCI_DEV (AHCI by default, NVMe with --nvme).
 QEMU_ARGS+=( $AHCI_DEV )
+# M12-6: display adapter model (std default; the GPU probe smoke uses cirrus).
+case "$VGA" in ""|std|cirrus|virtio|none|vmware) ;; *) echo "error: unknown --vga mode '$VGA'" >&2; exit 1 ;; esac
+[ -z "$VGA" ] || QEMU_ARGS+=( -vga "$VGA" )
 # M11 R6 network: --net attaches the e1000 on QEMU user networking (SLIRP);
 # otherwise the default NIC is disabled so the loopback phases are NIC-less.
 if [ "$NET" = "1" ]; then

@@ -248,6 +248,7 @@ else:
     cmds = [
         b"help",
         b"lsdev",
+        b"gpu",
         b"lsos",
         b"lsmnt",
         b"cat /HELLO.TXT",

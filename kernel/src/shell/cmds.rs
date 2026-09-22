@@ -60,3 +60,9 @@ pub fn cmd_crypto(_sh: &mut Shell, s: &mut Log, _args: &[&[u8]]) {
         out!(s, "crypto: FAILURES above — do not trust authenticated bundles");
     }
 }
+
+/// M12-6: re-print the GPU/PCI report (the same block the boot stage prints).
+#[cfg(kconfig_graphics)]
+pub fn cmd_gpu(_sh: &mut Shell, s: &mut Log, _args: &[&[u8]]) {
+    diag::gpu::report(s);
+}

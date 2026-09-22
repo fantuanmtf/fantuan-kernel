@@ -18,6 +18,7 @@ itself see [USAGE.md](USAGE.md); for builds see [BUILD.md](BUILD.md).
 | `tools/smoke-imager.sh` | M12 `clone` gate: verified round trip, size/YES gates, read-only branch | ~2 min |
 | `tools/smoke-imager-bad.sh` | M12-3 bad-sector gate: default abort, `--continue` zero-fill, report ranges/counts, `--quick` | ~1 min |
 | `tools/smoke-ntfs.sh` | M12-4/M12-5 NTFS gate: `/mnt/win0` mount/facts, listing equality, resident + fragmented hashes, corrupt-record rejection, no-write | ~1 min |
+| `tools/smoke-gpu.sh` | M12-6 GPU/PCI gate: std/cirrus/virtio identity + BAR lines, 64-bit aperture mapped ro, `pcie n/a`, no ACPI TZ, shell `gpu` | ~5 min |
 | `tools/smoke-bios.sh` | legacy BIOS chain: x86_64 + i686 (2 phases) | ~2 min |
 | `tools/smoke-riscv.sh` | riscv acceptance suite (3 phases) | ~4 min |
 | `tools/smoke-aarch64.sh` | aarch64 direct FDT + virtio-net/TLS offline gate (2 phases) | ~4 min |
@@ -31,20 +32,20 @@ exit non-zero on the first failing phase. Logs land in `build/*.log`.
 ## 2. The x86 suite (`tools/smoke.sh`, 13 phases)
 
 The suite selects an explicit richer profile before booting
-(`minimal` + `RESCUE_REPAIR` + `VIRT` + `SMBIOS`): it asserts the storage
-diagnostics and rescue/VFS shell commands that the default minimal kernel
-gates out (C5).
+(`minimal` + `RESCUE_REPAIR` + `VIRT` + `SMBIOS` + `GRAPHICS`): it asserts
+the storage diagnostics, the M12-6 GPU/PCI block and the rescue/VFS shell
+commands that the default minimal kernel gates out (C5).
 
 | # | Phase (PASS string suffix) | What it proves |
 |---|---|---|
-| 1 | boot path is read-only: no repair writes | normal boot + negative write greps |
+| 1 | boot path is read-only: no repair writes | normal boot + negative write greps + the `gpu:` identity/BAR/thermal block |
 | 2 | broken-ESP repair via shell YES confirmation | consent-gated fallback copy |
 | 3 | ext4 root, real fstab, /boot inventory, systemd/UKI | read-only root stack |
 | 4 | no -smbios overrides: firmware defaults parsed | SMBIOS fallback |
 | 5 | grub-fix install — backup, regenerate, publish, verify | config regeneration |
 | 6 | crafted FAT: oversized file entry truncated | hostile-input robustness |
 | 7 | 4 KiB clusters: short-data cluster write zero-pads | FAT write correctness |
-| 8 | shell: autorun commands + surface scan + crypto KATs + idle notice | interactive shell |
+| 8 | shell: autorun commands + surface scan + crypto KATs + idle notice | interactive shell; the autorun also re-runs `gpu` |
 | 9 | shell: confirmation-gated repair + cat of the repaired fallback | repair round-trip |
 | 10 | NVMe: controller + VFS + SMART + boot repair | second block transport |
 | 11 | Secure Boot: platform key enrolled | Setup Mode enrollment |
@@ -163,6 +164,7 @@ tools/smoke-aarch64.sh                 # bounded acceptance run (PASS/SKIP)
 | `--imager` | M12 `clone` fixtures on one AHCI controller: test disk (blk0) + pattern source (blk1) + larger/smaller empty destinations (blk2/blk3); autorun runs the gate transcript |
 | `--imager-bad` | M12-3 bad-sector fixtures: blk1 pattern with QEMU blkdebug read errors, blk2 empty destination, blk3 clean pattern; autorun runs abort/`--continue`/`--quick` (ranges default `100:4,700:2`, override with `BADCLUSTERS`) |
 | `--ntfs` | M12-4/M12-5 NTFS fixture: `mkdisk.py --ntfs` adds the hand-built read-only NTFS volume (partition 2) and the `/mnt/win0` autorun (listings, reads, corrupt-record and write-refusal probes) |
+| `--vga std\|cirrus\|virtio\|none` | x86 display model for the M12-6 GPU probe (default `std`); `smoke-gpu.sh` boots std/cirrus/virtio |
 | `--smm` | x86 on q35 with SMM OVMF (required for SetVariable) |
 | `--no-smbios` | boot without `-smbios` overrides (firmware defaults) |
 | `--nvme` | attach the disk as NVMe instead of AHCI |
@@ -187,11 +189,13 @@ to `build/esp/fantuan/kernel.bin` on every run.
 | RISC-V | `tools/run.sh --arch riscv64 --disk --two-fs` | OpenSBI + virtio-blk + VFS/shell |
 | aarch64 | `tools/run.sh --arch aarch64 [--net]` | QEMU `virt` raw-Image direct FDT boot: PL011, 4K-granule MMU + direct map, GICv2 + 100 Hz timer, demo tasks and the shared shell; `--net` adds the polled virtio-net-device MMIO NIC on SLIRP (needs `-global virtio-mmio.force-legacy=false`, which run.sh sets) |
 | NTFS (optional, real image) | boot with a real Windows volume as the **first AHCI disk**: take the `run.sh` QEMU line and replace `-drive file=build/test.img,...` with `-drive file=<win.img>,format=raw,if=none,id=td0 -device ide-hd,drive=td0,bus=sata.0` (the ESP drive stays), then `ls /mnt/win0` and `ls /mnt/win0/Windows/System32` | a read-only listing/read of a production NTFS volume; no Windows image ships with the repo, so this is a manual/CI-optional check (the fixture gate is `tools/smoke-ntfs.sh`) |
+| GPU (real AMD, M12-6 follow-up) | build the `rescue` profile, boot on the machine with one AMD RX 500/6000 GPU, run `gpu` (and read the boot `gpu:` block): record the identity, BAR sizes, the `gpu: pcie link …` line and the thermal line | the real-hardware half of `M12_TOOLS_HW.md` §7; QEMU display models expose no PCIe capability and its DSDT has no thermal zone, so both branches are untested at runtime here and the serial transcript is attached to the follow-up issue |
 
 Useful shell commands: `help`, `bootinfo` (both in the minimal kernel), and
 with the `rescue` profile `lsos`, `diskhealth` (SMART needs AHCI/NVMe; the
-BIOS IDE path degrades), `cat <path>` and `clone <src> <dst>`
-(`CONFIG_IMAGER`). Quit QEMU with `Ctrl-A X`. For fixture variants
+BIOS IDE path degrades), `cat <path>`, `clone <src> <dst>`
+(`CONFIG_IMAGER`) and `gpu` (the M12-6 read-only GPU/PCI report,
+`CONFIG_GRAPHICS`). Quit QEMU with `Ctrl-A X`. For fixture variants
 (`--broken`, `--keys`, `--shell-repair`, `--nvme`, `--smm`, `--imager`) see
 the flags table above.
 

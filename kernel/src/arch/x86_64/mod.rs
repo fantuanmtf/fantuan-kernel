@@ -9,6 +9,8 @@ pub mod gdt;
 pub mod idt;
 pub mod interrupts;
 pub mod pci;
+#[cfg(kconfig_graphics)]
+pub mod pci_probe;
 pub mod paging;
 pub mod pic;
 pub mod pit;
