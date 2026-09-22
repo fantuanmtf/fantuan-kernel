@@ -41,9 +41,10 @@ RISC_NOSHIM=0
 RISC_KEYS=0
 AARCH64_NET=0
 VGA=""
+SERIAL_UNIX=""
 prev=""
 for a in "$@"; do
-  case "$prev" in --arch) ARCH="$a" ;; --vga) VGA="$a" ;; esac
+  case "$prev" in --arch) ARCH="$a" ;; --vga) VGA="$a" ;; --serial-unix) SERIAL_UNIX="$a" ;; esac
   if [ "$a" = "--disk" ]; then RISC_DISK=1; fi
   if [ "$a" = "--two-fs" ]; then RISC_TWO_FS=1; fi
   if [ "$a" = "--broken" ]; then RISC_BROKEN=1; fi
@@ -249,8 +250,15 @@ if [ "$GRAPHICS" = "1" ]; then SERIAL_OPT="-serial stdio"; fi
 if [ "$MONITOR" = "1" ]; then
   # Keyboard-injection test path: a unix monitor socket while serial stays
   # on stdio (-nographic would multiplex the monitor onto the same stdio).
+  # --serial-unix PATH routes serial over a unix socket so the graphics smoke
+  # can relay it unbuffered (socat) — stdio/file chardevs block-buffer, which
+  # delays the demo's per-frame markers past the screendump window.
   rm -f build/mon.sock
-  SERIAL_OPT="-display none -serial stdio"
+  if [ -n "$SERIAL_UNIX" ]; then
+    SERIAL_OPT="-display none -serial unix:$SERIAL_UNIX"
+  else
+    SERIAL_OPT="-display none -serial stdio"
+  fi
 fi
 
 # Argument arrays (no line-continuation gymnastics).

@@ -1,17 +1,22 @@
-//! GOP framebuffer console (M13-1): character rendering through the shared
-//! graphics core (font = blit_glyph, clear/scroll = fill/copy_rect, cursor =
-//! XOR fill), with damage marked and a single-buffered present. The surface
-//! IS the scanout, so `present` clears the damage list; a double-buffered
-//! present replaces it in M13-2.
+//! GOP framebuffer console (M13-1/M13-2): character rendering through the
+//! shared graphics core (font = blit_glyph, clear/scroll = fill/copy_rect,
+//! cursor = XOR fill) with damage marked. The console starts single-buffered
+//! (the render surface IS the scanout); after the frame allocator is up,
+//! `upgrade_buffered` allocates an off-screen frame and swaps in a
+//! `BufferedPresent` that copies only the damaged rects to the scanout. If the
+//! allocation fails the console keeps `DirectPresent`.
 //!
 //! v1 policy (DESIGN.md §3): ASCII only, channel-symmetric colors only — the
 //! same 32-bit value renders identically in RGB8 and BGR8, so no pixel-format
 //! branching is needed for the M0 palette.
 
 use core::fmt;
+use core::ptr;
 
 use fantuan_abi::FrameBuffer;
-use kernel_core::graphics::{Damage, DirectPresent, FbInfo, Format, Present, Rect};
+use kernel_core::graphics::{
+    demo_frame, BufferedPresent, Damage, DirectPresent, DemoStats, FbInfo, Format, Present, Rect,
+};
 
 use crate::font::FONT_8X16;
 
@@ -22,6 +27,7 @@ const FG: u32 = 0x00D8_D8_D8; // light gray, symmetric in RGB/BGR
 const BG: u32 = 0x0000_0000;
 
 static DIRECT: DirectPresent = DirectPresent;
+static mut BUFFERED: Option<BufferedPresent> = None;
 
 struct State {
     fb: FbInfo,
@@ -87,6 +93,55 @@ pub fn global_putc(c: u8) {
     if let Some(st) = state() {
         state_putc(st, c);
     }
+}
+
+/// M13-2: switch the console from direct to double-buffered presentation by
+/// allocating an off-screen frame from the frame allocator (bounded to the
+/// mode's exact size), copying the current scanout into it, and swapping the
+/// render surface + `BufferedPresent`. Returns false (leaving `DirectPresent`
+/// in place) when the allocation fails or the console is absent.
+pub(crate) fn upgrade_buffered() -> bool {
+    let Some(st) = state() else {
+        return false;
+    };
+    let w = st.fb.width;
+    let h = st.fb.height;
+    let bytes = (st.fb.bpp() / 8) as u64;
+    let needed = w as u64 * h as u64 * bytes;
+    let frames = ((needed + 4095) / 4096) as usize;
+    let Some(phys) = crate::mm::frame::get().alloc_contiguous(frames) else {
+        return false;
+    };
+    let back = FbInfo {
+        base: crate::mm::paging::phys_to_virt(phys) as *mut u8,
+        width: w,
+        height: h,
+        pitch: w * (st.fb.bpp() / 8),
+        format: st.fb.format,
+    };
+    // Preserve the boot banner already rendered directly to the scanout.
+    let _ = back.blit(st.fb.base, st.fb.pitch, Rect::new(0, 0, w, h));
+    unsafe {
+        ptr::write(ptr::addr_of_mut!(BUFFERED), Some(BufferedPresent::new(st.fb)));
+    }
+    let p: &'static dyn Present = unsafe { (*ptr::addr_of!(BUFFERED)).as_ref().unwrap() };
+    st.fb = back;
+    st.present = p;
+    true
+}
+
+/// One graphics-demo frame on the shared off-screen surface, then present.
+/// Returns the frame's damage summary (`None` when the console is absent).
+pub(crate) fn gfx_demo_frame(frame: u64) -> Option<DemoStats> {
+    let st = state()?;
+    let stats = demo_frame(st.fb, &mut st.damage, frame);
+    state_present(st);
+    Some(stats)
+}
+
+/// True when the shared damage list is empty (idle-screen proof).
+pub(crate) fn gfx_demo_idle() -> bool {
+    state().map_or(true, |st| st.damage.is_empty())
 }
 
 impl fmt::Write for Console {

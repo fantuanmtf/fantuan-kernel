@@ -57,6 +57,24 @@ pub fn log_bytes(buf: &[u8]) {
     }
 }
 
+/// Byte sink for the shared raw logger: LF->CRLF with no framebuffer mirror
+/// (the graphics demo's damage accounting must not touch the screen).
+#[cfg(kconfig_graphics)]
+pub fn log_bytes_raw(buf: &[u8]) {
+    for &b in buf {
+        if b == b'\n' {
+            raw_putc(b'\r');
+        }
+        raw_putc(b);
+    }
+}
+
+#[cfg(kconfig_graphics)]
+fn raw_putc(c: u8) {
+    while inb(COM1 + 5) & 0x20 == 0 {}
+    outb(COM1, c);
+}
+
 pub fn put_hex(mut v: u64) {
     puts("0x");
     if v == 0 {

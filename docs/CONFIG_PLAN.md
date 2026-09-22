@@ -175,6 +175,18 @@ the console or the font (riscv/aarch64 are serial-only as before). The
 `rescue` profile (and `smoke.sh`, which flips `GRAPHICS=Y`) keeps the full
 framebuffer console and the boot `graphics: damage self-test ok` line.
 
+Gated in M13-2: the double buffer and the kernel demo app are part of the
+same `CONFIG_GRAPHICS` seam — no new symbol. The back buffer is a
+frame-allocator allocation (bounded to the mode's exact byte size, e.g.
+~4 MiB for 1280x800 Bpp32), not a `.bss` static, so it costs no boot image
+space and the i686 `510 MiB usable` report is unchanged; when the allocator
+cannot spare the buffer the console keeps `DirectPresent` (damage-tracked
+single-buffered) and the demo still runs. The demo task
+(`kernel/src/gfx_demo.rs`, `kernel-i686/src/gfx_demo.rs`) is
+`#[cfg(kconfig_graphics)]` and only spawns when a console exists, so the
+`minimal`/`net` profiles link no demo or back-buffer code and print no
+`graphics:` marker; riscv/aarch64 are serial-only and never spawn it.
+
 ## Implemented in C5 (2026-09)
 
 The default `minimal` profile is now the Live boot set only: SHELL (plus the

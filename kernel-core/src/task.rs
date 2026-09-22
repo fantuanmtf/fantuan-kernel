@@ -142,6 +142,19 @@ pub fn has_free_slot() -> bool {
     find_slot().is_some()
 }
 
+/// True while any user-mode task is still live or a zombie (not yet reaped by
+/// the scheduler). The graphics demo waits on this so its animation is the
+/// only thing drawing once the boot's userland output has settled.
+pub fn user_tasks_remaining() -> bool {
+    for i in 0..MAX_TASKS {
+        let t = unsafe { &*ptr::addr_of!(TASKS[i]) };
+        if t.is_user && t.state != State::Unused {
+            return true;
+        }
+    }
+    false
+}
+
 fn find_slot() -> Option<usize> {
     (0..MAX_TASKS).find(|&i| unsafe { (*ptr::addr_of!(TASKS[i])).state == State::Unused })
 }

@@ -55,15 +55,39 @@ The core landed as `kernel-core::graphics` (gated by `CONFIG_GRAPHICS`,
 
 ### 2.2 Extension points (frozen for M13-2 / M13-4)
 
-- **M13-2 double buffer**: allocate an off-screen `FbInfo` from the frame
-  allocator, point the console at it, and replace `DirectPresent` with a
-  `BufferedPresent` that copies each damaged rect from the off-screen
-  surface to the device `FbInfo` and then clears the list. No console change
-  is needed beyond swapping the `&'static dyn Present` in the console state.
+- **M13-2 double buffer** *(landed in V-b, §2.3)*: allocate an off-screen
+  `FbInfo` from the frame allocator, point the console at it, and replace
+  `DirectPresent` with a `BufferedPresent` that copies each damaged rect from
+  the off-screen surface to the device `FbInfo` and then clears the list. No
+  console change is needed beyond swapping the `&'static dyn Present` in the
+  console state.
 - **M13-4 dumb buffers / ADDFB**: `FbInfo::blit` (raw same-format source +
   source pitch) is the primitive a userspace dumb buffer maps to; `Format`
   and `Rect` are the values `DRM_IOCTL_MODE_ADDFB` carries into the KMS
   contract of §4. New formats are additive enum variants.
+
+### 2.3 Implemented in M13-2 (V-b)
+
+The double-buffer seam landed exactly on the §2.2 shape:
+
+- `BufferedPresent` (kernel-core) holds the device `FbInfo`; `present(fb,
+  damage)` copies each damaged rect from the off-screen `fb` to the device
+  with `FbInfo::blit` and clears the list. `blit`'s source pointer is the
+  source *rect's* top-left (not the surface base), so `BufferedPresent`
+  offsets each rect by `(r.y * fb.pitch + r.x * bpp)`.
+- Both consoles start single-buffered (`DirectPresent`, the surface IS the
+  scanout) and swap to `BufferedPresent` via `upgrade_buffered` once the
+  frame allocator is up: the off-screen frame is `alloc_contiguous`'d to the
+  mode's exact byte size (bounded; failure keeps `DirectPresent`), the boot
+  banner is copied device→off-screen, and the render surface + present are
+  swapped. The back buffer memory source is the frame allocator (accessed
+  through the phys→virt alias on both kernels), not a `.bss` static, so the
+  i686 `510 MiB usable` boot report is unchanged.
+- `Damage` gained `bbox()` (union of dirty rects) and `area()` for the
+  demo's damage accounting, and `selftest` gained a `BufferedPresent`
+  round-trip (a drawn rect is copied to the device surface, the list is
+  cleared, untouched pixels stay put).
+- The kernel demo app (§6) drives the seam on both backends.
 
 ## 3. Input event API (kernel)
 
@@ -118,8 +142,22 @@ numbers/structs where they are stable enough to copy field-for-field:
 
 ## 6. Demo (proof of contract, no userspace)
 
-- A kernel-side framebuffer demo (logo + live counters + a moving box)
-  driven by the damage list, with a screendump diff in the smoke.
+- A kernel-side framebuffer demo driven by the damage list, with a screendump
+  diff in the smoke. **V-b implementation**: a bounded kernel task
+  (`kernel/src/gfx_demo.rs`, `kernel-i686/src/gfx_demo.rs`) that runs 40
+  frames on the GOP (x86_64 UEFI) and VBE (i686) consoles — a 32×32 white
+  box sweeping a fixed bottom band plus an 8-bit green counter (the shared
+  `kernel-core::graphics::demo_frame`) — then exits and is reaped. Each frame
+  reports its damage rect over the **no-mirror** serial sink (so the demo
+  never draws its own text on the screen): `graphics: demo frame=N
+  dmg=X,Y,W,H`, plus `graphics: demo start/stop`,
+  `graphics: demo damage total=X,Y,W,H rects=R area=A` and
+  `graphics: idle damage empty ok`. To make the animation the only thing on
+  screen it is spawned after the boot's other tasks have quieted (i686: after
+  the 500-tick wait; x86_64: kmain waits for the userland/proc-test tasks to
+  be reaped and then freezes the GOP mirror for the demo's duration, which
+  the demo unfreezes on exit). riscv/aarch64 have no display, so the demo
+  task is x86_64/i686-only and those kernels skip it with no demo marker.
 - A kernel-side IPC client that runs `QUERY_DISKS` + `DIAGNOSE` and prints
   the exchange, proving the protocol shape that Qt will speak.
 
@@ -128,7 +166,7 @@ numbers/structs where they are stable enough to copy field-for-field:
 | Step | Deliverable |
 |---|---|
 | M13-1 | `fb_info` + blit/fill/damage core; GOP console refactored onto it | landed (V-a) |
-| M13-2 | Double buffer + present; demo app (kernel task) |
+| M13-2 | Double buffer + present; demo app (kernel task) | landed (V-b) |
 | M13-3 | Input event ring + PS/2 mouse; console + demo consumers |
 | M13-4 | Dumb-buffer objects, ADDFB/SETCRTC/PAGE_FLIP semantics + events |
 | M13-5 | EDID sourcing (GOP/VBE) + fallback blob + connector properties |
@@ -142,8 +180,10 @@ numbers/structs where they are stable enough to copy field-for-field:
   non-blank pixel statistics, the in-kernel `graphics: damage self-test ok`
   and the i686 serial parity (identical to `-vga none` after the `fb:`
   header lines).
-- Demo smoke: two GOP screendumps differ while the demo runs; damage
-  accounting covers every changed pixel (checked in a test mode).
+- Demo smoke: two timed screendumps per backend (GOP + VBE) differ while the
+  demo runs; the bounding box of the differing pixels lies inside the
+  reported damage region (`graphics: demo damage bbox=…`), and an idle screen
+  reports an empty damage set (`graphics: idle damage empty ok`).
 - Input: injected PS/2 events (existing QEMU monitor path) reach the ring
   and the demo reacts; no lost SYNs under a bounded burst.
 - KMS contract: a struct-size/offset self-test compiled against the

@@ -19,6 +19,8 @@ mod ata;
 mod cpu;
 #[cfg(kconfig_graphics)]
 mod fb;
+#[cfg(kconfig_graphics)]
+mod gfx_demo;
 mod idt;
 mod pic;
 mod pit;
@@ -128,6 +130,10 @@ fn kmain(bi: *const BootInfo) -> ! {
         });
     }
 
+    // M13-2: swap the console to a frame-allocator back buffer (double buffer).
+    #[cfg(kconfig_graphics)]
+    fb::upgrade_buffered();
+
     // --- M10-4c: PIO ATA + the shared VFS on the test disk (read-only) ------
     if ata::init() {
         ata::install_hooks();
@@ -204,5 +210,13 @@ fn kmain(bi: *const BootInfo) -> ! {
     serial::put_dec(idt::exception_count());
     serial::puts("\n");
     serial::puts("i686: M10-4b2a interrupts complete\n");
+
+    // M13-2: bounded graphics demo on the VBE console, spawned after the boot
+    // tasks have quieted so it is the only thing drawing (headless boots just
+    // print the markers and keep serial parity). The kernel then idles; the
+    // smoke harness terminates QEMU once the demo reports its damage.
+    #[cfg(kconfig_graphics)]
+    kernel_core::task::spawn(gfx_demo::run);
+
     cpu::halt()
 }

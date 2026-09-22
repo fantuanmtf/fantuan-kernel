@@ -1,7 +1,9 @@
-//! VBE linear-framebuffer text console (M10-5, M13-1): character rendering
-//! through the shared graphics core (font = blit_glyph, clear/scroll =
-//! fill/copy_rect, cursor = XOR fill) with damage marked and a
-//! single-buffered present.
+//! VBE linear-framebuffer text console (M10-5, M13-1/M13-2): character
+//! rendering through the shared graphics core (font = blit_glyph, clear/scroll
+//! = fill/copy_rect, cursor = XOR fill) with damage marked. The console starts
+//! single-buffered (the render surface IS the scanout); after the frame
+//! allocator is up, `upgrade_buffered` allocates an off-screen frame and swaps
+//! in a `BufferedPresent` that copies only the damaged rects to the scanout.
 //!
 //! stage2 sets one VBE linear mode and leaves the geometry, the LFB physical
 //! base and a BIOS-copied 8x16 font in BootInfo. The kernel reaches the LFB
@@ -15,7 +17,9 @@
 use core::ptr;
 
 use fantuan_abi::BootInfo;
-use kernel_core::graphics::{Damage, DirectPresent, FbInfo, Format, Present, Rect};
+use kernel_core::graphics::{
+    demo_frame, BufferedPresent, Damage, DemoStats, DirectPresent, FbInfo, Format, Present, Rect,
+};
 
 use crate::serial;
 
@@ -28,6 +32,7 @@ const FG: u32 = 0x00D8_D8_D8;
 const BG: u32 = 0x0000_0000;
 
 static DIRECT: DirectPresent = DirectPresent;
+static mut BUFFERED: Option<BufferedPresent> = None;
 
 struct State {
     fb: FbInfo,
@@ -74,15 +79,16 @@ pub fn init(bi: &BootInfo) -> bool {
     };
     let base = (FB_SLOT + (bi.fb_phys as u32 & 0x3F_FFFF)) as *mut u8;
     let font = crate::phys_to_virt(bi.fb_font_phys as u64) as *const u8;
+    let device = FbInfo {
+        base,
+        width,
+        height,
+        pitch,
+        format,
+    };
     unsafe {
         *ptr::addr_of_mut!(STATE) = Some(State {
-            fb: FbInfo {
-                base,
-                width,
-                height,
-                pitch,
-                format,
-            },
+            fb: device,
             font,
             damage: Damage::new(),
             present: &DIRECT,
@@ -112,6 +118,42 @@ pub fn init(bi: &BootInfo) -> bool {
     serial::puts("\n");
     serial::puts("fb: console up\n");
     true
+}
+
+/// M13-2: switch the console from direct to double-buffered presentation by
+/// allocating an off-screen frame from the frame allocator (bounded to the
+/// mode's exact size), copying the current scanout into it, and swapping the
+/// render surface + `BufferedPresent`. On failure the console keeps
+/// `DirectPresent`. No-op when the console is absent (serial-only boot).
+pub fn upgrade_buffered() {
+    let Some(st) = state() else {
+        return;
+    };
+    let w = st.fb.width;
+    let h = st.fb.height;
+    let bytes = (st.fb.bpp() / 8) as u64;
+    let needed = w as u64 * h as u64 * bytes;
+    let frames = ((needed + 4095) / 4096) as usize;
+    let Some(phys) = kernel_core::frame::get().alloc_contiguous(frames) else {
+        serial::puts("fb: direct present (back buffer unavailable)\n");
+        return;
+    };
+    let back = FbInfo {
+        base: crate::phys_to_virt(phys) as *mut u8,
+        width: w,
+        height: h,
+        pitch: w * (st.fb.bpp() / 8),
+        format: st.fb.format,
+    };
+    // Preserve the boot banner already rendered directly to the scanout.
+    let _ = back.blit(st.fb.base, st.fb.pitch, Rect::new(0, 0, w, h));
+    unsafe {
+        ptr::write(ptr::addr_of_mut!(BUFFERED), Some(BufferedPresent::new(st.fb)));
+    }
+    let p: &'static dyn Present = unsafe { (*ptr::addr_of!(BUFFERED)).as_ref().unwrap() };
+    st.fb = back;
+    st.present = p;
+    serial::puts("fb: double-buffered (frame-allocator back buffer)\n");
 }
 
 /// Uppercase 0x-prefixed hex, matching the fb: diagnostic convention.
@@ -216,4 +258,17 @@ fn scroll(st: &mut State) {
         st.damage.add(c);
     }
     st.row -= 1;
+}
+
+/// One graphics-demo frame on the shared off-screen surface, then present.
+pub fn gfx_demo_frame(frame: u64) -> Option<DemoStats> {
+    let st = state()?;
+    let stats = demo_frame(st.fb, &mut st.damage, frame);
+    present(st);
+    Some(stats)
+}
+
+/// True when the shared damage list is empty (idle-screen proof).
+pub fn gfx_demo_idle() -> bool {
+    state().map_or(true, |st| st.damage.is_empty())
 }

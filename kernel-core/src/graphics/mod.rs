@@ -8,7 +8,9 @@
 use core::ptr;
 
 pub mod damage;
-pub use damage::{selftest, Damage, DirectPresent, Present, MAX_DAMAGE};
+pub mod demo;
+pub use damage::{selftest, BufferedPresent, Damage, DirectPresent, Present, MAX_DAMAGE};
+pub use demo::{demo_frame, DemoStats};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Format {

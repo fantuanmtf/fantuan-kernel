@@ -41,6 +41,8 @@ mod diag;
 mod drivers;
 #[cfg(kconfig_graphics)]
 mod font;
+#[cfg(kconfig_graphics)]
+mod gfx_demo;
 mod input;
 mod kbd;
 mod mm;
@@ -217,6 +219,16 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         halt_forever();
     }
 
+    // M13-2: swap the console to a frame-allocator back buffer (double buffer).
+    #[cfg(kconfig_graphics)]
+    if con.is_some() {
+        if console::upgrade_buffered() {
+            let _ = writeln!(s, "console: double-buffered (frame-allocator back buffer)");
+        } else {
+            let _ = writeln!(s, "console: direct present (back buffer unavailable)");
+        }
+    }
+
     // Exception demos: both paths (with/without error code) must work.
     unsafe {
         core::arch::asm!("int3", options(nomem, nostack));
@@ -351,6 +363,14 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     if con.is_some() {
         serial::enable_mirror();
         let _ = writeln!(s, "console: serial output mirrored to GOP (keyboard + display)");
+        // M13-2: wait for the userland/proc-test tasks to be reaped, then
+        // freeze the GOP mirror while the demo animates so the box is the only
+        // thing moving on screen (serial keeps flowing; the demo unfreezes).
+        while kernel_core::task::user_tasks_remaining() {
+            kernel_core::task::sleep_ms(100);
+        }
+        serial::freeze_mirror();
+        task::spawn(gfx_demo::run);
     }
     // The loop halts between polls, so the scheduler keeps running the tasks.
     shell::enter(mounted, bi, bi.runtime_services);

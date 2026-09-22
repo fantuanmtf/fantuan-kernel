@@ -20,8 +20,21 @@ static LOCK: AtomicBool = AtomicBool::new(false);
 /// plain memory traffic.
 static MIRROR: AtomicBool = AtomicBool::new(false);
 
+/// Freeze flag (M13-2): the graphics demo freezes the mirror while it animates
+/// so its box is the only thing moving on screen during the smoke's
+/// screendumps; serial output keeps flowing, it just stops drawing.
+static MIRROR_FROZEN: AtomicBool = AtomicBool::new(false);
+
 pub fn enable_mirror() {
     MIRROR.store(true, Ordering::Release);
+}
+
+pub fn freeze_mirror() {
+    MIRROR_FROZEN.store(true, Ordering::Release);
+}
+
+pub fn unfreeze_mirror() {
+    MIRROR_FROZEN.store(false, Ordering::Release);
 }
 
 /// Write a slice atomically with respect to other tasks.
@@ -56,13 +69,30 @@ pub fn log_bytes(buf: &[u8]) {
     }
 }
 
+/// Byte sink for the shared raw logger: LF->CRLF with no GOP mirror (the
+/// graphics demo's damage accounting must not touch the screen).
+pub fn log_bytes_raw(buf: &[u8]) {
+    let ser = Serial::new(COM1);
+    let mut start = 0;
+    for (i, &b) in buf.iter().enumerate() {
+        if b == b'\n' {
+            if start < i {
+                ser.write_raw(&buf[start..i]);
+            }
+            ser.write_raw(b"\r\n");
+            start = i + 1;
+        }
+    }
+    if start < buf.len() {
+        ser.write_raw(&buf[start..]);
+    }
+}
+
 pub fn line(s: &str) {
     let ser = Serial::new(COM1);
     let _ = ser.write(s.as_bytes());
     let _ = ser.write(b"\r\n");
-}
-
-pub fn hex(v: u64) {
+}pub fn hex(v: u64) {
     const HEX: &[u8] = b"0123456789ABCDEF";
     let ser = Serial::new(COM1);
     let mut buf = [0u8; 18];
@@ -109,10 +139,27 @@ impl Serial {
             while inb(self.port + 5) & 0x20 == 0 {}
             outb(self.port, c);
         }
-        if MIRROR.load(Ordering::Relaxed) {
+        if MIRROR.load(Ordering::Relaxed) && !MIRROR_FROZEN.load(Ordering::Relaxed) {
             #[cfg(kconfig_graphics)]
             crate::console::global_putc(c);
         }
+    }
+
+    /// Byte to the port with no GOP mirror (the graphics demo's damage
+    /// accounting must not touch the screen).
+    fn putc_raw(&self, c: u8) {
+        unsafe {
+            while inb(self.port + 5) & 0x20 == 0 {}
+            outb(self.port, c);
+        }
+    }
+
+    /// Write a byte slice to the port without mirroring.
+    fn write_raw(&self, buf: &[u8]) -> usize {
+        for &b in buf {
+            self.putc_raw(b);
+        }
+        buf.len()
     }
 
     /// Non-blocking read of one received byte (LSR bit 0 = data ready).

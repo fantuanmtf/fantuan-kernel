@@ -34,6 +34,19 @@ impl Damage {
         self.len = 0;
     }
 
+    /// Union of every dirty rect (the flush region); `None` when empty.
+    pub fn bbox(&self) -> Option<Rect> {
+        let mut it = self.rects[..self.len].iter().copied();
+        let first = it.next()?;
+        Some(it.fold(first, |a, b| a.union(b)))
+    }
+
+    /// Sum of dirty-rect areas (entries are non-overlapping until the list
+    /// fills, so this is the true touched area for the common case).
+    pub fn area(&self) -> u64 {
+        self.rects[..self.len].iter().map(|r| r.area()).sum()
+    }
+
     /// Add a dirty rect, coalescing with any overlapping entry. The list is
     /// bounded: when full, a non-overlapping rect merges into the entry whose
     /// union grows least, so the dirty region stays fully covered.
@@ -74,6 +87,36 @@ pub struct DirectPresent;
 
 impl Present for DirectPresent {
     fn present(&self, _fb: &FbInfo, damage: &mut Damage) {
+        damage.clear();
+    }
+}
+
+/// Double-buffered present (M13-2): the render surface `fb` is an off-screen
+/// buffer, and each damaged rect is copied onto the scanout `device` surface
+/// before the list is cleared. Only the dirty rects are touched; the untouched
+/// device pixels keep their previous content.
+pub struct BufferedPresent {
+    device: FbInfo,
+}
+
+impl BufferedPresent {
+    pub const fn new(device: FbInfo) -> BufferedPresent {
+        BufferedPresent { device }
+    }
+}
+
+impl Present for BufferedPresent {
+    fn present(&self, fb: &FbInfo, damage: &mut Damage) {
+        // blit takes the source rect's top-left (not the surface base), so
+        // point each damaged rect at its own off-screen origin.
+        let bytes = (fb.bpp() / 8) as usize;
+        for r in damage.rects() {
+            let src = unsafe {
+                fb.base
+                    .add(r.y as usize * fb.pitch as usize + r.x as usize * bytes)
+            };
+            let _ = self.device.blit(src, fb.pitch, *r);
+        }
         damage.clear();
     }
 }
@@ -130,4 +173,42 @@ pub fn selftest() -> bool {
         return false;
     }
     buf[0] == 0 && buf[(3 * 32 + 7 * 4) as usize] == 0xFF
+        && buffered_present_test()
+}
+
+/// BufferedPresent round trip: a rect drawn into the off-screen surface is
+/// copied to the device surface on present, the list is cleared, and pixels
+/// outside the damaged rect stay untouched.
+fn buffered_present_test() -> bool {
+    let mut back = [0u8; 8 * 4 * 4];
+    let mut dev = [0u8; 8 * 4 * 4];
+    let off = FbInfo {
+        base: back.as_mut_ptr(),
+        width: 8,
+        height: 4,
+        pitch: 32,
+        format: Format::Bpp32,
+    };
+    let devfb = FbInfo {
+        base: dev.as_mut_ptr(),
+        width: 8,
+        height: 4,
+        pitch: 32,
+        format: Format::Bpp32,
+    };
+    if off.fill(Rect::new(1, 1, 2, 2), 0x00FF_0000).is_none() {
+        return false;
+    }
+    let mut d = Damage::new();
+    d.add(Rect::new(1, 1, 2, 2));
+    let bp = BufferedPresent::new(devfb);
+    bp.present(&off, &mut d);
+    if !d.is_empty() {
+        return false;
+    }
+    unsafe {
+        let hit = dev.as_ptr().add(1 * 32 + 1 * 4) as *const u32;
+        let miss = dev.as_ptr() as *const u32;
+        hit.read_volatile() == 0x00FF_0000 && miss.read_volatile() == 0
+    }
 }
