@@ -1,174 +1,143 @@
-//! The imager's streaming passes: source pre-hash, the buffered sector copy
-//! (progress every 5%, 'q' cancels) and the destination re-read hash. The
-//! public entry point is `run`; `mod.rs` owns the device/plan layer.
+//! The imager's `run` orchestration: source pre-hash, buffered copy,
+//! destination re-read verification and the verdict inputs for the report.
+//! The streaming passes live in `pass.rs`, the policy in `policy.rs` and the
+//! report writer in `report.rs`.
+//!
+//! Bad-sector policy (M12-3): without `--continue` an unreadable sector
+//! aborts the run with the exact LBA; with `--continue` a chunk read is
+//! retried, then isolated per sector, and each sector that stays unreadable
+//! is counted, recorded as an LBA range and zero-filled in the output stream
+//! (documented in docs/M12_TOOLS_HW.md §2b). The copy pass never re-reads a
+//! sector the pre-hash already recorded as bad.
 
-use core::ffi::c_void;
 use core::fmt::Write;
 
 use crate::log::Log;
-use crate::sha256::Sha256;
 use crate::vfs::RepairToken;
 
-use super::{bounce, check_cancel, hex_text, Dev, RETRIES, SECTOR};
+use super::pass::{copy_all, hash_range, CopyErr, HashStop};
+use super::policy::{BadSectors, Options};
+use super::report::Outcome;
+use super::Dev;
 
-enum CopyErr {
-    Read { lba: u64 },
-    Write { lba: u64 },
-    ReadOnly { lba: u64 },
-    Cancelled { lba: u64 },
+fn hex_str<'a>(d: &'a [u8; 32], buf: &'a mut [u8; 64]) -> &'a str {
+    *buf = super::hex_text(d);
+    core::str::from_utf8(buf).unwrap_or("?")
 }
 
-fn read_chunk(dev: &Dev, lba: u64, nsectors: usize, buf: &mut [u8], s: &mut Log) -> bool {
-    let mut attempt = 0u32;
-    loop {
-        let rc = unsafe { super::blk_read(dev.handle, lba, buf.as_mut_ptr() as *mut c_void, nsectors) };
-        if rc == 0 {
-            return true;
-        }
-        if attempt >= RETRIES {
-            return false;
-        }
-        attempt += 1;
-        let _ = writeln!(s, "clone: read retry {}/{} at LBA {}", attempt, RETRIES, lba);
-    }
-}
-
-fn write_chunk(dev: &Dev, lba: u64, nsectors: usize, buf: &[u8], s: &mut Log) -> bool {
-    let mut attempt = 0u32;
-    loop {
-        let rc = unsafe { super::blk_write(dev.handle, lba, buf.as_ptr() as *const c_void, nsectors) };
-        if rc == 0 {
-            return true;
-        }
-        if attempt >= RETRIES {
-            return false;
-        }
-        attempt += 1;
-        let _ = writeln!(s, "clone: write retry {}/{} at LBA {}", attempt, RETRIES, lba);
-    }
-}
-
-/// Streaming hash of SECTORS sectors of DEV (the destination is hashed over
-/// the copied range only; its larger tail is documented as untouched). None
-/// on read failure/cancel (the specific reason is logged here).
-fn hash_all(s: &mut Log, dev: &Dev, label: &str, sectors: u64) -> Option<[u8; 32]> {
-    let mut h = Sha256::new();
-    let buf = bounce();
-    let per_chunk = buf.len() / SECTOR as usize;
-    let mut lba = 0u64;
-    while lba < sectors {
-        if check_cancel() {
-            let _ = writeln!(s, "clone: cancelled while hashing {} at LBA {}", label, lba);
-            return None;
-        }
-        let n = ((sectors - lba) as usize).min(per_chunk);
-        let bytes = n * SECTOR as usize;
-        if !read_chunk(dev, lba, n, &mut buf[..bytes], s) {
-            let _ = writeln!(s, "clone: read failed at LBA {} after {} retries while hashing {}", lba, RETRIES, label);
-            return None;
-        }
-        h.update(&buf[..bytes]);
-        lba += n as u64;
-    }
-    Some(h.finish())
-}
-
-/// Sector copy with progress every 5%, cancellation on 'q', and bounded
-/// retries. The destination's first-block failure is reported as a
-/// read-only destination (the i686 build's blk_write stub always returns -1).
-fn copy_all(s: &mut Log, src: &Dev, dst: &Dev) -> Result<u64, CopyErr> {
-    let total = src.sectors;
-    let buf = bounce();
-    let per_chunk = buf.len() / SECTOR as usize;
-    let mut lba = 0u64;
-    let mut next_pct = 5u64;
-    while lba < total {
-        if check_cancel() {
-            return Err(CopyErr::Cancelled { lba });
-        }
-        let n = ((total - lba) as usize).min(per_chunk);
-        let bytes = n * SECTOR as usize;
-        if !read_chunk(src, lba, n, &mut buf[..bytes], s) {
-            return Err(CopyErr::Read { lba });
-        }
-        if !write_chunk(dst, lba, n, &buf[..bytes], s) {
-            return if lba == 0 { Err(CopyErr::ReadOnly { lba }) } else { Err(CopyErr::Write { lba }) };
-        }
-        lba += n as u64;
-        let pct = lba * 100 / total.max(1);
-        if pct >= next_pct {
-            let _ = writeln!(s, "clone: {}% ({}/{} sectors)", next_pct, lba, total);
-            next_pct = (pct / 5 + 1) * 5;
-        }
-    }
-    Ok(lba)
-}
-
-/// Plan re-check + pre-copy hash + copy + destination re-read hash. True only
-/// when the destination verifies against the source.
-pub fn run(s: &mut Log, src: &Dev, dst: &Dev, _token: &RepairToken) -> bool {
+/// Plan re-check + pre-copy hash + copy + destination re-read hash. The
+/// returned outcome carries the hashes, bad-sector ledger and verdict inputs
+/// for `report::emit`; `ok` means the destination verified against the
+/// expected stream.
+pub fn run(s: &mut Log, src: &Dev, dst: &Dev, opts: &Options, _token: &RepairToken) -> Outcome {
     if src.sectors > dst.sectors {
         let _ = writeln!(
             s,
             "clone: refusing: source {} sectors > destination {} sectors — destination is too small",
             src.sectors, dst.sectors
         );
-        return false;
+        return Outcome::failed(BadSectors::EMPTY);
     }
     super::cancel_reset();
 
+    let mut src_bad = BadSectors::EMPTY;
     let _ = writeln!(s, "clone: hashing source ({} sectors)...", src.sectors);
-    let Some(src_hash) = hash_all(s, src, "source", src.sectors) else {
-        let _ = writeln!(s, "clone: FAILED — source is not readable; nothing was written");
-        return false;
+    let src_hash = match hash_range(s, src, src.sectors, opts, &mut src_bad) {
+        Ok(h) => h,
+        Err(HashStop::Cancelled { lba }) => {
+            let _ = writeln!(s, "clone: cancelled while hashing source at LBA {} — nothing was written", lba);
+            return Outcome::cancelled(src_bad);
+        }
+        Err(HashStop::Read { lba }) => {
+            let _ = writeln!(s, "clone: read failed at LBA {} after {} retries while hashing source", lba, opts.retries);
+            let _ = writeln!(s, "clone: FAILED — source is not readable; nothing was written");
+            return Outcome::failed(src_bad);
+        }
     };
-    let src_hex = hex_text(&src_hash);
-    let _ = writeln!(s, "clone: source sha256 {}", core::str::from_utf8(&src_hex).unwrap_or("?"));
+    let mut hexbuf = [0u8; 64];
+    if src_bad.total() > 0 {
+        let _ = writeln!(
+            s,
+            "clone: source sha256 {} ({} bad sectors zero-filled)",
+            hex_str(&src_hash, &mut hexbuf),
+            src_bad.total()
+        );
+    } else {
+        let _ = writeln!(s, "clone: source sha256 {}", hex_str(&src_hash, &mut hexbuf));
+    }
 
     let _ = writeln!(s, "clone: copying (press 'q' to cancel)...");
-    match copy_all(s, src, dst) {
-        Ok(n) => {
-            let _ = writeln!(s, "clone: wrote {} sectors", n);
+    let (copied, stream) = match copy_all(s, src, dst, opts, &mut src_bad) {
+        Ok(ok) => {
+            if src_bad.total() > 0 {
+                let _ = writeln!(s, "clone: wrote {} sectors ({} bad sectors zero-filled)", ok.copied, src_bad.total());
+            } else {
+                let _ = writeln!(s, "clone: wrote {} sectors", ok.copied);
+            }
+            (ok.copied, ok.stream)
         }
         Err(CopyErr::ReadOnly { lba }) => {
-            let _ = writeln!(
-                s,
-                "clone: destination is read-only on this build (blk_write failed at LBA {})",
-                lba
-            );
-            return false;
+            let _ = writeln!(s, "clone: destination is read-only on this build (blk_write failed at LBA {})", lba);
+            return Outcome::failed(src_bad);
         }
         Err(CopyErr::Write { lba }) => {
-            let _ = writeln!(s, "clone: write failed at LBA {} after {} retries — destination is partially written", lba, RETRIES);
-            return false;
+            let _ = writeln!(s, "clone: write failed at LBA {} after {} retries — destination is partially written", lba, opts.retries);
+            return Outcome::failed(src_bad);
         }
         Err(CopyErr::Read { lba }) => {
-            let _ = writeln!(s, "clone: read failed at LBA {} after {} retries — aborting (destination is partially written)", lba, RETRIES);
-            return false;
+            let _ = writeln!(s, "clone: read failed at LBA {} after {} retries — aborting (destination is partially written)", lba, opts.retries);
+            return Outcome::failed(src_bad);
         }
         Err(CopyErr::Cancelled { lba }) => {
             let _ = writeln!(s, "clone: cancelled at LBA {} — destination is partially written and NOT verified", lba);
-            return false;
+            return Outcome::cancelled(src_bad);
         }
-    }
+    };
 
     let _ = writeln!(s, "clone: verifying destination (re-read)...");
-    let Some(dst_hash) = hash_all(s, dst, "destination", src.sectors) else {
-        let _ = writeln!(s, "clone: FAILED — destination is not readable; the copy is NOT verified");
-        return false;
+    let vopts = Options { quick: opts.quick, continue_on_error: false, retries: opts.retries };
+    let mut vsink = BadSectors::EMPTY;
+    let dst_hash = match hash_range(s, dst, src.sectors, &vopts, &mut vsink) {
+        Ok(h) => h,
+        Err(HashStop::Cancelled { lba }) => {
+            let _ = writeln!(s, "clone: cancelled while hashing destination at LBA {}", lba);
+            return Outcome::cancelled(src_bad);
+        }
+        Err(HashStop::Read { lba }) => {
+            let _ = writeln!(s, "clone: destination read failed at LBA {} — the copy is NOT verified", lba);
+            return Outcome::failed(src_bad);
+        }
     };
-    let dst_hex = hex_text(&dst_hash);
-    let _ = writeln!(s, "clone: destination sha256 {}", core::str::from_utf8(&dst_hex).unwrap_or("?"));
-    if src_hash == dst_hash {
-        let _ = writeln!(s, "clone: verify ok — source and destination hashes match");
+    let _ = writeln!(s, "clone: destination sha256 {}", hex_str(&dst_hash, &mut hexbuf));
+    if opts.continue_on_error {
+        let _ = writeln!(s, "clone: stream sha256 {}", hex_str(&stream, &mut hexbuf));
+    }
+    let source_match = stream == src_hash;
+    let dest_match = if opts.continue_on_error { dst_hash == stream } else { dst_hash == src_hash };
+    let ok = if dest_match {
+        if opts.continue_on_error && !source_match {
+            let _ = writeln!(s, "clone: verify ok — destination matches the written stream; source changed or grew bad sectors during the copy (NOT a byte-for-byte source copy)");
+        } else if opts.continue_on_error && src_bad.total() > 0 {
+            let _ = writeln!(s, "clone: verify ok — destination matches the zero-filled source ({} bad sectors zero-filled)", src_bad.total());
+        } else {
+            let _ = writeln!(s, "clone: verify ok — source and destination hashes match");
+        }
         true
     } else {
-        let _ = writeln!(
-            s,
-            "clone: verify FAILED — source sha256 {} destination sha256 {}",
-            core::str::from_utf8(&src_hex).unwrap_or("?"),
-            core::str::from_utf8(&dst_hex).unwrap_or("?")
-        );
+        let _ = writeln!(s, "clone: verify FAILED — destination does not match the expected stream");
         false
+    };
+    let partial = src_bad.total() > 0 || (opts.continue_on_error && !source_match);
+    Outcome {
+        ok,
+        partial,
+        quick: opts.quick,
+        copied,
+        src_hash: Some(src_hash),
+        stream_hash: Some(stream),
+        dst_hash: Some(dst_hash),
+        source_match,
+        bad: src_bad,
+        cancelled: false,
     }
 }

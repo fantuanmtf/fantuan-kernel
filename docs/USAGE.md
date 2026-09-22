@@ -88,7 +88,7 @@ profiles enable it; the minimal kernel has no imager).
 | `diskhealth [--scan]` | [rescue] | identity + SMART; `--scan` reads the surface (`q` cancels) |
 | `grub-fix [diagnose\|repair\|install]` | [rescue] | boot-repair chain (see below) |
 | `crypto-selftest` | [rescue] | SHA-256/RSA known-answer tests (x86 only) |
-| `clone <src> <dst> [--verify] [--yes]` | [imager] | verified raw-sector copy of `blk0`..`blk3` (M12) |
+| `clone <src> <dst> [--quick] [--continue] [--retries N] [--verify] [--yes]` | [imager] | verified raw-sector copy of `blk0`..`blk3` (M12); bad-sector policy + report (M12-3) |
 | `ping <host> [count]` | [tools] | ICMP echo (count 1-5) |
 | `nslookup <name> [server]` | [tools] | DNS A-record lookup |
 | `wget [--insecure] http[s]://host/` | [tools] | HTTP/HTTPS GET, status/bytes |
@@ -143,6 +143,28 @@ minimal kernel cannot repair because it does not carry the rescue commands
   confirmation for scripts, `--verify` is accepted explicitly). `q` cancels
   at a chunk boundary, leaving a partially written destination that the
   output says is not verified.
+- **Bad sectors.** Without `--continue` an unreadable sector aborts the run
+  before anything is written (the source pre-hash fails) and names the exact
+  LBA. With **`--continue`** each failed read is retried `--retries N` times
+  (default 3) and then isolated sector by sector; a sector that stays
+  unreadable is zero-filled at the destination, counted, and recorded as an
+  LBA range, and the copy carries on. This is a **partial** copy, never
+  silently reported as verified: the output says `PARTIAL — not a
+  byte-for-byte source copy` and the report's verdict is `partial`. Always
+  inspect the report before trusting such a destination.
+- **`--quick`** verifies a sample (first + last 1 MiB plus 1 MiB at
+  25/50/75%) instead of the whole range; the report marks `verify quick`.
+  Use it only to make a large clone's check cheaper, never to hide errors.
+- **Report.** Every `clone` copy run (past the plan and YES gates) writes a
+  deterministic report to **`/tmp/clone-report.txt`** (the writable tmpfs;
+  it is not on
+  disk and disappears on reboot) and mirrors the same lines to the serial
+  log prefixed `clone-report:`. It lists the source/destination and sizes,
+  the policy, full or quick verification, the copied sector count, the
+  source/stream/destination SHA-256, the bad-sector ranges
+  (`lba`/`count`/`errors`/`retries`), the totals, and the final
+  `verified`/`partial`/`failed`/`cancelled` verdict, so a transcript or
+  report file can be grepped directly.
 
 ## 6. Typical rescue workflows
 
@@ -161,8 +183,11 @@ minimal kernel cannot repair because it does not carry the rescue commands
    bounded (4 GiB cap) surface scan with live progress.
 7. **Clone a failing disk** — `lsdev` shows the drives and their sizes;
    `clone blk0 blk1` prints the plan and asks for `YES`, then copies and
-   hash-verifies the destination. The source can be larger than the target
-   only if the target is bigger — the size gate refuses otherwise.
+   hash-verifies the destination. If the source has unreadable sectors, use
+   `clone blk0 blk1 --continue` to zero-fill and record them, then read the
+   `partial` verdict and the bad-sector ranges in
+   `/tmp/clone-report.txt`. The source can be larger than the target only if
+   the target is bigger — the size gate refuses otherwise.
 
 ## 7. RISC-V notes
 
@@ -189,7 +214,7 @@ Full rationale and commands: [WINDOWS.md](WINDOWS.md).
 |---|---|---|
 | Firmware / boot | UEFI (x86_64), legacy BIOS (x86_64 + i686), OpenSBI (riscv64), direct FDT (aarch64) | aarch64 UEFI/AAVMF deferred to M14 |
 | Architecture | x86_64, i686 (32-bit, nightly toolchain), riscv64, aarch64 (stable) | more boards (M14+) |
-| Storage | AHCI (every populated port), NVMe, virtio-mmio; i686 legacy PIO ATA (read-only, so `clone` destinations there are read-only) | verified disk imager (`clone`, v0.0.4); more drivers (v0.0.4) |
+| Storage | AHCI (every populated port), NVMe, virtio-mmio; i686 legacy PIO ATA (read-only, so `clone` destinations there are read-only) | verified disk imager (`clone` + `--continue` bad-sector policy and report, v0.0.4); more drivers (v0.0.4) |
 | Filesystems | FAT32 (write-gated on x86_64/riscv), ext4 (ro), others probe-only; i686 read-only | NTFS read-only (v0.0.4) |
 | Network | NetBSD-derived IPv4/TCP on x86_64 (e1000) + aarch64 (virtio-net MMIO); DHCP/DNS/ping/wget, HTTP and pinned-CA HTTPS (mbedTLS); riscv/i686 have no NIC yet | user sockets (M14), IPv6/IPsec later |
 | Graphics | serial + GOP console; VBE text console (i686, serial mirror) | framebuffer/KMS API (v0.0.5), XFCE/Qt (v0.1.5) |

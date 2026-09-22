@@ -4,6 +4,25 @@
 
 #include "ahci.h"
 
+/* --- port error recovery --------------------------------------------------- */
+/* A failed command leaves PxCI set (QEMU keeps the slot busy until software
+ * clears it; real HBAs can also leave it set on a timeout), so the next
+ * command would never run and every retry would burn the full timeout.
+ * Stop the command engine (which clears PxCI), clear the latched IRQ/SERR
+ * status (RW1C), then restart. The 1 MiB copy path relies on this to retry
+ * and to continue past an unreadable sector. */
+static void ahci_kick(struct ahci_port *p)
+{
+    uint32_t cmd = p->px[PX_CMD / 4];
+
+    p->px[PX_CMD / 4] = cmd & ~PX_CMD_ST;
+    (void)wait_until(&p->px[PX_CMD / 4], PX_CMD_CR, 0, 2000);
+    p->px[PX_IS / 4] = 0xFFFFFFFFu;    /* write-1-to-clear */
+    p->px[PX_SERR / 4] = 0xFFFFFFFFu;  /* write-1-to-clear */
+    p->px[PX_CMD / 4] = cmd | PX_CMD_ST;
+    (void)wait_until(&p->px[PX_CMD / 4], PX_CMD_CR, PX_CMD_CR, 2000);
+}
+
 /* --- one-shot ATA command (shared issuer) --------------------------------- */
 /* Issues a SECTOR_COUNT * 512-byte data-in (write=0) or data-out (write=1)
  * command on slot 0. FEATURES is placed in the Features register.
@@ -61,12 +80,24 @@ static int ata_io_ex(struct ahci_port *p, uint8_t cmd, uint8_t device,
     p->ct->prdt[0].dbc = byte_count - 1;   /* N*512 bytes, no IRQ on complete */
 
     p->px[PX_CI / 4] = 1;                   /* issue slot 0 */
-    if (wait_until(&p->px[PX_CI / 4], 1, 0, 2000)) {
-        k_log("ahci: command timeout");
+    /* Poll for either completion (CI clears) or a device error: on error CI
+     * stays set (the HBA waits for software) while PxIS.TFES latches, which
+     * the previous kick cleared, so waiting on CI alone would burn the full
+     * 2 s timeout on every errored command. */
+    for (i = 0; i < 2000; i++) {
+        if (!(p->px[PX_CI / 4] & 1) || (p->px[PX_IS / 4] & PX_IS_TFES)) {
+            break;
+        }
+        k_delay_ms(1);
+    }
+    if (p->px[PX_IS / 4] & PX_IS_TFES) {
+        k_log("ahci: device error");
+        ahci_kick(p);
         return -1;
     }
-    if (p->px[PX_TFD / 4] & PX_TFD_ERR) {
-        k_log("ahci: device error");
+    if (p->px[PX_CI / 4] & 1) {
+        k_log("ahci: command timeout");
+        ahci_kick(p);
         return -1;
     }
 

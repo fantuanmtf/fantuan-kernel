@@ -50,6 +50,24 @@ pub fn read(slot: usize, fd: u16, out: &mut [u8]) -> Result<usize, u64> {
     Ok(n)
 }
 
+/// Kernel-side create-or-truncate of a tmpfs file, no fd involved (the
+/// imager report writer). Takes the shared FS lock like the fd path.
+pub fn write_mem_file(dir: &[u8], name: &[u8], data: &[u8]) -> bool {
+    let _g = IrqLock::acquire(&FS_LOCK);
+    let Ok(d) = tmpfs::lookup(tmpfs::ROOT, dir) else { return false };
+    let id = match tmpfs::lookup(d, name) {
+        Ok(id) => {
+            tmpfs::truncate(id);
+            id
+        }
+        Err(_) => match tmpfs::create(d, name, Kind::File) {
+            Ok(id) => id,
+            Err(_) => return false,
+        },
+    };
+    tmpfs::write(id, 0, data).is_ok()
+}
+
 /// write(fd, data): console sink, files with offsets and pipes.
 pub fn write(slot: usize, fd: u16, data: &[u8]) -> Result<usize, u64> {
     let (idx, pipe_id, rom) = {

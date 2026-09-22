@@ -11,10 +11,17 @@ and Secure Boot fixtures) and optional variant files:
   --grub-regen               autorun runs `grub-fix install` (implies --two-fs)
   --imager                   autorun runs the M12 `clone` transcript (implies
                              --keys) for the tools/smoke-imager.sh phase
+  --imager-bad               autorun runs the M12-3 bad-sector transcript
+                             (implies --keys) for tools/smoke-imager-bad.sh
   --empty <sectors> <path>   write a zero-filled raw image (imager destination
                              fixtures); no GPT/FAT build
   --pattern <sectors> <path> write a deterministic per-sector pattern image
                              (imager source fixture); no GPT/FAT build
+  --badclusters <spec>       pattern-fixture modifier (after the pattern
+                             path): <lba>:<count> ranges (comma separated)
+                             that tools/run.sh --imager-bad injects as AHCI
+                             read errors; writes the <path>.bad sidecar
+                             (one "lba count" per line)
 Zero host-tool dependencies (no sfdisk/mkfs.fat). The FAT32 fixture lives in
 mkdisk_fat.py and the ext4 root in mkdisk_ext4.py (file-size rule)."""
 
@@ -26,25 +33,15 @@ import zlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from mkdisk_ext4 import build as build_ext4  # noqa: E402
 from mkdisk_fat import build as build_fat  # noqa: E402
+from mkdisk_raw import raw_mode  # noqa: E402
 
 SECTOR = 512
 
-# --empty / --pattern: raw imager fixture disks. Handled before the GPT/FAT
-# build so they can be used as the imager's source/destination disks.
-for _mode in ("--empty", "--pattern"):
-    if _mode in sys.argv:
-        _idx = sys.argv.index(_mode)
-        _sectors = int(sys.argv[_idx + 1])
-        _path = sys.argv[_idx + 2] if len(sys.argv) > _idx + 2 else "build/test.img"
-        with open(_path, "wb") as _f:
-            if _mode == "--empty":
-                _f.truncate(_sectors * SECTOR)
-            else:
-                for _s in range(_sectors):
-                    _f.write(bytes(((_s * 131 + _j * 7) & 0xFF) for _j in range(SECTOR)))
-        _what = "empty (zero-filled)" if _mode == "--empty" else "deterministic pattern"
-        print(f"{_path}: {_sectors * SECTOR} bytes, {_what}, {_sectors} sectors")
-        sys.exit(0)
+# --empty / --pattern (+ --badclusters): raw imager fixture disks, handled
+# before the GPT/FAT build so they can be the imager's source/destination
+# disks. See mkdisk_raw.py for the pattern/sidecar details.
+if raw_mode(sys.argv):
+    sys.exit(0)
 TWO_FS = "--two-fs" in sys.argv
 # Audit fixtures:
 #   --bigcluster  SPC=8 (4 KiB clusters): exercises the short-data cluster
@@ -80,11 +77,13 @@ DISK_SECTORS = _LAST_PART_END + BACKUP_GPT_SECTORS + 1  # 42 / 33.6 MiB
 out = bytearray(SECTOR * DISK_SECTORS)
 
 BROKEN = "--broken" in sys.argv or "--broken-shim" in sys.argv
-# --imager: the M12 clone transcript lives in EFI/fantuan/SHELL.CMD like the
-# other autorun fixtures, so the imager phase is deterministic (no serial
-# timing) — it implies --keys for the ESP/fantuan tree.
+# --imager / --imager-bad: the M12 clone transcripts live in
+# EFI/fantuan/SHELL.CMD like the other autorun fixtures, so the imager phases
+# are deterministic (no serial timing) — they imply --keys for the
+# ESP/fantuan tree.
 IMAGER = "--imager" in sys.argv
-KEYS = "--keys" in sys.argv or "--shell-repair" in sys.argv or GRUB_REGEN or KBD_TEST or IMAGER
+IMAGER_BAD = "--imager-bad" in sys.argv
+KEYS = "--keys" in sys.argv or "--shell-repair" in sys.argv or GRUB_REGEN or KBD_TEST or IMAGER or IMAGER_BAD
 SHELL_REPAIR = "--shell-repair" in sys.argv
 # --broken-shim: the fallback loader AND the shim are gone, so the fallback
 # copy repair has nothing to copy from (exercises the NVRAM delete path).
@@ -193,6 +192,63 @@ FSTAB = (
     + ("PARTUUID=%s /boot/efi vfat umask=0077 0 1\n" % _PARTUUID).encode()
 )
 
+# §10 shell autorun transcript: the shell feeds these lines to the command
+# loop, so the gate answers (YES/NO) are scripted too.
+if IMAGER_BAD:
+    # M12-3 bad-sector phase: blk0 boot disk, blk1 bad-range pattern source,
+    # blk2 larger empty destination, blk3 clean pattern source. Quick verify
+    # happy path, then the default abort, then the --continue partial copy.
+    SHELL_CMD = (
+        b"clone blk3 blk2 --quick --yes\n"
+        b"clone blk1 blk2 --yes\n"
+        b"clone blk1 blk2 --continue --yes\n"
+    )
+elif IMAGER:
+    # M12-2 clone transcript: YES-gate abort, size-gate refusal and the
+    # verified happy path. blk0 is the mounted boot disk, blk1 the small
+    # pattern source, blk2 the larger empty destination and blk3 the
+    # smaller one (the size gate).
+    SHELL_CMD = (
+        b"clone blk1 blk2\n"
+        b"NO\n"
+        b"clone blk1 blk3 --yes\n"
+        b"clone blk1 blk2 --verify\n"
+        b"YES\n"
+    )
+elif KBD_TEST:
+    SHELL_CMD = b"help\nlsmnt\n"
+elif GRUB_REGEN:
+    SHELL_CMD = (
+        b"grub-fix install\n"
+        b"YES\n"
+        b"cat /EFI/ubuntu/grub.cfg\n"
+    )
+elif SHELL_REPAIR:
+    SHELL_CMD = (
+        b"grub-fix repair\n"
+        b"YES\n"
+        b"cat /EFI/BOOT/BOOTX64.EFI\n"
+    )
+else:
+    cmds = [
+        b"help",
+        b"lsdev",
+        b"lsos",
+        b"lsmnt",
+        b"cat /HELLO.TXT",
+        b"bootinfo",
+        b"diskhealth",
+    ]
+    if TWO_FS:
+        # Ext4 phase: keep the script fast and deterministic (the surface
+        # scan would eat the phase budget on the 25 MiB disk); the scan
+        # itself is covered by the default --keys phase.
+        cmds.append(b"cat /etc/fstab")
+    else:
+        cmds.append(b"diskhealth --scan")
+    cmds.append(b"crypto-selftest")
+    SHELL_CMD = b"".join(c + b"\n" for c in cmds)
+
 flags = {
     "broken": BROKEN,
     "noshim": NOSHIM,
@@ -204,6 +260,7 @@ flags = {
     "grub_regen": GRUB_REGEN,
     "kbd_test": KBD_TEST,
     "imager": IMAGER,
+    "shell_cmd": SHELL_CMD,
 }
 SPC, SPF, CLUSTERS = build_fat(out, PART_LBA, PART_SECTORS, flags, FSTAB)
 
@@ -223,4 +280,5 @@ print(f"{path}: {len(out)} bytes, GPT + FAT32 ({CLUSTERS} clusters, SPC {SPC}), 
       + (" + 4 KiB clusters" if BIGCLUSTER else "")
       + (" + HELLO.TXT size lie" if LIAR else "")
       + (" + clone imager transcript" if IMAGER else "")
+      + (" + bad-cluster clone transcript" if IMAGER_BAD else "")
       + (" + ext4 root + XFS probe fixtures" if TWO_FS else ""))

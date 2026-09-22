@@ -40,9 +40,6 @@ def build(out, part_lba, part_sectors, flags, fstab):
     noshim = flags["noshim"]
     keys = flags["keys"]
     two_fs = flags["two_fs"]
-    shell_repair = flags["shell_repair"]
-    grub_regen = flags["grub_regen"]
-    imager = flags["imager"]
 
     def wsect(lba, data):
         out[lba * SECTOR:(lba + 1) * SECTOR] = data
@@ -214,54 +211,9 @@ def build(out, part_lba, part_sectors, flags, fstab):
 
     # M7.7: platform-key fixtures; Setup Mode accepts the DER-ish blob.
     CERT = b"\x30\x82\x00\x40" + (b"FANTUAN TEST CERTIFICATE " * 4)
-    # §10 shell autorun script. --shell-repair swaps in the confirmation-
-    # gated repair sequence (the shell feeds the next script line as the YES
-    # answer); --grub-regen runs the M7.9 install path instead.
-    if imager:
-        # M12-2 clone transcript: YES-gate abort, size-gate refusal and the
-        # verified happy path. blk0 is the mounted boot disk, blk1 the small
-        # pattern source, blk2 the larger empty destination and blk3 the
-        # smaller one (the size gate).
-        SHELL_CMD = (
-            b"clone blk1 blk2\n"
-            b"NO\n"
-            b"clone blk1 blk3 --yes\n"
-            b"clone blk1 blk2 --verify\n"
-            b"YES\n"
-        )
-    elif flags.get("kbd_test"):
-        SHELL_CMD = b"help\nlsmnt\n"
-    elif grub_regen:
-        SHELL_CMD = (
-            b"grub-fix install\n"
-            b"YES\n"
-            b"cat /EFI/ubuntu/grub.cfg\n"
-        )
-    elif shell_repair:
-        SHELL_CMD = (
-            b"grub-fix repair\n"
-            b"YES\n"
-            b"cat /EFI/BOOT/BOOTX64.EFI\n"
-        )
-    else:
-        cmds = [
-            b"help",
-            b"lsdev",
-            b"lsos",
-            b"lsmnt",
-            b"cat /HELLO.TXT",
-            b"bootinfo",
-            b"diskhealth",
-        ]
-        if two_fs:
-            # Ext4 phase: keep the script fast and deterministic (the surface
-            # scan would eat the phase budget on the 25 MiB disk); the scan
-            # itself is covered by the default --keys phase.
-            cmds.append(b"cat /etc/fstab")
-        else:
-            cmds.append(b"diskhealth --scan")
-        cmds.append(b"crypto-selftest")
-        SHELL_CMD = b"".join(c + b"\n" for c in cmds)
+    # §10 shell autorun script; mkdisk.py owns the transcript selection
+    # (--shell-repair, --grub-regen, --imager, --imager-bad, default).
+    SHELL_CMD = flags["shell_cmd"]
     if keys:
         FANTUAN_DIR = bytearray(SECTOR)
         FANTUAN_DIR[0:32] = self_entry(15)

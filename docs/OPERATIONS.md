@@ -16,6 +16,7 @@ itself see [USAGE.md](USAGE.md); for builds see [BUILD.md](BUILD.md).
 | `tools/smoke-posix.sh` | P1 libc/ELF-loader gate (hello, brk, tmpfs, pipe) | ~1 min |
 | `tools/smoke-net.sh` | M11 offline network gate (loopback/SLIRP/DNS/TLS/UDP) | ~8 min |
 | `tools/smoke-imager.sh` | M12 `clone` gate: verified round trip, size/YES gates, read-only branch | ~2 min |
+| `tools/smoke-imager-bad.sh` | M12-3 bad-sector gate: default abort, `--continue` zero-fill, report ranges/counts, `--quick` | ~1 min |
 | `tools/smoke-bios.sh` | legacy BIOS chain: x86_64 + i686 (2 phases) | ~2 min |
 | `tools/smoke-riscv.sh` | riscv acceptance suite (3 phases) | ~4 min |
 | `tools/smoke-aarch64.sh` | aarch64 direct FDT + virtio-net/TLS offline gate (2 phases) | ~4 min |
@@ -159,6 +160,7 @@ tools/smoke-aarch64.sh                 # bounded acceptance run (PASS/SKIP)
 | `--shell-repair` | autorun runs `grub-fix repair` and answers YES |
 | `--grub-regen` | autorun runs `grub-fix install` (implies `--two-fs`) |
 | `--imager` | M12 `clone` fixtures on one AHCI controller: test disk (blk0) + pattern source (blk1) + larger/smaller empty destinations (blk2/blk3); autorun runs the gate transcript |
+| `--imager-bad` | M12-3 bad-sector fixtures: blk1 pattern with QEMU blkdebug read errors, blk2 empty destination, blk3 clean pattern; autorun runs abort/`--continue`/`--quick` (ranges default `100:4,700:2`, override with `BADCLUSTERS`) |
 | `--smm` | x86 on q35 with SMM OVMF (required for SetVariable) |
 | `--no-smbios` | boot without `-smbios` overrides (firmware defaults) |
 | `--nvme` | attach the disk as NVMe instead of AHCI |

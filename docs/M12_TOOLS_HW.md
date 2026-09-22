@@ -83,6 +83,68 @@ M12-3+.
   the hard part (the hash-verified copy engine in `kernel-core::imager`)
   already separates policy from mechanism for that migration (APPS.md).
 
+### 2b. Implemented in M12-3 (2026-09)
+
+The bad-sector policy and the report file landed on top of M12-2. The
+default behavior is unchanged: an unreadable sector aborts the run (the
+source pre-hash fails before anything is written) with the exact LBA.
+
+- **Flags** (`kernel-core/src/shell/imager.rs`): `clone <src> <dst>
+  [--quick] [--continue] [--retries N] [--verify] [--yes]`. `--retries N`
+  (1..=16, default 3) sets read retries per sector before it counts as bad;
+  the plan print now includes `clone: policy continue=… quick=… retries=…`.
+- **`--continue`** (`kernel-core/src/imager/`): a failed chunk read is
+  retried `--retries` times, then isolated sector by sector. Every sector
+  that stays unreadable is recorded in a fixed-capacity ledger (16 ranges,
+  coalesced; totals keep counting past the cap) and zero-filled in the
+  output, and the copy carries on. The pre-hash zero-fills the same ranges by
+  construction, so the source hash is the "zero-filled expectation"; the copy
+  pass never re-reads a recorded sector and hashes exactly the bytes it
+  writes (`stream sha256`). Verification re-reads the destination and
+  compares it to that stream, and `source-match` records whether the source
+  stayed identical between the passes. The verdict is `partial` whenever
+  anything was zero-filled (or the source changed) — a `--continue` copy is
+  never silently presented as a byte-for-byte copy.
+- **`--quick`**: all three hash passes (source, stream, destination) cover
+  only the M12 design's sample — the first and last 1 MiB plus 1 MiB at
+  25/50/75%, aligned down to 1 MiB. The report marks `verify quick`; the
+  verdict wording is unchanged. `--quick` is a verification-cost knob, not a
+  substitute for `--continue`.
+- **Report** (`kernel-core/src/imager/report.rs`): every clone copy run ends
+  with a deterministic report written to **`/tmp/clone-report.txt`** (the P1
+  tmpfs; the shell's `cat` does not read tmpfs, so the full report is also
+  mirrored to the serial log in one write, prefixed `clone-report:`). Fields:
+  source/destination (handle, driver, sectors, bytes), sector size, policy,
+  `verify full|quick`, copied sectors, source/stream/destination SHA-256
+  (or `none`), `source-match`, one `bad-range lba=… count=… errors=… retries=…`
+  per range, `bad-ranges`/`errors`/`retries` totals, and the verdict
+  (`verified`/`partial`/`failed`/`cancelled`). The format is stable and
+  greppable by the smoke.
+- **I/O recovery fix** (`drivers/c/ahci_io.c`): a failed command leaves
+  `PxCI` set (QEMU keeps the slot busy until software clears it; real HBAs
+  can on timeout), which wedged the port and made every retry burn the full
+  2 s poll. The command path now watches `PxIS.TFES` for the error, kicks
+  the port (stop the command engine, clear the latched IRQ/SERR status,
+  restart) after a failure and retries cleanly. Without this, `--continue`
+  could neither retry nor read the sectors after a bad one.
+- **Fault injection** (`tools/mkdisk.py --badclusters`,
+  `tools/mkimagerdisks.sh`): the fixture writes a deterministic pattern and
+  an `<image>.bad` sidecar listing `lba count` ranges. `tools/run.sh
+  --imager-bad` turns each sector into one QEMU **`blkdebug` `inject-error`**
+  rule (`event = "read_aio"`, `sector = <lba>` in 512-byte sectors,
+  `errno = 5`), wrapping the source drive. blkdebug is a block-layer filter,
+  so the   guest observes a real AHCI read error through `blk_read` — no guest
+  output is faked and no test hook is compiled into the kernel. (The M12-2
+  note stands for writes: write injection was not usable on this path and
+  is not used; the smoke only needs source read errors.)
+- **Smoke** (`tools/smoke-imager-bad.sh`): one bounded boot that runs three
+  clones from the ESP autorun — `--quick` happy path, default abort at LBA
+  100, then `--continue`. It asserts the abort transcript, the zero-fill
+  lines, the full report (ranges/counts/hashes/`verdict partial`), the quick
+  report, and the host-side zero-filled destination prefix (`sha256` of the
+  pattern with the injected ranges zeroed). `tools/smoke-imager.sh` is
+  unchanged and stays green.
+
 ## 3. NTFS read-only
 
 - **Scope (v1)**: boot sector/BPB, `$MFT` parse, FILE records (resident and
@@ -147,8 +209,10 @@ explicitly deferred until the M12 spike collects vendor documentation.
 
 ## 7. Verification
 
-- Imager: image-to-image and disk-to-image round trips hashed; a crafted
-  bad-sector fixture (mkdisk `--badclusters`) exercises `--continue`.
+- Imager: image-to-image and disk-to-image round trips hashed
+  (`tools/smoke-imager.sh`); a crafted bad-sector fixture (mkdisk
+  `--badclusters` + QEMU blkdebug read errors) exercises `--continue`, the
+  zero-fill expectation and the report (`tools/smoke-imager-bad.sh`).
 - NTFS: fixture listing/read equality; a real Windows 10 image lists
   `Windows/System32` entries (read-only).
 - GPU: on QEMU (boot VGA/cirrus) identity+BARs only; on one real AMD GPU
@@ -164,6 +228,6 @@ explicitly deferred until the M12 spike collects vendor documentation.
 |---|---|
 | NTFS scope creep (compression, attribute lists) | v1 list above is fixed; v2 items documented |
 | GPU probing hangs fragile hardware | read-only BAR maps, bounded reads, timeouts, report-only |
-| Imager silently corrupts a destination | mandatory plan print, size check, hash verify, YES gate |
+| Imager silently corrupts a destination | mandatory plan print, size check, hash verify, YES gate; `--continue` is never silent: every zero-filled range is counted in the report and the verdict becomes `partial` |
 | ACPI parser bugs | minimal table walker, checksum-verified, never trusts lengths |
 | Virtualization claims overreach | matrix states exactly what was detected; isolation claims deferred to M15's threat model |

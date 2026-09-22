@@ -2,13 +2,16 @@
 //! verification, split from the `clone` shell command so the mechanism is
 //! shared and the policy (plan, YES gate, repair token) stays in the shell.
 //!
-//! Flow: `plan()` prints the source/destination sizes and enforces the hard
-//! size gate (source > destination is refused); the caller obtains a
+//! Flow: `plan()` prints the source/destination sizes and policy and enforces
+//! the hard size gate (source > destination is refused); the caller obtains a
 //! `RepairToken` (the YES gate) and calls `run()`, which hashes the source
 //! before the copy, streams the sectors through a fixed 1 MiB bounce buffer,
 //! then re-reads the destination and compares the hashes. Reads and writes
-//! are retried a bounded number of times; errors abort loudly. The
-//! destination is never reported usable unless the hashes match.
+//! are retried a bounded number of times; errors abort loudly unless
+//! `--continue` turns unreadable sectors into recorded, zero-filled ranges
+//! (M12-3: `policy.rs`, `pass.rs`, `report.rs`). The destination is never
+//! reported usable unless the hashes match, and a zero-filled copy is always
+//! reported as `partial`.
 //!
 //! Device paths are the block registry's `blk0..blk3` (the same handles the
 //! `DrvOps` storage layer uses); the C AHCI/virtio layers register one entry
@@ -22,7 +25,11 @@ use crate::drv::BlkIdentity;
 use crate::log::Log;
 
 mod copy;
+mod pass;
+pub mod policy;
+pub mod report;
 pub use copy::run;
+pub use policy::Options;
 
 /// Logical sector size; every supported transport reports 512-byte sectors.
 pub const SECTOR: u64 = 512;
@@ -96,9 +103,9 @@ pub fn open(index: usize) -> Option<Dev> {
     Some(Dev { handle, index, name: dev_name(handle), sectors: id.sectors })
 }
 
-/// Print the plan (source/destination/size/sector count, hashes performed)
-/// and apply the hard size gate. False when the copy must not start.
-pub fn plan(s: &mut Log, src: &Dev, dst: &Dev) -> bool {
+/// Print the plan (source/destination/size/sector count, hashes performed,
+/// policy) and apply the hard size gate. False when the copy must not start.
+pub fn plan(s: &mut Log, src: &Dev, dst: &Dev, opts: &Options) -> bool {
     let _ = writeln!(
         s,
         "clone: plan src=blk{} ({}) {} sectors, {} KiB",
@@ -118,6 +125,13 @@ pub fn plan(s: &mut Log, src: &Dev, dst: &Dev) -> bool {
     let _ = writeln!(
         s,
         "clone: plan hashes: sha256 of the source (pre-copy) + sha256 of the destination (re-read); verification is mandatory"
+    );
+    let _ = writeln!(
+        s,
+        "clone: policy continue={} quick={} retries={}",
+        if opts.continue_on_error { "yes" } else { "no" },
+        if opts.quick { "yes" } else { "no" },
+        opts.retries
     );
     if src.sectors > dst.sectors {
         let _ = writeln!(

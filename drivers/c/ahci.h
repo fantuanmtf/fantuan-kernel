@@ -35,6 +35,7 @@
 #define PX_CMD_FR  (1u << 14)  /* FIS receive running */
 #define PX_CMD_CR  (1u << 15)  /* command list running */
 #define PX_TFD_ERR (1u << 0)   /* error bit */
+#define PX_IS_TFES (1u << 30)  /* task file error status (RW1C) */
 
 /* --- command structures (AHCI 1.3) -------------------------------------- */
 struct cmd_header {

@@ -3,7 +3,7 @@
 # Usage: tools/run.sh [--arch x86_64|riscv64|aarch64] [--disk] [--graphics] [--broken]
 #                     [--broken-shim] [--smm] [--no-smbios] [--two-fs]
 #                     [--keys] [--shell-repair] [--nvme] [--bigcluster]
-#                     [--liar] [--grub-regen] [--net] [--imager]
+#                     [--liar] [--grub-regen] [--net] [--imager] [--imager-bad]
 #   --net:    attach the kernel-net NIC on QEMU user networking (SLIRP):
 #             the e1000 on x86_64, the virtio-net-device MMIO transport on
 #             aarch64 (with -global virtio-mmio.force-legacy=false); without
@@ -16,6 +16,9 @@
 #   --imager: M12 clone phase: the source fixture on AHCI port 0 plus three
 #             empty destination disks on ports 1..3 (larger, smaller,
 #             read-only) and the clone autorun transcript.
+#   --imager-bad: M12-3 bad-sector phase: the clone autorun plus a bad-cluster
+#             pattern source whose ranges QEMU blkdebug turns into real AHCI
+#             read errors (tools/mkimagerdisks.sh --bad).
 #   --smm:    run on q35 with the SMM OVMF build (build/ovmf-smm/). Runtime
 #             NVRAM writes (SetVariable, M7.6) only work in this mode — the
 #             plain non-SMM OVMF build rejects them.
@@ -109,11 +112,13 @@ MONITOR=0
 KBD_TEST=0
 NET=0
 IMAGER=0
+IMAGER_BAD=0
 for a in "$@"; do
   case "$a" in
     --graphics)    GRAPHICS=1 ;;
     --net)         NET=1 ;;
     --imager)      IMAGER=1 ;;
+    --imager-bad)  IMAGER_BAD=1 ;;
     --broken)      BROKEN=1 ;;
     --broken-shim) BROKEN=1; NOSHIM=1 ;;
     --smm)         SMM=1 ;;
@@ -218,20 +223,9 @@ if [ "$KBD_TEST" = "1" ]; then
 fi
 # Storage attachment: AHCI (reference) or NVMe (the same blk_ops table).
 if [ "$IMAGER" = "1" ]; then
-  # M12-2 clone fixtures (small and fast): blk0 = the test disk (boot + the
-  # ESP autorun transcript), blk1 = a 1 MiB pattern source, blk2 = a 2 MiB
-  # empty destination, blk3 = a 512 KiB empty destination (size gate).
-  # The fixture images are left alone when present so a smoke can pre-hash
-  # them; a manual run creates them once.
-  python3 tools/mkdisk.py --imager build/imager-src.img
-  python3 tools/mkdisk.py --pattern 2048 build/imager-pattern.img
-  [ -f build/imager-dst.img ] || python3 tools/mkdisk.py --empty 4096 build/imager-dst.img
-  [ -f build/imager-small.img ] || python3 tools/mkdisk.py --empty 1024 build/imager-small.img
-  AHCI_DEV="-device ich9-ahci,id=sata"
-  AHCI_DEV="$AHCI_DEV -drive file=build/imager-src.img,format=raw,if=none,id=im0 -device ide-hd,drive=im0,bus=sata.0"
-  AHCI_DEV="$AHCI_DEV -drive file=build/imager-pattern.img,format=raw,if=none,id=im1 -device ide-hd,drive=im1,bus=sata.1"
-  AHCI_DEV="$AHCI_DEV -drive file=build/imager-dst.img,format=raw,if=none,id=im2 -device ide-hd,drive=im2,bus=sata.2"
-  AHCI_DEV="$AHCI_DEV -drive file=build/imager-small.img,format=raw,if=none,id=im3 -device ide-hd,drive=im3,bus=sata.3"
+  AHCI_DEV="$(tools/mkimagerdisks.sh)"
+elif [ "$IMAGER_BAD" = "1" ]; then
+  AHCI_DEV="$(tools/mkimagerdisks.sh --bad)"
 elif [ "$NVME" = "1" ]; then
   python3 tools/mkdisk.py $MKDISK_ARGS build/test.img
   AHCI_DEV="-drive file=build/test.img,format=raw,if=none,id=td0 -device nvme,drive=td0,serial=FANTUAN1"
