@@ -10,7 +10,7 @@ use core::ptr;
 pub mod damage;
 pub mod demo;
 pub use damage::{selftest, BufferedPresent, Damage, DirectPresent, Present, MAX_DAMAGE};
-pub use demo::{demo_frame, DemoStats};
+pub use demo::{demo_cursor, demo_frame, CURSOR_FG, CURSOR_SIZE, DemoStats};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Format {

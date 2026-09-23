@@ -22,8 +22,12 @@ pub mod heartbeat;
 #[cfg(kconfig_imager)]
 pub mod imager;
 pub mod input;
+#[cfg(kconfig_graphics)]
+pub mod input_ring;
 pub mod log;
 pub mod mem;
+#[cfg(kconfig_graphics)]
+pub mod mouse;
 pub mod process;
 pub mod runtime;
 pub mod sha256;

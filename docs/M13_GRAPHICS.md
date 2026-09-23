@@ -100,6 +100,53 @@ The double-buffer seam landed exactly on the §2.2 shape:
 - Clients: the kernel console reads scancodes as today; in M14 the ring
   graduates to `/dev/input/event0` with `read()` returning event records.
 
+### 3.1 Implemented in M13-3 (V-c)
+
+The core landed as `kernel-core::input_ring` and `kernel-core::mouse`, both
+gated by `CONFIG_GRAPHICS` (so the `minimal`/`net` profiles link neither and
+carry no `input:`/`PS/2 aux` markers). The design doc's per-device ring and
+the evdev `{type, code, value}` tuple are a later refinement; M13-3 ships one
+frozen shared ring whose consumers (M13-4 / V-f) compile against these
+exact offsets:
+
+- **`InputEvent`** — a `#[repr(C)]`, 32-byte layout (the **M13-3 contract**):
+
+  | offset | size | field      | meaning                              |
+  |--------|------|------------|--------------------------------------|
+  | 0      | 8    | `ts`       | monotonic nanoseconds (0 = no clock) |
+  | 8      | 2    | `kind`     | 1 = key, 2 = pointer                 |
+  | 10     | 1    | `flags`    | key: 1 pressed / 0 released          |
+  | 11     | 1    | `set`      | key: scancode set (1 after translation) |
+  | 12     | 1    | `scancode` | key: make code                       |
+  | 13     | 1    | `ascii`    | key: translated ASCII (0 = none)     |
+  | 14     | 1    | `buttons`  | pointer: bit 0 left / 1 right / 2 middle |
+  | 16     | 2    | `dx`       | pointer: signed relative X           |
+  | 18     | 2    | `dy`       | pointer: signed relative Y           |
+  | 20     | 12   | `_reserved`| zero; reserved for extension         |
+
+  ABI drift is guarded by a `size_of::<InputEvent>() == 32` check inside the
+  ring self-test, run at boot (`input: ring self-test ok`).
+
+- **Ring policy** — one static, lock-protected ring of `RING_CAPACITY = 64`
+  events, no allocation. Producers are the PS/2 keyboard/mouse IRQ handlers;
+  there is one consumer (the demo; `/dev/input/event0` later). The lock
+  disables interrupts so an IRQ cannot preempt a holder (single CPU). When
+  full, **the oldest event is dropped** and the `dropped()` counter
+  increments (monotonic, never reset). `push_key`/`push_pointer`/`pop` are
+  the producer/consumer seam.
+
+- **PS/2 mouse coverage** — x86_64 (`kernel/src/mouse.rs`) and i686
+  (`kernel-i686/src/mouse.rs`) bring up the 8042 aux port (enable aux +
+  IRQ12, controller config byte preserved from the keyboard init, reset with
+  bounded ACK/self-test/ID reads, set defaults, enable 3-byte data
+  reporting), decode the standard packet through the shared
+  `kernel-core::mouse` decoder (sign + overflow bits, sync-bit resync), and
+  feed `push_pointer(dx, dy, buttons)`. The existing keyboard IRQ1 keeps its
+  ASCII path into the shell unchanged and additionally pushes key events
+  (`scancode/set`, pressed/released, ASCII) into the ring. riscv/aarch64
+  have no PS/2 and stay serial-only. The i686 runtime input path is built and
+  booted but not driven by a smoke (QEMU-only acceptance for the pointer).
+
 ## 4. KMS-like ioctl contract (frozen in this milestone)
 
 The subset Xorg's `modesetting` driver needs, with Linux-compatible
@@ -157,7 +204,14 @@ numbers/structs where they are stable enough to copy field-for-field:
   the 500-tick wait; x86_64: kmain waits for the userland/proc-test tasks to
   be reaped and then freezes the GOP mirror for the demo's duration, which
   the demo unfreezes on exit). riscv/aarch64 have no display, so the demo
-  task is x86_64/i686-only and those kernels skip it with no demo marker.
+   task is x86_64/i686-only and those kernels skip it with no demo marker.
+   **V-c addition**: the demo also consumes the input ring — pointer events
+   move a magenta cursor sprite (a solid 8×8 square drawn in the demo's
+   bottom band, so the damage bbox stays tight) and a `q`/`Esc` key press
+   stops the animation early, reported as
+   `input: demo consumed dx=.. dy=.. buttons=..`, `input: demo cursor x=.. y=..`
+   and `input: demo key stop scancode=.. ascii=..` over the no-mirror sink.
+   The ring self-test prints `input: ring self-test ok` at boot.
 - A kernel-side IPC client that runs `QUERY_DISKS` + `DIAGNOSE` and prints
   the exchange, proving the protocol shape that Qt will speak.
 
@@ -167,7 +221,7 @@ numbers/structs where they are stable enough to copy field-for-field:
 |---|---|
 | M13-1 | `fb_info` + blit/fill/damage core; GOP console refactored onto it | landed (V-a) |
 | M13-2 | Double buffer + present; demo app (kernel task) | landed (V-b) |
-| M13-3 | Input event ring + PS/2 mouse; console + demo consumers |
+| M13-3 | Input event ring + PS/2 mouse; console + demo consumers | landed (V-c) |
 | M13-4 | Dumb-buffer objects, ADDFB/SETCRTC/PAGE_FLIP semantics + events |
 | M13-5 | EDID sourcing (GOP/VBE) + fallback blob + connector properties |
 | M13-6 | Repair broker + protocol + in-kernel client demo |

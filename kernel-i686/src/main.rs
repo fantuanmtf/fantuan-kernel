@@ -26,6 +26,8 @@ mod pic;
 mod pit;
 mod demo;
 mod gdt;
+#[cfg(kconfig_graphics)]
+mod mouse;
 mod serial;
 mod task;
 mod user;
@@ -134,6 +136,14 @@ fn kmain(bi: *const BootInfo) -> ! {
     #[cfg(kconfig_graphics)]
     fb::upgrade_buffered();
 
+    // M13-3: the input event ring self-test (order + drop policy, no input).
+    #[cfg(kconfig_graphics)]
+    if kernel_core::input_ring::selftest() {
+        serial::puts("input: ring self-test ok\n");
+    } else {
+        serial::puts("input: ring self-test FAILED\n");
+    }
+
     // --- M10-4c: PIO ATA + the shared VFS on the test disk (read-only) ------
     if ata::init() {
         ata::install_hooks();
@@ -174,6 +184,15 @@ fn kmain(bi: *const BootInfo) -> ! {
     serial::puts("pic: remapped 0x20/0x28, IRQ0 unmasked\n");
     pit::init(100);
     serial::puts("timer: PIT 100 Hz\n");
+
+    // M13-3: PS/2 mouse on the 8042 aux port (IRQ12). After the IDT/PIC so the
+    // IRQ12 vector is routed; before interrupts so the reset bytes are polled.
+    #[cfg(kconfig_graphics)]
+    if mouse::init() {
+        serial::puts("mouse: PS/2 aux enabled (IRQ12, 3-byte packets)\n");
+    } else {
+        serial::puts("mouse: PS/2 aux unavailable (no pointer input)\n");
+    }
 
     // Recoverable exception demo (the handler resumes after int3), then enable
     // interrupts for the PIT heartbeat.

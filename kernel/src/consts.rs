@@ -31,5 +31,6 @@ pub const PIC1_OFFSET: u8 = 0x20;
 pub const PIC2_OFFSET: u8 = 0x28;
 pub const IRQ_TIMER: u8 = 0x20; // PIC1_OFFSET + 0
 pub const IRQ_KEYBOARD: u8 = 0x21; // PIC1_OFFSET + 1
+pub const IRQ_MOUSE: u8 = 0x2C; // PIC2_OFFSET + 4
 
 pub const PIT_FREQ_HZ: u64 = 1_193_182;

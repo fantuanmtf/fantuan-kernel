@@ -161,6 +161,15 @@ for s in rump mbedtls "net:" "tls:"; do
     fail "minimal profile: '$s' leaked into the kernel ELF"
   fi
 done
+# M13-3: the input event ring and the PS/2 mouse are CONFIG_GRAPHICS-gated, so
+# the minimal ELF must carry neither marker (substring match: "input:" alone
+# collides with bash's embedded auto-logout text).
+if strings -a "$ELF" | grep -qF "ring self-test"; then
+  fail "minimal profile: input ring marker leaked into the kernel ELF"
+fi
+if strings -a "$ELF" | grep -qF "PS/2 aux"; then
+  fail "minimal profile: PS/2 mouse marker leaked into the kernel ELF"
+fi
 if grep -q "shell: ready" "$MIN_LOG" \
    && grep -q "root@Fantuan-MTF> " "$MIN_LOG" \
    && grep -q "shell commands (root@Fantuan-MTF" "$MIN_LOG" \

@@ -15,7 +15,8 @@ use core::ptr;
 
 use fantuan_abi::FrameBuffer;
 use kernel_core::graphics::{
-    demo_frame, BufferedPresent, Damage, DirectPresent, DemoStats, FbInfo, Format, Present, Rect,
+    demo_cursor, demo_frame, BufferedPresent, Damage, DirectPresent, DemoStats, FbInfo, Format,
+    Present, Rect, CURSOR_SIZE,
 };
 
 use crate::font::FONT_8X16;
@@ -130,13 +131,42 @@ pub(crate) fn upgrade_buffered() -> bool {
     true
 }
 
-/// One graphics-demo frame on the shared off-screen surface, then present.
-/// Returns the frame's damage summary (`None` when the console is absent).
+/// One graphics-demo frame on the shared off-screen surface (box + counter),
+/// accumulating damage without presenting. The demo draws the cursor next and
+/// presents once per frame.
 pub(crate) fn gfx_demo_frame(frame: u64) -> Option<DemoStats> {
     let st = state()?;
-    let stats = demo_frame(st.fb, &mut st.damage, frame);
-    state_present(st);
-    Some(stats)
+    Some(demo_frame(st.fb, &mut st.damage, frame))
+}
+
+/// Erase the cursor at its previous position and draw it at (x, y) (clamped to
+/// the surface), accumulating damage. Returns the union damage rect.
+pub(crate) fn gfx_demo_cursor(old_x: u32, old_y: u32, x: u32, y: u32) -> Option<Rect> {
+    let st = state()?;
+    let mut bbox = Rect::new(0, 0, 0, 0);
+    if let Some(c) = st
+        .fb
+        .fill(Rect::new(old_x, old_y, CURSOR_SIZE, CURSOR_SIZE), BG)
+    {
+        st.damage.add(c);
+        bbox = bbox.union(c);
+    }
+    if let Some(c) = demo_cursor(st.fb, &mut st.damage, x, y) {
+        bbox = bbox.union(c);
+    }
+    Some(bbox)
+}
+
+/// Present the demo's accumulated damage (one present per frame).
+pub(crate) fn gfx_demo_present() {
+    if let Some(st) = state() {
+        state_present(st);
+    }
+}
+
+/// Framebuffer dimensions for the demo's cursor clamping.
+pub(crate) fn gfx_demo_dims() -> Option<(u32, u32)> {
+    state().map(|st| (st.fb.width, st.fb.height))
 }
 
 /// True when the shared damage list is empty (idle-screen proof).

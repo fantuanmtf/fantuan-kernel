@@ -14,6 +14,11 @@ const BG: u32 = 0x0000_0000;
 const BOX_FG: u32 = 0x00FF_FFFF;
 const BIT_FG: u32 = 0x0000_FF00;
 
+/// Cursor sprite edge (a solid square), drawn in magenta (R == B, symmetric in
+/// RGB/BGR byte order like the other demo colors).
+pub const CURSOR_SIZE: u32 = 8;
+pub const CURSOR_FG: u32 = 0x00FF_00FF;
+
 pub struct DemoStats {
     pub bbox: Rect,
     pub rects: usize,
@@ -55,4 +60,15 @@ pub fn demo_frame(fb: FbInfo, d: &mut Damage, frame: u64) -> DemoStats {
         rects: d.len(),
         area: bbox.area(),
     }
+}
+
+/// Draw the cursor sprite (a solid CURSOR_SIZE square) at (x, y), clamped to
+/// the surface, marking damage. Returns the drawn rect. The caller erases the
+/// previous position (the shared surface is double-buffered and persistent).
+pub fn demo_cursor(fb: FbInfo, d: &mut Damage, x: u32, y: u32) -> Option<Rect> {
+    let cx = x.min(fb.width.saturating_sub(CURSOR_SIZE));
+    let cy = y.min(fb.height.saturating_sub(CURSOR_SIZE));
+    let r = fb.fill(Rect::new(cx, cy, CURSOR_SIZE, CURSOR_SIZE), CURSOR_FG)?;
+    d.add(r);
+    Some(r)
 }

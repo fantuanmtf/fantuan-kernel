@@ -18,7 +18,8 @@ use core::ptr;
 
 use fantuan_abi::BootInfo;
 use kernel_core::graphics::{
-    demo_frame, BufferedPresent, Damage, DemoStats, DirectPresent, FbInfo, Format, Present, Rect,
+    demo_cursor, demo_frame, BufferedPresent, Damage, DemoStats, DirectPresent, FbInfo, Format,
+    Present, Rect, CURSOR_SIZE,
 };
 
 use crate::serial;
@@ -260,12 +261,37 @@ fn scroll(st: &mut State) {
     st.row -= 1;
 }
 
-/// One graphics-demo frame on the shared off-screen surface, then present.
+/// One graphics-demo frame on the shared off-screen surface (box + counter),
+/// accumulating damage without presenting.
 pub fn gfx_demo_frame(frame: u64) -> Option<DemoStats> {
     let st = state()?;
-    let stats = demo_frame(st.fb, &mut st.damage, frame);
-    present(st);
-    Some(stats)
+    Some(demo_frame(st.fb, &mut st.damage, frame))
+}
+
+/// Erase the cursor at its old position and draw it at (x, y); union rect.
+pub fn gfx_demo_cursor(old_x: u32, old_y: u32, x: u32, y: u32) -> Option<Rect> {
+    let st = state()?;
+    let mut bbox = Rect::new(0, 0, 0, 0);
+    if let Some(c) = st.fb.fill(Rect::new(old_x, old_y, CURSOR_SIZE, CURSOR_SIZE), BG) {
+        st.damage.add(c);
+        bbox = bbox.union(c);
+    }
+    if let Some(c) = demo_cursor(st.fb, &mut st.damage, x, y) {
+        bbox = bbox.union(c);
+    }
+    Some(bbox)
+}
+
+/// Present the demo's accumulated damage (one present per frame).
+pub fn gfx_demo_present() {
+    if let Some(st) = state() {
+        present(st);
+    }
+}
+
+/// Framebuffer dimensions for the demo's cursor clamping.
+pub fn gfx_demo_dims() -> Option<(u32, u32)> {
+    state().map(|st| (st.fb.width, st.fb.height))
 }
 
 /// True when the shared damage list is empty (idle-screen proof).

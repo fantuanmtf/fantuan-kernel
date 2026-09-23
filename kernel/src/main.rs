@@ -46,6 +46,8 @@ mod gfx_demo;
 mod input;
 mod kbd;
 mod mm;
+#[cfg(kconfig_graphics)]
+mod mouse;
 #[cfg(kconfig_net)]
 mod net;
 mod panic;
@@ -152,6 +154,14 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         let _ = writeln!(s, "graphics: damage self-test FAILED");
     }
 
+    // M13-3: the input event ring self-test (order + drop policy, no input).
+    #[cfg(kconfig_graphics)]
+    if kernel_core::input_ring::selftest() {
+        let _ = writeln!(s, "input: ring self-test ok");
+    } else {
+        let _ = writeln!(s, "input: ring self-test FAILED");
+    }
+
     // --- M1: interrupt machinery -----------------------------------------
     gdt::init();
     let _ = writeln!(s, "gdt: authoritative GDT + TSS (IST1 = #DF stack)");
@@ -172,6 +182,16 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     tsc::calibrate();
     pit::init_timer(100);
     let _ = writeln!(s, "timer: PIT 100 Hz on IRQ0, TSC {} MHz", tsc::hz() / 1_000_000);
+
+    // M13-3: PS/2 mouse on the 8042 aux port (IRQ12). After the timer so the
+    // bounded ACK waits can sleep; before interrupts so the reset bytes are
+    // polled, not routed through the (masked) IRQ12.
+    #[cfg(kconfig_graphics)]
+    if mouse::init() {
+        let _ = writeln!(s, "mouse: PS/2 aux enabled (IRQ12, 3-byte packets)");
+    } else {
+        let _ = writeln!(s, "mouse: PS/2 aux unavailable (no pointer input)");
+    }
 
     cpu::sti();
     let _ = writeln!(s, "interrupts: enabled");

@@ -88,6 +88,10 @@ pub extern "C" fn isr_dispatch(frame: *mut u32) {
             pit::tick();
             kernel_core::task::schedule();
         }
+        #[cfg(kconfig_graphics)]
+        if irq == 12 {
+            crate::mouse::irq();
+        }
         pic::eoi(irq as u8);
         return;
     }

@@ -4,7 +4,7 @@
 use core::fmt::Write;
 use core::mem::size_of;
 
-use crate::consts::{IRQ_KEYBOARD, IRQ_TIMER, PIC2_OFFSET};
+use crate::consts::{IRQ_KEYBOARD, IRQ_MOUSE, IRQ_TIMER, PIC2_OFFSET};
 use crate::exceptions;
 use crate::pic;
 use crate::serial::{self, Serial};
@@ -86,7 +86,15 @@ pub extern "C" fn isr_dispatch(frame: *mut InterruptFrame) {
             // P2: deliver pending signals before the user task resumes.
             syscall::deliver_user(f);
         } else if vector == IRQ_KEYBOARD as u64 {
+            #[cfg(kconfig_graphics)]
+            if let Some(ev) = crate::kbd::irq_event() {
+                kernel_core::input_ring::push_key(ev.scancode, ev.set, ev.pressed, ev.ascii);
+            }
+            #[cfg(not(kconfig_graphics))]
             crate::kbd::irq();
+        } else if vector == IRQ_MOUSE as u64 {
+            #[cfg(kconfig_graphics)]
+            crate::mouse::irq();
         }
     } else {
         let mut s = Serial::new(serial::COM1);

@@ -39,12 +39,18 @@ pub fn remap() {
     outb(PIC2_DATA, mask2);
 }
 
-/// Unmask one IRQ line (0..15). Used by the keyboard step (M10-4b3).
-#[allow(dead_code)]
+/// Unmask one IRQ line (0..15). Used by the mouse step (M13-3, IRQ12); the
+/// master cascade line (IRQ2) is unmasked alongside any slave IRQ.
+#[cfg(kconfig_graphics)]
 pub fn unmask(irq: u8) {
-    let (port, bit) = if irq < 8 { (PIC1_DATA, irq) } else { (PIC2_DATA, irq - 8) };
-    let mask = inb(port) & !(1u8 << bit);
-    outb(port, mask);
+    if irq < 8 {
+        let mask = inb(PIC1_DATA) & !(1u8 << irq);
+        outb(PIC1_DATA, mask);
+    } else {
+        let mask = inb(PIC2_DATA) & !(1u8 << (irq - 8));
+        outb(PIC2_DATA, mask);
+        outb(PIC1_DATA, inb(PIC1_DATA) & !(1u8 << 2));
+    }
 }
 
 /// End-of-interrupt for a remapped IRQ number (0..15).

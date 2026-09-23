@@ -187,6 +187,17 @@ single-buffered) and the demo still runs. The demo task
 `minimal`/`net` profiles link no demo or back-buffer code and print no
 `graphics:` marker; riscv/aarch64 are serial-only and never spawn it.
 
+Gated in M13-3: the input event ring (`kernel-core::input_ring`) and the PS/2
+mouse decoder (`kernel-core::mouse`) share the same `CONFIG_GRAPHICS` seam —
+still no new symbol. The arch mouse drivers (`kernel/src/mouse.rs`,
+`kernel-i686/src/mouse.rs`) and the keyboard→key-event routing are
+`#[cfg(kconfig_graphics)]`, so the `minimal`/`net` profiles link neither the
+ring, the decoder nor the mouse and carry no `input:`/`PS/2 aux` marker;
+`tools/smoke-config.sh` asserts the minimal ELF is free of the `ring
+self-test` and `PS/2 aux` strings. The existing keyboard ASCII path into the
+serial shell stays ungated and unchanged; riscv/aarch64 have no PS/2 and keep
+their serial-only input.
+
 ## Implemented in C5 (2026-09)
 
 The default `minimal` profile is now the Live boot set only: SHELL (plus the

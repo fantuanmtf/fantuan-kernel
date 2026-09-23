@@ -155,29 +155,32 @@ int kbd_init(void)
     return 0;
 }
 
-/* Called from the Rust IRQ1 dispatch: read one scancode, translate it and
- * queue the ASCII (if any). */
-void kbd_irq(void)
+/* Called from the Rust IRQ1 dispatch: read one scancode, translate it, queue
+ * the ASCII (if any) and return the key event as a packed int32 for the
+ * kernel input ring (M13-3). -1 means "no key event" (no data / spurious /
+ * extended prefix consumed). Packed layout: bits 0-7 scancode (make code),
+ * bit 8 pressed flag, bits 16-23 scancode set, bits 24-31 translated ASCII. */
+int32_t kbd_irq(void)
 {
     uint8_t sc;
     char c = 0;
 
     if (g_tag != KBD_TAG) {
-        return;
+        return -1;
     }
     if ((k_inb(KBD_STATUS) & ST_OUT_FULL) == 0) {
-        return;  /* shared with the mouse: spurious */
+        return -1;  /* shared with the mouse: spurious */
     }
     sc = k_inb(KBD_DATA);
 
     /* extended sequences (0xE0/0xE1 prefixes): skip the next byte */
     if (g_extended) {
         g_extended = 0;
-        return;
+        return -1;
     }
     if (sc == 0xE0 || sc == 0xE1) {
         g_extended = 1;
-        return;
+        return -1;
     }
 
     /* break codes have bit 7 set; track shift presses/releases */
@@ -186,11 +189,10 @@ void kbd_irq(void)
         if (make == 0x2A || make == 0x36) {
             g_shift = 0;
         }
-        return;
+        return (int32_t)make | (0 << 8) | (1 << 16);
     }
     if (sc == 0x2A || sc == 0x36) {
         g_shift = 1;
-        return;
     }
     if (sc < 128) {
         c = g_shift ? MAP_SHIFT[sc] : MAP[sc];
@@ -198,6 +200,7 @@ void kbd_irq(void)
     if (c != 0) {
         ring_push((uint8_t)c);
     }
+    return (int32_t)sc | (1 << 8) | (1 << 16) | ((int32_t)(uint8_t)c << 24);
 }
 
 /* Non-blocking pop; -1 when empty. */
