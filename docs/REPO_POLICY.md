@@ -21,6 +21,12 @@ rules of record, not suggestions — the gates in `tools/smoke-gpl.sh`,
 - Branches rebuilt from `main` (see `tools/mkbranches.sh`) are published with
   `git push --force-with-lease=<branch>:<expected-sha>`, and only to `origin`
   and `gitlab`.
+- **GitLab protects `main` against force pushes** (GitHub does not). A history
+  rewrite therefore publishes to GitHub and Codeberg immediately and leaves
+  GitLab behind until the owner either allows force pushes on that protected
+  branch (Settings > Repository > Protected branches) or pushes it by hand.
+  Check with `git ls-remote --heads gitlab` afterwards — a mirror that is
+  silently one rewrite behind is worse than a red gate.
 - Tags: the repository does not publish tags. A release tag prepared for the
   owner stays local (`docs/HANDOVER.md` §2).
 

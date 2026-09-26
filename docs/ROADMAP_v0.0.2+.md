@@ -117,7 +117,14 @@ Design: `M14_LINUXUSERS.md` (written before code).
 
 - **POSIX layer (F4)**: fork/execve/wait4, signals, pipes, futex, mmap/brk +
   COW, tmpfs, minimal `/dev` and `/proc`; a musl port; bmake; bash as the
-  default shell (GPLv3, separate program with its sources).
+  default shell (GPLv3, separate program with its sources). The shell part is
+  already ahead of the plan: bash 5.3 is the default `sh` and the default
+  build fetches, builds and embeds it (`tools/fetch-bash-src.sh` /
+  `tools/build-bash.sh`, pinned upstream release with the `fantuan-apps`
+  branch as the offline archive). M14's remaining shell work is **file-based
+  delivery**: ship the ELF and the `/usr/src/bash/` sources bundle through the
+  filesystem instead of embedding the program in the kernel image
+  (`docs/M14_LINUXUSERS.md`, `docs/REPO_POLICY.md`).
 - **Full shell and utilities**: the built-in shell (DESIGN §10) stays
   minimal by design — its core is `help`/`bootinfo`, the rescue profile adds
   the diagnostic commands; a complete Bash-style command set arrives as a
