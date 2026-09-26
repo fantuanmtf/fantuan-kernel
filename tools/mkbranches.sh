@@ -17,7 +17,11 @@ BRANCHES="fantuan-apps package"
 die() { echo "mkbranches: $*" >&2; exit 1; }
 
 git rev-parse --verify --quiet "$BASE^{commit}" >/dev/null || die "base $BASE not found"
-[ -z "$(git status --porcelain)" ] || die "working tree is dirty; commit or stash first (build/ is ignored)"
+# Untracked files are ignored on purpose: the branch trees are built from the
+# committed tree (read-tree) plus the skeleton overlay, so a stray untracked
+# file cannot leak into them; a dirty *tracked* tree still aborts.
+[ -z "$(git status --porcelain --untracked-files=no)" ] \
+  || die "working tree is dirty; commit or stash first (build/ is ignored)"
 [ -d "$SKEL/fantuan-apps" ] && [ -d "$SKEL/package" ] || die "skeletons missing under build/branch-skeletons"
 current="$(git symbolic-ref --short -q HEAD || true)"
 for branch in $BRANCHES; do
