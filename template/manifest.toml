@@ -1,0 +1,12 @@
+# Copy this directory to apps/<name>/ and fill every field (docs/APPS.md).
+name = "example"
+version = "0.1.0"
+license = "BSD-2-Clause"
+upstream = "https://example.invalid/example.git"
+rev = "0000000000000000000000000000000000000000"
+abi_min = 1
+build = "custom"
+deps = []
+patches = []
+description = "one line; shown as the configuration menu prompt/help"
+gpl = false

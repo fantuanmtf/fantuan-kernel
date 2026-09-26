@@ -1,0 +1,40 @@
+name: fantuan-apps catalog
+
+on:
+  pull_request:
+  push:
+    branches: [fantuan-apps]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify manifests, hashes, ABI and the GPL firewall
+        # This branch *is* the apps layer, so gpl=true entries are accepted
+        # here (the kernel/base refusal is enforced on main).
+        run: python3 tools/appctl/appctl.py verify --apps-layer
+      - name: The bash source bundle matches its upstream pin
+        run: |
+          [ -f apps/bash/src/bash-5.3.tar.gz ] || { echo "bash bundle missing"; exit 1; }
+          ( cd apps/bash/src && sha256sum -c --status SHA256SUMS )
+      - name: Licence scan (SBOM)
+        run: python3 tools/appctl/appctl.py sbom
+      - name: Per-app build smoke
+        run: |
+          status=0
+          for manifest in apps/*/manifest.toml; do
+            [ -f "$manifest" ] || continue
+            app="$(dirname "$manifest")"
+            build="$(python3 -c 'import sys,tomllib;print(tomllib.load(open(sys.argv[1],"rb"))["build"])' "$manifest")"
+            echo "== $app (build=$build)"
+            if [ -x "$app/src/build.sh" ]; then
+              (cd "$app/src" && ./build.sh) || status=1
+            else
+              echo "no src/build.sh; manifest/patches checked by appctl"
+            fi
+          done
+          exit "$status"
