@@ -24,12 +24,16 @@ config SHELL
         boot banner only (debug builds).
 
 config BASH
-    bool "Full POSIX shell (M14-8)"
+    bool "GNU bash 5.3 as the default /bin/sh (GPLv3 separate program)"
     default y
     help
-        The full POSIX shell shipped as a separate GPLv3 program with its
-        sources (APPS.md); declared now, no code yet. The built-in shell
-        stays as the fallback and keeps the rescue builtins.
+        Build and embed GNU bash 5.3 as /bin/sh: tools/build.sh resolves the
+        pinned sources (tools/fetch-bash-src.sh), builds bash against
+        libc-fantuan and embeds the stripped program. The sources are
+        deliberately not tracked on main (THIRD_PARTY.md) and bash is never
+        linked into the kernel. Off: dash stays /bin/dash and the built-in
+        shell keeps the rescue builtins. This is the kernel-build gate; the
+        generated CONFIG_APP_BASH is a separate app-catalog marker.
 
 config TOOLS
     bool "Userland tool set"

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Build order (x86_64): user program -> kernel (embeds it) -> bootloader.
+# Build order (x86_64): user program -> libc + shells (bash, dash) ->
+# kernel (embeds them all) -> bootloader. The shell stage is what makes
+# /bin/sh resolve to bash; it needs bison, clang/llvm-ar and, on a host
+# without build/cache/bash-5.3.tar.gz, one network fetch (tools/fetch-bash-src.sh).
 # --arch riscv64 builds only the RISC-V kernel (OpenSBI is the boot path).
 # --arch aarch64 builds only the aarch64 kernel and flattens it to the raw
 # `Image` QEMU boots (the raw path passes the DTB in x0).
@@ -59,6 +62,23 @@ fi
 echo "[user] building userland program..."
 cargo build -p fantuan-user --target x86_64-unknown-none --release
 sync_embed target/x86_64-unknown-none/release/fantuan-user kernel/user_program.bin
+
+# P3 + the licensing refactor: the default build produces the shells and
+# embeds them, so /bin/sh really is bash (dash stays /bin/dash). The bash
+# sources are not tracked on main; tools/build-bash.sh obtains them through
+# tools/fetch-bash-src.sh (cache -> vendored tree -> pinned upstream URL ->
+# fantuan-apps mirror). FANTUAN_REQUIRE_BASH makes kernel/build.rs fail
+# instead of silently falling back to dash. Off-ramps: CONFIG_BASH=n or
+# FANTUAN_BUILD_BASH=0.
+if [ "${FANTUAN_BUILD_BASH:-1}" = "1" ] && grep -q '^CONFIG_BASH=y' .config; then
+  echo "[shell] building libc-fantuan + bash 5.3 (default /bin/sh) + dash..."
+  ./tools/build-libc.sh
+  ./tools/build-bash.sh
+  ./tools/build-dash.sh
+  export FANTUAN_REQUIRE_BASH=1
+else
+  echo "[shell] skipped (CONFIG_BASH=n or FANTUAN_BUILD_BASH=0); /bin/sh falls back to dash"
+fi
 
 echo "[kernel] building kernel..."
 cargo build -p fantuan-kernel --target x86_64-unknown-none --release "${KERNEL_FEATURES[@]}"

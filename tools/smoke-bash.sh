@@ -4,7 +4,9 @@
 # and drive a paced serial feeder through bash sessions: `bash -c` scripts,
 # arithmetic/variables, a pipeline, a redirection, a function, command
 # substitution, an interactive prompt with ^C, the reaps, and the default `sh`
-# being bash. BASH_SMOKE_SKIP_BUILD=1 reuses the existing artifacts.
+# being bash. Phase [0/5] proves the *default* build path (`tools/build.sh`
+# alone, artifacts deleted) builds and embeds bash and bakes in its hash
+# marker; BASH_SMOKE_SKIP_BUILD=1 reuses the existing artifacts.
 #
 #   ./tools/smoke-bash.sh            # bounded; exits non-zero on any miss
 #   BASH_VERIFY=1 ./tools/smoke-bash.sh   # also prove the bash build is
@@ -15,32 +17,40 @@ cd "$ROOT"
 mkdir -p build
 
 if [ "${BASH_SMOKE_SKIP_BUILD:-0}" != "1" ]; then
-  echo "[1/5] building libc-fantuan + the C userland..."
-  if ! ./tools/build-libc.sh > build/smoke-bash-libc.log 2>&1; then
-    echo "SMOKE-BASH FAIL — libc build:"; tail -20 build/smoke-bash-libc.log; exit 1
+  # The point of this phase: `tools/build.sh` alone - with no helper script
+  # invoked by hand and with the artifacts deleted - must fetch the sources,
+  # build libc + bash + dash, embed the shell and bake in its hash marker.
+  echo "[0/5] the default build path must produce and embed bash on its own..."
+  rm -f kernel/bash_program.bin kernel/bash_program.sha256 build/bash/bash.elf
+  python3 tools/kconfig.py --profile minimal > /dev/null
+  if ! ./tools/build.sh > build/smoke-bash-default.log 2>&1; then
+    echo "SMOKE-BASH FAIL — tools/build.sh:"; tail -20 build/smoke-bash-default.log; exit 1
   fi
+  [ -f kernel/bash_program.bin ] \
+    || { echo "SMOKE-BASH FAIL — tools/build.sh did not build bash"; exit 1; }
+  [ -f kernel/bash_program.sha256 ] \
+    || { echo "SMOKE-BASH FAIL — no kernel/bash_program.sha256 marker"; exit 1; }
+  MARKER="$(cat kernel/bash_program.sha256)"
+  [ "$(sha256sum kernel/bash_program.bin | cut -d' ' -f1)" = "$MARKER" ] \
+    || { echo "SMOKE-BASH FAIL — the marker does not match the built artifact"; exit 1; }
+  # No `grep -q` in the pipe: under `set -o pipefail` an early exit SIGPIPEs
+  # `strings` and the successful case would read as a failure.
+  strings -a target/x86_64-unknown-none/release/fantuan-kernel > build/smoke-bash-elf-strings.txt
+  grep -qF "$MARKER" build/smoke-bash-elf-strings.txt \
+    || { echo "SMOKE-BASH FAIL — the kernel ELF does not carry the shell marker"; exit 1; }
+  grep -q "shell: image sha256 $MARKER" build/smoke-bash-default.log \
+    || echo "  note: the boot-time shell marker line was not in the build log"
+  echo "  default build embedded bash ($MARKER)"
 
-  echo "[2/5] building dash (fallback) and bash (tools/build-{dash,bash}.sh)..."
-  if ! ./tools/build-dash.sh > build/smoke-bash-dash.log 2>&1; then
-    echo "SMOKE-BASH FAIL — dash build:"; tail -20 build/smoke-bash-dash.log; exit 1
-  fi
   if [ "${BASH_VERIFY:-0}" = "1" ]; then
     if ! BASH_VERIFY=1 ./tools/build-bash.sh > build/smoke-bash-build.log 2>&1; then
       echo "SMOKE-BASH FAIL — bash build:"; tail -20 build/smoke-bash-build.log; exit 1
     fi
     grep -q "deterministic:" build/smoke-bash-build.log \
       || { echo "SMOKE-BASH FAIL — no bash determinism proof"; exit 1; }
-  else
-    if ! ./tools/build-bash.sh > build/smoke-bash-build.log 2>&1; then
-      echo "SMOKE-BASH FAIL — bash build:"; tail -20 build/smoke-bash-build.log; exit 1
-    fi
   fi
 
-  echo "[3/5] building the minimal kernel with bash + dash + /bin/ls + /bin/cat..."
-  python3 tools/kconfig.py --profile minimal > /dev/null
-  if ! ./tools/build.sh > build/smoke-bash-kernel.log 2>&1; then
-    echo "SMOKE-BASH FAIL — kernel build:"; tail -20 build/smoke-bash-kernel.log; exit 1
-  fi
+  echo "[1-3/5] libc, bash, dash and the kernel came from that one build; reusing..."
 else
   echo "[1-3/5] reusing the existing libc/bash/dash/kernel artifacts..."
 fi

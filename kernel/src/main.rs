@@ -290,6 +290,13 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         if DASH_ELF.is_empty() { "no" } else { "yes" },
         if BASH_ELF.is_empty() { "no" } else { "yes" }
     );
+    // P3/licensing: state which shell artifact the image carries. The hash
+    // comes from kernel/bash_program.sha256 via build.rs (SHELL_IMAGE_SHA256)
+    // and is what tools/smoke-gpl.sh searches the ELF for, so the source
+    // provision claim in THIRD_PARTY.md is checkable inside the image.
+    if !SHELL_IMAGE_SHA256.is_empty() {
+        let _ = writeln!(s, "shell: image sha256 {}", SHELL_IMAGE_SHA256);
+    }
     task::init(bi.stack_top);
     task::spawn(demo::demo_1);
     task::spawn(demo::demo_2);

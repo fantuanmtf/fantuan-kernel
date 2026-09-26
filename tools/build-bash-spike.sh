@@ -26,14 +26,15 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 WORK="$ROOT/build/bash-spike"
-TARBALL="$ROOT/apps/bash/src/bash-5.3.tar.gz"
+TARBALL="${BASH_TARBALL:-$ROOT/apps/bash/src/bash-5.3.tar.gz}"
+[ -f "$TARBALL" ] || TARBALL="$("$ROOT/tools/fetch-bash-src.sh" 2>/dev/null)" || TARBALL=""
 TARGET="${BASH_SPIKE_TARGET:-x86_64-unknown-none}"
 MAX_HEADERS="${BASH_SPIKE_HEADERS:-12}"
 MAX_SYMBOLS="${BASH_SPIKE_SYMBOLS:-20}"
 CFG_TIMEOUT="${BASH_SPIKE_CONFIGURE_TIMEOUT:-120}"
 
 command -v clang >/dev/null 2>&1 || { echo "bash-spike: clang not found" >&2; exit 2; }
-[ -f "$TARBALL" ] || { echo "bash-spike: $TARBALL missing" >&2; exit 2; }
+[ -f "$TARBALL" ] || { echo "bash-spike: no bash-5.3.tar.gz (run tools/fetch-bash-src.sh)" >&2; exit 2; }
 
 rm -rf "$WORK"
 mkdir -p "$WORK"

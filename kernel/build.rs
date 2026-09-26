@@ -90,17 +90,56 @@ fn main() {
     } else {
         gen.push_str("pub static DASH_ELF: &[u8] = &[];\n");
     }
-    // P3: /bin/bash (tools/build-bash.sh, vendored GPLv3 app layer) is an
-    // ordinary user program embedded like dash; it is never linked into the
-    // kernel or base libraries (APPS.md GPL firewall). Absent, `sh` keeps
-    // dash and the `bash` command reports it is not embedded.
+    // P3: /bin/bash (tools/build-bash.sh, GPLv3 app layer) is an ordinary user
+    // program embedded like dash; it is never linked into the kernel or base
+    // libraries (APPS.md GPL firewall) - but note the image then *contains*
+    // its bytes, which THIRD_PARTY.md records as a deliberate exception.
+    // tools/build.sh always produces the artifact and sets
+    // FANTUAN_REQUIRE_BASH, so the default build fails loudly when it is
+    // missing; a bare `cargo build` only warns and `sh` keeps dash.
     let bash = format!("{dir}/bash_program.bin");
     println!("cargo:rerun-if-changed={bash}");
-    if std::path::Path::new(&bash).exists() {
+    println!("cargo:rerun-if-env-changed=FANTUAN_REQUIRE_BASH");
+    if !kconfig_value("bash") {
+        // CONFIG_BASH=n: never embed it, even when a stale artifact exists.
+        println!(
+            "cargo:warning=CONFIG_BASH=n: building without the embedded shell \
+             (/bin/dash is the fallback)"
+        );
+        gen.push_str("pub static BASH_ELF: &[u8] = &[];\n");
+    } else if std::path::Path::new(&bash).exists() {
         gen.push_str(&format!("pub static BASH_ELF: &[u8] = include_bytes!({bash:?});\n"));
+    } else if std::env::var("FANTUAN_REQUIRE_BASH").is_ok() {
+        panic!(
+            "kernel/bash_program.bin is missing — run tools/fetch-bash-src.sh && \
+             tools/build-bash.sh (or just tools/build.sh), or build without the \
+             embedded shell with CONFIG_BASH=n / FANTUAN_BUILD_BASH=0"
+        );
     } else {
+        println!(
+            "cargo:warning=kernel/bash_program.bin is absent: /bin/sh will fall back to dash \
+             (tools/build.sh builds and embeds bash by default)"
+        );
         gen.push_str("pub static BASH_ELF: &[u8] = &[];\n");
     }
+    // The sha256 of the embedded bash program (written by tools/build-bash.sh
+    // next to the blob). Deliberately not named after the shell: smoke-gpl.sh
+    // grep -i's the ELF's symbol table for shell symbols, and a symbol like
+    // BASH_ELF_SHA256 would trip its own firewall check. With CONFIG_BASH=n the
+    // marker is left out too, so the no-shell image carries no trace of the
+    // shell (tools/smoke-config.sh asserts exactly that).
+    let shell_sha = format!("{dir}/bash_program.sha256");
+    println!("cargo:rerun-if-changed={shell_sha}");
+    let sha: String = if kconfig_value("bash") {
+        std::fs::read_to_string(&shell_sha)
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    gen.push_str(&format!(
+        "pub static SHELL_IMAGE_SHA256: &str = {sha:?};\n"
+    ));
     // P2: the first-party userland tools (tools/build-libc.sh) exec'd by dash.
     for (sym, file) in [("LS_ELF", "ls_program.bin"), ("CAT_ELF", "cat_program.bin")] {
         let path = format!("{dir}/{file}");

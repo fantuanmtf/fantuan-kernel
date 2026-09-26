@@ -22,6 +22,7 @@ itself see [USAGE.md](USAGE.md); for builds see [BUILD.md](BUILD.md).
 | `tools/smoke-graphics.sh` | M13-1/M13-2 framebuffer gate: non-blank GOP + VBE screendumps, damage self-test, console damage containment, i686 serial parity | ~5 min |
 | `tools/smoke-input.sh` | M13-3 input gate: injected PS/2 pointer/keyboard events reach the ring, demo cursor + early stop, screendump containment | ~2 min |
 | `tools/smoke-kms.sh` | M13-4 KMS gate: dumb buffers + ADDFB/SETCRTC/PAGE_FLIP, flip-completion events, geometry-mismatch negative, cleanup, screendump inside the fb geometry | ~5 min |
+| `tools/smoke-gpl.sh` | licensing gate: no GPL source tracked on `main`, the three source pins agree, the `fantuan-apps` mirror matches, the firewall + `requires` menu + SBOM, kernel link isolation **and** the embedded-shell hash | ~3 min |
 | `tools/smoke-bios.sh` | legacy BIOS chain: x86_64 + i686 (2 phases) | ~2 min |
 | `tools/smoke-riscv.sh` | riscv acceptance suite (3 phases) | ~4 min |
 | `tools/smoke-aarch64.sh` | aarch64 direct FDT + virtio-net/TLS offline gate (2 phases) | ~4 min |
@@ -168,6 +169,7 @@ tools/smoke-aarch64.sh                 # bounded acceptance run (PASS/SKIP)
 | `--imager-bad` | M12-3 bad-sector fixtures: blk1 pattern with QEMU blkdebug read errors, blk2 empty destination, blk3 clean pattern; autorun runs abort/`--continue`/`--quick` (ranges default `100:4,700:2`, override with `BADCLUSTERS`) |
 | `--ntfs` | M12-4/M12-5 NTFS fixture: `mkdisk.py --ntfs` adds the hand-built read-only NTFS volume (partition 2) and the `/mnt/win0` autorun (listings, reads, corrupt-record and write-refusal probes) |
 | `--vga std\|cirrus\|virtio\|none` | x86 display model for the M12-6 GPU probe (default `std`); `smoke-gpu.sh` boots std/cirrus/virtio |
+| `--no-build` | skip `run.sh`'s own `tools/build.sh` step and boot what is on disk; for callers that build first and then pace their input from the run's start (`smoke-config.sh`) |
 | `--smm` | x86 on q35 with SMM OVMF (required for SetVariable) |
 | `--no-smbios` | boot without `-smbios` overrides (firmware defaults) |
 | `--nvme` | attach the disk as NVMe instead of AHCI |

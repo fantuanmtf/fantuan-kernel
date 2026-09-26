@@ -50,6 +50,13 @@ elf_has_string() { # elf name
   strings -a "$1" | grep -E "(^|[^A-Za-z0-9_-])$2([^A-Za-z0-9_-]|$)" > /dev/null
 }
 
+# Substring match, for markers that are distinctive enough to need no anchor
+# (the M13 input/KMS/demo strings). Same pipefail rule: no `grep -q`, or a
+# *successful* match would SIGPIPE `strings` and read as "not found".
+elf_has_substring() { # elf substring
+  strings -a "$1" | grep -F "$2" > /dev/null
+}
+
 # The command names that must disappear from the minimal/default ELF (their
 # tables and implementations are gated by CONFIG_RESCUE_REPAIR/CONFIG_TOOLS/
 # CONFIG_IMAGER; `gpu` additionally needs CONFIG_GRAPHICS, M12-6). `part`
@@ -72,10 +79,10 @@ NTFS_STRINGS=(win0)
 
 boot() { # log timeout
   # Build once outside the timeout: the config flip rebuilds three crates, and
-  # that must not eat the boot window (run.sh's own build is then incremental).
+  # that must not eat the boot window (hence --no-build below).
   rm -f "$1"
   ./tools/build.sh >/dev/null 2>&1 || fail "build before boot"
-  ( timeout --signal=KILL "$2" ./tools/run.sh < /dev/null > "$1" 2>&1 ) 2>/dev/null || true
+  ( timeout --signal=KILL "$2" ./tools/run.sh --no-build < /dev/null > "$1" 2>&1 ) 2>/dev/null || true
 }
 
 # Minimal-shell boot: type `help` mid-run (the UART holds the bytes until the
@@ -83,8 +90,10 @@ boot() { # log timeout
 boot_help() { # log timeout
   rm -f "$1"
   ./tools/build.sh >/dev/null 2>&1 || fail "build before boot"
+  # --no-build: this helper builds above, and the fixed 20 s injection budget
+  # is measured from the run's start - a rebuild inside run.sh would eat it.
   ( ( sleep 20; printf 'help\n'; sleep 40 ) \
-    | timeout --signal=KILL "$2" ./tools/run.sh > "$1" 2>&1 ) 2>/dev/null || true
+    | timeout --signal=KILL "$2" ./tools/run.sh --no-build > "$1" 2>&1 ) 2>/dev/null || true
 }
 
 echo "[phase net] .config = net profile..."
@@ -164,20 +173,32 @@ done
 # M13-3: the input event ring and the PS/2 mouse are CONFIG_GRAPHICS-gated, so
 # the minimal ELF must carry neither marker (substring match: "input:" alone
 # collides with bash's embedded auto-logout text).
-if strings -a "$ELF" | grep -qF "ring self-test"; then
+if elf_has_substring "$ELF" "ring self-test"; then
   fail "minimal profile: input ring marker leaked into the kernel ELF"
 fi
-if strings -a "$ELF" | grep -qF "PS/2 aux"; then
+if elf_has_substring "$ELF" "PS/2 aux"; then
   fail "minimal profile: PS/2 mouse marker leaked into the kernel ELF"
 fi
 # M13-4: the KMS dumb-buffer/CRTC layer and the gfx event ring are likewise
 # CONFIG_GRAPHICS-gated; the demo markers must not reach the minimal ELF.
 for s in "gfx: addfb" "gfx: setcrtc" "gfx: page_flip" "gfx: event ring self-test" \
          "gfx: cleanup ok" "flip loop ok"; do
-  if strings -a "$ELF" | grep -qF "$s"; then
+  if elf_has_substring "$ELF" "$s"; then
     fail "minimal profile: KMS marker '$s' leaked into the kernel ELF"
   fi
 done
+# P3 + the default-shell change: the minimal profile builds bash, embeds it
+# and reports which artifact it carries (the marker is the GPL source-provision
+# hook tools/smoke-gpl.sh checks).
+if [ ! -f kernel/bash_program.sha256 ]; then
+  fail "minimal profile: tools/build.sh did not produce kernel/bash_program.sha256 (CONFIG_BASH=y)"
+fi
+SHELL_SHA="$(cat kernel/bash_program.sha256)"
+elf_has_substring "$ELF" "$SHELL_SHA" \
+  || fail "minimal profile: CONFIG_BASH=y but the kernel ELF carries no shell marker"
+grep -q "shell: image sha256 $SHELL_SHA" "$MIN_LOG" \
+  || fail "minimal profile: the boot log does not report the embedded shell hash"
+echo "  default shell: bash embedded, marker ${SHELL_SHA:0:12}"
 if grep -q "shell: ready" "$MIN_LOG" \
    && grep -q "root@Fantuan-MTF> " "$MIN_LOG" \
    && grep -q "shell commands (root@Fantuan-MTF" "$MIN_LOG" \
@@ -226,6 +247,7 @@ ARTIFACTS=(
   build/kernel-bios.bin
   build/esp/fantuan/kernel.bin
   kernel/user_program.bin
+  kernel/bash_program.bin
   target/x86_64-unknown-uefi/release/fantuan-boot.efi
   build/esp/EFI/BOOT/BOOTX64.EFI
   build/stage1.bin
@@ -273,6 +295,26 @@ echo "$REBUILT" | grep -qx "kernel-core" || fail "incrementality: kernel-core co
 COUNT="$(printf '%s\n' "$REBUILT" | grep -c .)"
 [ "$COUNT" -lt 4 ] || fail "incrementality: the whole crate set rebuilt ($REBUILT)"
 ok "incrementality: rebuild set {$(echo $REBUILT | tr '\n' ' ')} is a proper subset (fantuan-abi untouched)"
+
+# The CONFIG_BASH gate: with BASH=n the shell stage is skipped *and* the stale
+# artifact is not embedded - so the gate is real and a shell-less build (dash
+# as the fallback) stays possible. Reference: kernel/build.rs.
+echo "[phase no-shell] .config = minimal with BASH=n..."
+python3 tools/kconfig.py --profile minimal >/dev/null || fail "minimal profile before BASH=N"
+python3 tools/kconfig.py --symbol BASH=N >/dev/null || fail "setting BASH=N"
+grep -q '^CONFIG_BASH=n' .config || fail "BASH=N did not stick in .config"
+[ -f kernel/bash_program.bin ] || fail "no-shell profile: no stale artifact to test against"
+if ! ./tools/build.sh > build/smoke-config-noshell.log 2>&1; then
+  tail -20 build/smoke-config-noshell.log
+  fail "no-shell profile: tools/build.sh"
+fi
+grep -q '^\[shell\] skipped' build/smoke-config-noshell.log \
+  || fail "no-shell profile: build.sh did not skip the shell stage"
+NOSHELL_SHA="$(cat kernel/bash_program.sha256)"
+if elf_has_substring "$ELF" "$NOSHELL_SHA"; then
+  fail "no-shell profile: the ELF still embeds the shell (CONFIG_BASH ignored)"
+fi
+ok "no-shell profile: shell stage skipped, no shell bytes in the ELF"
 
 if [ "${SMOKE_CONFIG_EXTRA:-0}" = "1" ]; then
   echo "[extra] minimal builds for riscv64, i686 and aarch64..."

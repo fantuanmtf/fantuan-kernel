@@ -31,7 +31,25 @@ mkdir -p "$OUT"
 rm -f "$BLOCKERS"
 
 command -v "$CC" >/dev/null 2>&1 || { echo "build-dash: $CC not found" >&2; exit 2; }
-[ -f "$TARBALL" ] || { echo "build-dash: $TARBALL missing (vendored tree incomplete)" >&2; exit 2; }
+[ -f "$TARBALL" ] || { echo "build-dash: $TARBALL missing (run tools/fetch-bash-src.sh for the shell sources)" >&2; exit 2; }
+
+# Incremental skip, like build-bash.sh: the default build calls this on every
+# tools/build.sh run, so reuse the binary while the inputs are unchanged.
+# DASH_FORCE=1 or DASH_VERIFY=1 rebuilds.
+stamp_value() {
+  sha256sum "$TARBALL" "$ROOT/build/libc-fantuan/libc-fantuan.a" "$0" 2>/dev/null \
+    | cut -d' ' -f1 | sha256sum | cut -d' ' -f1
+}
+STAMP="$OUT/.stamp"
+WANT_STAMP="$(stamp_value)"
+if [ "${DASH_FORCE:-0}" != "1" ] && [ "$VERIFY" != "1" ] \
+   && [ -f "$OUT/dash.elf" ] && [ "$(cat "$STAMP" 2>/dev/null || true)" = "$WANT_STAMP" ]; then
+  echo "[dash] up to date (tarball and libc unchanged); reusing build/dash/dash.elf"
+  mkdir -p "$ROOT/kernel"
+  cmp -s "$OUT/dash.elf" "$ROOT/kernel/dash_program.bin" \
+    || cp "$OUT/dash.elf" "$ROOT/kernel/dash_program.bin"
+  exit 0
+fi
 
 # --- sources + config.h -----------------------------------------------------
 rm -rf "$SRC"
@@ -172,5 +190,6 @@ fi
 mkdir -p "$ROOT/kernel"
 cmp -s "$OUT/dash.elf" "$ROOT/kernel/dash_program.bin" \
   || cp "$OUT/dash.elf" "$ROOT/kernel/dash_program.bin"
+printf '%s\n' "$WANT_STAMP" > "$STAMP"
 
 echo "[dash] build/dash/dash.elf $(stat -c %s "$OUT/dash.elf") bytes -> kernel/dash_program.bin"

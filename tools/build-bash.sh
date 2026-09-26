@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# P3 bash builder (docs/POSIX_PLAN.md): cross-configure and build the
-# vendored pristine GNU Bash 5.3 (GPLv3, apps/bash/) for the fantuan native
-# ABI, link it against libc-fantuan, strip it and embed it as
-# kernel/bash_program.bin. bash stays an app-layer program: this script never
-# links it into the kernel or the base libraries (the GPL firewall).
+# P3 bash builder (docs/POSIX_PLAN.md): cross-configure and build the pristine
+# GNU Bash 5.3 (GPLv3, apps/bash/) for the fantuan native ABI, link it against
+# libc-fantuan, strip it and embed it as kernel/bash_program.bin (plus the
+# kernel/bash_program.sha256 marker the licensing gates read). The sources are
+# obtained by tools/fetch-bash-src.sh - they are not tracked on main. bash
+# stays an app-layer program: this script never links it into the kernel or the
+# base libraries (the GPL firewall), and the default tools/build.sh runs it.
 #
 #   tools/build-libc.sh          # first: the archive this links against
 #   tools/build-bash.sh          # build build/bash/bash.elf
@@ -20,7 +22,16 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-TARBALL="$ROOT/apps/bash/src/bash-5.3.tar.gz"
+# The pristine tarball is not tracked on main (licensing: THIRD_PARTY.md);
+# tools/fetch-bash-src.sh resolves it from the cache, a vendored tree, the
+# pinned upstream URL or the fantuan-apps branch, and verifies its sha256.
+TARBALL="${BASH_TARBALL:-$ROOT/apps/bash/src/bash-5.3.tar.gz}"
+if [ ! -f "$TARBALL" ]; then
+  TARBALL="$("$ROOT/tools/fetch-bash-src.sh")" || {
+    echo "build-bash: cannot obtain bash-5.3.tar.gz (see the guidance above)" >&2
+    exit 2
+  }
+fi
 OUT="$ROOT/build/bash"
 SRC="$OUT/src/bash-5.3"
 CC="${BASH_CC:-clang}"
@@ -36,18 +47,53 @@ export LC_ALL=C
 
 command -v "$CC" >/dev/null 2>&1 || { echo "build-bash: $CC not found" >&2; exit 2; }
 command -v bison >/dev/null 2>&1 || { echo "build-bash: bison not found (parse.y)" >&2; exit 2; }
-[ -f "$TARBALL" ] || { echo "build-bash: $TARBALL missing (vendored tree incomplete)" >&2; exit 2; }
+[ -f "$TARBALL" ] || { echo "build-bash: $TARBALL missing (run tools/fetch-bash-src.sh)" >&2; exit 2; }
 [ -f "$LIBC_A" ] && [ -f "$CRT0" ] || {
   echo "build-bash: libc-fantuan archive missing; run tools/build-libc.sh first" >&2
   exit 2
 }
 
+# Install the built program as the embedded payload plus the sha256 marker the
+# licensing gates read (kernel/build.rs bakes the hash in as SHELL_IMAGE_SHA256).
+install_artifact() {
+  local size sha
+  size="$(stat -c %s "$OUT/bash.elf")"
+  sha="$(sha256sum "$OUT/bash.elf" | awk '{print $1}')"
+  mkdir -p "$ROOT/kernel"
+  cmp -s "$OUT/bash.elf" "$ROOT/kernel/bash_program.bin" \
+    || cp "$OUT/bash.elf" "$ROOT/kernel/bash_program.bin"
+  printf '%s\n' "$sha" > "$ROOT/kernel/bash_program.sha256"
+  echo "[bash] build/bash/bash.elf $size bytes sha256=$sha -> kernel/bash_program.bin"
+  echo "[bash] marker: kernel/bash_program.sha256"
+}
+
+# Incremental skip: configure+make is the expensive part of the default build,
+# so stamp the inputs (tarball, patches, libc archive, this script) and reuse
+# the existing binary while they are unchanged. BASH_FORCE=1 rebuilds anyway;
+# BASH_VERIFY=1 does too (it has to, to compare two builds).
+stamp_value() {
+  { sha256sum "$TARBALL" "$LIBC_A" "$0" 2>/dev/null | cut -d' ' -f1
+    cat "$ROOT"/apps/bash/patches/*.patch 2>/dev/null | sha256sum | cut -d' ' -f1
+  } | sha256sum | cut -d' ' -f1
+}
+STAMP="$OUT/.stamp"
+WANT_STAMP="$(stamp_value)"
+if [ "${BASH_FORCE:-0}" != "1" ] && [ "$VERIFY" != "1" ] \
+   && [ -f "$OUT/bash.elf" ] && [ "$(cat "$STAMP" 2>/dev/null || true)" = "$WANT_STAMP" ]; then
+  echo "[bash] up to date (tarball, patches and libc unchanged); reusing build/bash/bash.elf"
+  install_artifact
+  exit 0
+fi
+
 if [ "${BASH_KEEP_SRC:-0}" != "1" ] || [ ! -f "$SRC/configure" ]; then
   rm -rf "$OUT/src"
   mkdir -p "$OUT/src"
   tar xzf "$TARBALL" -C "$OUT/src" || { echo "build-bash: extract failed" >&2; exit 2; }
-  # Replay the registered portability patches (apps/bash/manifest.toml).
+  # Replay the registered portability patches (apps/bash/manifest.toml). The
+  # manifest is the list of record: every patch it names must actually be
+  # applied, so a missing file cannot silently build an unpatched bash.
   : > "$OUT/patch.log"
+  APPLIED=0
   for p in "$ROOT"/apps/bash/patches/*.patch; do
     [ -e "$p" ] || continue
     echo "[bash] patch $(basename "$p")"
@@ -55,7 +101,13 @@ if [ "${BASH_KEEP_SRC:-0}" != "1" ] || [ ! -f "$SRC/configure" ]; then
       echo "build-bash: patch $(basename "$p") failed (see $OUT/patch.log)" >&2
       exit 1
     }
+    APPLIED=$((APPLIED + 1))
   done
+  WANT="$(grep -o '"patches/[^"]*"' "$ROOT/apps/bash/manifest.toml" | wc -l)"
+  [ "$APPLIED" = "$WANT" ] || {
+    echo "build-bash: applied $APPLIED patch(es), manifest lists $WANT" >&2
+    exit 1
+  }
 else
   ( cd "$SRC" && make distclean >/dev/null 2>&1 || true )
 fi
@@ -108,13 +160,12 @@ echo "[bash] building (make -j$JOBS)..."
 
 [ -f "$SRC/bash" ] || { echo "build-bash: no bash binary produced" >&2; exit 1; }
 cp "$SRC/bash" "$OUT/bash.elf"
-SIZE="$(stat -c %s "$OUT/bash.elf")"
-SHA="$(sha256sum "$OUT/bash.elf" | awk '{print $1}')"
+printf '%s\n' "$WANT_STAMP" > "$STAMP"
 
 if [ "$VERIFY" = "1" ]; then
   KEEP_OLD="$OUT/bash.elf.keep"
   mv "$OUT/bash.elf" "$KEEP_OLD"
-  BASH_VERIFY=0 BASH_KEEP_SRC=0 "$0" >/dev/null 2>&1 || {
+  BASH_VERIFY=0 BASH_KEEP_SRC=0 BASH_FORCE=1 "$0" >/dev/null 2>&1 || {
     echo "build-bash: verify rebuild failed" >&2; exit 1; }
   SHA2="$(sha256sum "$OUT/bash.elf" | awk '{print $1}')"
   SHA1="$(sha256sum "$KEEP_OLD" | awk '{print $1}')"
@@ -126,8 +177,4 @@ if [ "$VERIFY" = "1" ]; then
   echo "[bash] deterministic: $SHA1"
 fi
 
-mkdir -p "$ROOT/kernel"
-cmp -s "$OUT/bash.elf" "$ROOT/kernel/bash_program.bin" \
-  || cp "$OUT/bash.elf" "$ROOT/kernel/bash_program.bin"
-
-echo "[bash] build/bash/bash.elf $SIZE bytes sha256=$SHA -> kernel/bash_program.bin"
+install_artifact

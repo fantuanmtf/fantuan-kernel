@@ -17,7 +17,9 @@ checks see [OPERATIONS.md](OPERATIONS.md).
 | `qemu-system-x86_64` + OVMF (`edk2-ovmf`) | run/test x86_64 | SMM OVMF optional |
 | `qemu-system-riscv64` (>= 9) | run/test riscv64 | OpenSBI `fw_dynamic` ships with QEMU |
 | `qemu-system-aarch64` | run/test aarch64 | QEMU `virt`; the smoke pins `gic-version=2` |
-| `clang` + `llvm-ar` | build the C driver layer for riscv64 | any recent LLVM |
+| `clang` + `llvm-ar` + `llvm-ranlib` | build the C driver layer for riscv64 and the embedded shell | any recent LLVM |
+| `bison` | GNU bash's `parse.y` (only when `CONFIG_BASH=y`, the default) | `tools/kconfig.py --symbol BASH=N` builds without it |
+| network (first build only) | fetches the pinned bash 5.3 tarball into `build/cache/` | `tools/fetch-bash-src.sh`; `FANTUAN_OFFLINE=1` or a pre-seeded cache/binaries removes the need |
 | `llvm-objcopy` (or `aarch64-linux-gnu-objcopy`) | flatten the aarch64 ELF to the raw `Image` QEMU boots | LLVM tooling |
 | `python3` | disk fixtures (`tools/mkdisk.py`) | 3.8+ |
 | `objcopy` (binutils) | x86 kernel ELF -> flat binary | host binutils is fine |
@@ -81,8 +83,9 @@ Both `user_program.bin` files are generated and git-ignored; never edit them.
 ## 3.1 Configuration profiles (Kconfig-lite)
 
 The kernel is configured before it is built; a missing `.config` resolves to
-the default **minimal** profile (kernel + boot + shell, plus the declared
-`BASH` symbol; bash itself arrives with M14). Everything else is opt-in:
+the default **minimal** profile (kernel + boot + shell, where `CONFIG_BASH=y`
+makes the shell GNU bash 5.3 — built from the fetched sources and embedded as
+`/bin/sh` by `tools/build.sh`). Everything else is opt-in:
 
 ```sh
 tools/kconfig.py --profile minimal     # default: SHELL only
@@ -100,8 +103,12 @@ profile when `.config` is absent and pass `--features kconfig-net` only when
 `CONFIG_NET=y`. The `.config` is read by every crate's `build.rs` through
 `tools/kconfig_emit.rs`; the profile, enabled list and config hash appear in
 the boot banner. Apps add `CONFIG_APP_*` symbols via
-`tools/appctl/appctl.py menu` (see [APPS.md](APPS.md)); bash is vendored but
-not built, with the early-port record in `apps/bash/port/`.
+`tools/appctl/appctl.py menu` (see [APPS.md](APPS.md)). Note the two distinct
+symbols: `CONFIG_BASH` (kernel build: fetch, build and embed bash as `/bin/sh`,
+`default y`) and the generated `CONFIG_APP_BASH` (app-catalog marker, still
+`default n` behind its `requires = ["posix-libc"]` gate). The early-port
+record stays in `apps/bash/port/`; the sources live on the `fantuan-apps`
+branch and are fetched by `tools/fetch-bash-src.sh`.
 
 ## 4. Build with cargo directly
 
@@ -129,13 +136,19 @@ cargo build -p kernel-core     --target aarch64-unknown-none --release
 # i686 chain (nightly crate; wraps build-std + the custom target JSON)
 ./tools/build-i686.sh
 
-# P2/P3 userland/POSIX chain (optional; the minimal kernel embeds what exists).
+# P2/P3 userland/POSIX chain (optional; `tools/build.sh` runs it by default).
 # Order matters: libc archive first, then the shells (they link the archive).
+tools/fetch-bash-src.sh  # bash sources are not tracked on main; verify + cache
 tools/build-libc.sh    # libc-fantuan.a + hello/proc-test/ls/cat ELFs
-tools/build-dash.sh    # vendored dash 0.5.12 -> kernel/dash_program.bin
-tools/build-bash.sh    # vendored bash 5.3 (GPLv3 app) -> kernel/bash_program.bin
+tools/build-dash.sh    # dash 0.5.12 -> kernel/dash_program.bin (/bin/dash)
+tools/build-bash.sh    # bash 5.3 -> kernel/bash_program.bin + .sha256 marker
                        # BASH_VERIFY=1 rebuilds and compares the hash
 ```
+
+A bare `cargo build` of the kernel still works without those artifacts: it
+only warns, and `/bin/sh` falls back to dash. `tools/build.sh` is the strict
+path — it exports `FANTUAN_REQUIRE_BASH=1`, so a missing shell is an error
+there, and it is what makes `/bin/sh` resolve to bash in the shipped image.
 
 A clean build must produce **zero warnings** on all targets; treat a new
 warning as a build break.
@@ -145,7 +158,11 @@ warning as a build break.
 - `kernel/build.rs`: `asm_defs.inc` from `kernel/src/consts.rs`, the
   256-entry ISR stub table, the embedded user ELF, and compiles the x86 C
   driver layer + assembly stubs with `cc` (`-mcmodel=large`,
-  `-mno-red-zone`).
+  `-mno-red-zone`). It also embeds the optional program payloads
+  (`kernel/{hello,proc_test,dash,bash,ls,cat}_program.bin`); `tools/build.sh`
+  produces `bash_program.bin` and its `bash_program.sha256` marker by default
+  (see §3.1), and exports `FANTUAN_REQUIRE_BASH=1` so a missing artifact is a
+  build error rather than a silent fallback.
 - `kernel-riscv/build.rs`: embeds the riscv user ELF and compiles
   `drivers/c/blk.c` + `drivers/c/virtio_mmio.c` with **clang**
   (`--target=riscv64-unknown-none-elf -march=rv64gc -mabi=lp64d
@@ -183,6 +200,9 @@ python3 tools/mkdisk.py --grub-regen build/test.img    # autorun runs grub-fix i
 | `llvm-ar: command not found` | install LLVM tooling or add its directory to `PATH` |
 | `tools/run.sh: OVMF not found` | install `edk2-ovmf`; `run.sh` searches the usual paths |
 | `llvm-objcopy: command not found` (aarch64) | install LLVM tools or use `aarch64-linux-gnu-objcopy`; `tools/build.sh` needs one to flatten the raw image |
+| `bison: command not found` | install bison (bash's `parse.y`), or build without a shell: `tools/kconfig.py --symbol BASH=N` |
+| `fetch-bash-src: no source available` | the bash tarball is not tracked on main; allow the one-time fetch, or `FANTUAN_BASH_TARBALL=/path/bash-5.3.tar.gz`, or `--from-branch` after `git fetch origin fantuan-apps` |
+| `kernel/bash_program.bin is missing` but `CONFIG_BASH=y` | run `tools/fetch-bash-src.sh && tools/build-bash.sh`, or use `tools/build.sh`; `CONFIG_BASH=n` / `FANTUAN_BUILD_BASH=0` skips the shell |
 | file-size rule failure | every source file must stay <= 300 lines; split it |
 
 ## 8. Versioning

@@ -187,15 +187,17 @@ on `/dev/console` with prompt, tty echo/erase, `^C` -> SIGINT
 `$((1+2))`, pipelines (`echo | cat`), `>`/`<` redirections, scripts by
 file (`sh /tmp/s.sh`), `$?`, fork/exec/wait and the reaps.
 
-**What "default sh" means now (exact scope).** The `sh` console command
-launches the embedded dash 0.5.12 (`/bin/dash`, BSD-3-Clause, linked
-against libc-fantuan) and passes arguments through (`sh -c ...`,
-`sh FILE`); `execve("/bin/sh")` and `execve("/bin/dash")` resolve to the
-same image. The built-in kernel shell remains the boot console and the
-rescue fallback (its command set is still gated by `CONFIG_RESCUE_REPAIR`/
-`CONFIG_TOOLS`); when the dash artifact is absent the `sh` command says so
-and the built-in shell is all there is. bash stays the M14-8 default-shell
-target for P3.
+**What "default sh" meant in P2 (superseded by P3, below).** The `sh`
+console command launched the embedded dash 0.5.12 (`/bin/dash`,
+BSD-3-Clause, linked against libc-fantuan) and passed arguments through
+(`sh -c ...`, `sh FILE`); `execve("/bin/sh")` and `execve("/bin/dash")`
+resolved to the same image. The built-in kernel shell remains the boot
+console and the rescue fallback (its command set is still gated by
+`CONFIG_RESCUE_REPAIR`/`CONFIG_TOOLS`); when the dash artifact is absent the
+`sh` command says so and the built-in shell is all there is. **P3 then made
+bash the default `sh`** (`/bin/sh` resolves to bash whenever its artifact is
+embedded, as the default build now guarantees); dash stays vendored and
+selectable as `/bin/dash`.
 
 **P2 limits (still unsupported in dash).** No job-control stop/continue
 (`^Z` discards the line; `SIGTSTP`/`SIGTTIN` default to ignore), no
@@ -258,6 +260,19 @@ selects it explicitly. dash stays vendored, embedded as `/bin/dash`, and
 selectable through the new `dash` console command; `execve("/bin/dash")`
 still works. With no bash artifact, `sh` falls back to dash; with neither,
 the built-in shell remains the rescue console.
+
+**The default build always produces bash** (later licensing/branching
+refactor): `tools/build.sh` runs `tools/build-libc.sh` + `tools/build-bash.sh`
+when `CONFIG_BASH=y` and exports `FANTUAN_REQUIRE_BASH=1`, so a missing
+artifact is a build error rather than a silent dash fallback. The sources are
+not tracked on main: `tools/fetch-bash-src.sh` resolves them from the cache,
+a vendored `apps/bash/src/`, the pinned upstream URL (sha256 + GPG) or the
+`fantuan-apps` mirror, with `FANTUAN_OFFLINE=1` / `FANTUAN_BASH_TARBALL` /
+`--from-branch` as the operator exits. `CONFIG_BASH=n` (or
+`FANTUAN_BUILD_BASH=0`) keeps a shell-less build available. bash is still
+embedded as a stripped blob inside the kernel image rather than linked —
+a documented tension with the M14 task of file-based delivery
+(`THIRD_PARTY.md`, `M14_LINUXUSERS.md`).
 
 **Proven by `tools/smoke-bash.sh`** (minimal profile): `sh -c` reports the
 bash version; `bash -c 'echo noninteractive-ok'`; non-zero exit

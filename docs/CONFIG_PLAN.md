@@ -20,7 +20,7 @@ a `menuconfig`-style configuration instead of being pre-linked.
 
 ```
 CONFIG_SHELL            bool  default y    # built-in kernel shell (kernel-core)
-CONFIG_BASH             bool  default y    # full POSIX shell (M14-8; no code yet)
+CONFIG_BASH             bool  default y    # GNU bash 5.3 as /bin/sh (built + embedded by build.sh)
 CONFIG_TOOLS            bool  default n    # interim kernel tool bridge
 CONFIG_NET              bool  default n    # rump network stack (M11)
 CONFIG_NET_DRIVERS      bool  depends NET  # e1000 / virtio-net
@@ -224,8 +224,13 @@ The tools themselves stay (R7 evidence) as a non-default interim bridge:
 `apps/{ping,nslookup,wget}` are catalog skeletons (`requires =
 ["posix-libc"]`, `source = "planned"`) and take over at M14-4 (APPS.md).
 Bash's early port started in `apps/bash/port/` with
-`tools/build-bash-spike.sh` recording the blocker list; bash does not run
-yet (M14_LINUXUSERS.md).
+`tools/build-bash-spike.sh` recording the blocker list; **bash 5.3 now runs
+and is the default `sh`** (P3), built and embedded by `tools/build.sh` when
+`CONFIG_BASH=y` (M14_LINUXUSERS.md). The two symbols are distinct and
+deliberately unconnected: `CONFIG_BASH` drives the kernel build (fetch,
+build, embed bash as `/bin/sh`), while the generated `CONFIG_APP_BASH`
+marks the app-layer catalog entry, which stays `default n` behind its
+`requires = ["posix-libc"]` gate until the M14 POSIX layer closes it.
 
 Gated in R8: `CONFIG_TLS` (depends on `NET`) selects the mbedTLS subset and
 the whole HTTPS path. `kernel-net/build.rs` extracts the vendored tarball

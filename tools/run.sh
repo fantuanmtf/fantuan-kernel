@@ -26,6 +26,9 @@
 #   --smm:    run on q35 with the SMM OVMF build (build/ovmf-smm/). Runtime
 #             NVRAM writes (SetVariable, M7.6) only work in this mode — the
 #             plain non-SMM OVMF build rejects them.
+#   --no-build: skip the [1/4] `tools/build.sh` step and boot what is on disk.
+#             For callers that build themselves (the smoke scripts, which then
+#             pace their input from the run's start).
 set -euo pipefail
 export PATH="$HOME/.cargo/bin:$PATH"
 
@@ -40,11 +43,13 @@ RISC_BROKEN=0
 RISC_NOSHIM=0
 RISC_KEYS=0
 AARCH64_NET=0
+NO_BUILD=0
 VGA=""
 SERIAL_UNIX=""
 prev=""
 for a in "$@"; do
   case "$prev" in --arch) ARCH="$a" ;; --vga) VGA="$a" ;; --serial-unix) SERIAL_UNIX="$a" ;; esac
+  if [ "$a" = "--no-build" ]; then NO_BUILD=1; fi
   if [ "$a" = "--disk" ]; then RISC_DISK=1; fi
   if [ "$a" = "--two-fs" ]; then RISC_TWO_FS=1; fi
   if [ "$a" = "--broken" ]; then RISC_BROKEN=1; fi
@@ -147,8 +152,15 @@ done
 # table, the kernel parses it — the smoke greps for these exact strings.
 # (Flags are appended to QEMU_ARGS below.)
 
-echo "[1/4] building user program, kernel, bootloader..."
-./tools/build.sh
+if [ "$NO_BUILD" = "1" ]; then
+  # Callers that already built (the smokes, which then pace their input from
+  # the run's start) skip the rebuild: with the embedded shell in the default
+  # build, `tools/build.sh` is not free, and a fixed sleep budget would race.
+  echo "[1/4] --no-build: using the existing build artifacts..."
+else
+  echo "[1/4] building user program, kernel, bootloader..."
+  ./tools/build.sh
+fi
 
 mkdir -p build/esp/EFI/BOOT build/esp/fantuan
 objcopy -O binary   target/x86_64-unknown-none/release/fantuan-kernel   build/esp/fantuan/kernel.bin

@@ -9,8 +9,9 @@ it see [BUILD.md](BUILD.md); for the smoke suites and flag reference see
 
 The kernel of a **Live OS** (RAM-first, clean shutdown, optional
 persistence), self-written and booting on bare metal or in QEMU. The default
-build is the minimal boot set — kernel + boot + shell (the declared
-`CONFIG_BASH` full shell arrives with the M14 POSIX layer) — and everything
+build is the minimal boot set — kernel + boot + shell, where the default
+`sh` is GNU bash 5.3, built and embedded by the default build (dash stays
+selectable as `/bin/dash`) — and everything
 else is opt-in through profiles: `rescue` (diagnostic commands + boot
 repair), `net`/`tls` (TCP/HTTPS; tools come from the app catalog at M14, with
 the non-default in-kernel commands as the interim bridge until then). The
@@ -80,6 +81,8 @@ profiles enable it; the minimal kernel has no imager).
 |---|---|---|
 | `help` | core | lists the command table |
 | `bootinfo` | core | boot handover details (memory map, framebuffer, RSDP, ...) |
+| `sh [args]` | core | runs the embedded shell on `/dev/console`: GNU bash 5.3 when embedded (the default build embeds it), otherwise dash |
+| `bash [args]` / `dash [args]` | core | selects that shell explicitly (`/bin/bash`, `/bin/dash`); `execve("/bin/sh")` resolves to bash when it is embedded |
 | `hwdiag` | [rescue] | re-runs hardware diagnostics (x86 only) |
 | `lsdev` | [rescue] | lists PCI storage/display devices + drive identity (x86 only) |
 | `lsos` | [rescue] | filesystems per partition (the probe table) |
