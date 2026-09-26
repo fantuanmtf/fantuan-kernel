@@ -1,7 +1,7 @@
 ---
 description: Strong implementation subagent for fantuan-kernel batch work (multi-file Rust/C/asm changes with build + smoke verification). Use when a workstream is large enough to delegate; the main agent verifies and commits.
 mode: subagent
-model: deepseek/deepseek-v4-pro
+model: deepseek/deepseek-flash
 temperature: 0.1
 permission:
   edit: allow
