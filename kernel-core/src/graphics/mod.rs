@@ -9,6 +9,8 @@ use core::ptr;
 
 pub mod damage;
 pub mod demo;
+pub mod event;
+pub mod kms;
 pub use damage::{selftest, BufferedPresent, Damage, DirectPresent, Present, MAX_DAMAGE};
 pub use demo::{demo_cursor, demo_frame, CURSOR_FG, CURSOR_SIZE, DemoStats};
 

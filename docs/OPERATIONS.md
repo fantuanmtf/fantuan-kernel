@@ -19,6 +19,9 @@ itself see [USAGE.md](USAGE.md); for builds see [BUILD.md](BUILD.md).
 | `tools/smoke-imager-bad.sh` | M12-3 bad-sector gate: default abort, `--continue` zero-fill, report ranges/counts, `--quick` | ~1 min |
 | `tools/smoke-ntfs.sh` | M12-4/M12-5 NTFS gate: `/mnt/win0` mount/facts, listing equality, resident + fragmented hashes, corrupt-record rejection, no-write | ~1 min |
 | `tools/smoke-gpu.sh` | M12-6 GPU/PCI gate: std/cirrus/virtio identity + BAR lines, 64-bit aperture mapped ro, `pcie n/a`, no ACPI TZ, shell `gpu` | ~5 min |
+| `tools/smoke-graphics.sh` | M13-1/M13-2 framebuffer gate: non-blank GOP + VBE screendumps, damage self-test, console damage containment, i686 serial parity | ~5 min |
+| `tools/smoke-input.sh` | M13-3 input gate: injected PS/2 pointer/keyboard events reach the ring, demo cursor + early stop, screendump containment | ~2 min |
+| `tools/smoke-kms.sh` | M13-4 KMS gate: dumb buffers + ADDFB/SETCRTC/PAGE_FLIP, flip-completion events, geometry-mismatch negative, cleanup, screendump inside the fb geometry | ~5 min |
 | `tools/smoke-bios.sh` | legacy BIOS chain: x86_64 + i686 (2 phases) | ~2 min |
 | `tools/smoke-riscv.sh` | riscv acceptance suite (3 phases) | ~4 min |
 | `tools/smoke-aarch64.sh` | aarch64 direct FDT + virtio-net/TLS offline gate (2 phases) | ~4 min |

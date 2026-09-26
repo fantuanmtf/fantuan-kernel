@@ -69,6 +69,8 @@ impl Console {
             pitch: fb.stride * 4,
             format,
         };
+        // M13-4: publish the GOP surface as the single CRTC's scanout.
+        kernel_core::graphics::kms::set_scanout(info);
         unsafe {
             *core::ptr::addr_of_mut!(STATE) = Some(State {
                 fb: info,
@@ -172,6 +174,27 @@ pub(crate) fn gfx_demo_dims() -> Option<(u32, u32)> {
 /// True when the shared damage list is empty (idle-screen proof).
 pub(crate) fn gfx_demo_idle() -> bool {
     state().map_or(true, |st| st.damage.is_empty())
+}
+
+/// True when the console is double-buffered (its render surface is not the
+/// scanout), so the KMS demo can flip dumb buffers onto the device without
+/// clobbering the console's own surface.
+pub(crate) fn gfx_kms_ready() -> bool {
+    unsafe { (*ptr::addr_of!(BUFFERED)).is_some() }
+}
+
+/// Re-present the console's back buffer onto the scanout after the KMS demo
+/// has overwritten it. No-op when single-buffered (the surfaces coincide).
+pub(crate) fn gfx_restore() {
+    if unsafe { (*ptr::addr_of!(BUFFERED)).is_none() } {
+        return;
+    }
+    let Some(st) = state() else {
+        return;
+    };
+    if let Some(dev) = kernel_core::graphics::kms::scanout() {
+        let _ = dev.blit(st.fb.base, st.fb.pitch, Rect::new(0, 0, dev.width, dev.height));
+    }
 }
 
 impl fmt::Write for Console {

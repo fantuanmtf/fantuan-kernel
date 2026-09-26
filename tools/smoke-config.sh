@@ -170,6 +170,14 @@ fi
 if strings -a "$ELF" | grep -qF "PS/2 aux"; then
   fail "minimal profile: PS/2 mouse marker leaked into the kernel ELF"
 fi
+# M13-4: the KMS dumb-buffer/CRTC layer and the gfx event ring are likewise
+# CONFIG_GRAPHICS-gated; the demo markers must not reach the minimal ELF.
+for s in "gfx: addfb" "gfx: setcrtc" "gfx: page_flip" "gfx: event ring self-test" \
+         "gfx: cleanup ok" "flip loop ok"; do
+  if strings -a "$ELF" | grep -qF "$s"; then
+    fail "minimal profile: KMS marker '$s' leaked into the kernel ELF"
+  fi
+done
 if grep -q "shell: ready" "$MIN_LOG" \
    && grep -q "root@Fantuan-MTF> " "$MIN_LOG" \
    && grep -q "shell commands (root@Fantuan-MTF" "$MIN_LOG" \

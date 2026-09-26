@@ -210,6 +210,11 @@ pub fn run() -> ! {
     );
     emit(&buf, off);
 
-    crate::serial::unfreeze_mirror();
+    if crate::console::gfx_kms_ready() {
+        // The KMS demo keeps the mirror frozen and unfreezes it on exit.
+        task::spawn(crate::kms_demo::run);
+    } else {
+        crate::serial::unfreeze_mirror();
+    }
     task::exit(0);
 }

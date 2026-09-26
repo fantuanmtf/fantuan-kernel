@@ -212,6 +212,20 @@ numbers/structs where they are stable enough to copy field-for-field:
    `input: demo consumed dx=.. dy=.. buttons=..`, `input: demo cursor x=.. y=..`
    and `input: demo key stop scancode=.. ascii=..` over the no-mirror sink.
    The ring self-test prints `input: ring self-test ok` at boot.
+   **V-d addition**: the demo hands the screen to a second task,
+   `kernel/src/kms_demo.rs`, once the console is double-buffered (so the
+   console's render surface is off-screen and survives a flip). `gfx_demo`
+   spawns it and leaves the serial/GOP mirror frozen; the KMS demo owns
+   unfreezing on every exit path. It allocates two dumb buffers at the mode
+   geometry, registers both with `addfb`, `setcrtc`s the first, then runs
+   eight render/`page_flip` cycles, each confirmed by popping a
+   `FLIP_COMPLETE` from the event ring: `gfx: addfb id=1 w=.. h=..`,
+   `gfx: setcrtc fb=1`, `gfx: page_flip fb=2 event=1` … `fb=1 event=8`,
+   `gfx: flip loop ok frames=8`. A negative case proves the geometry check
+   (`gfx: setcrtc mismatch ok`), then `rmfb`/`dumb_destroy` return the frames
+   and the demo asserts `dumb_used()==0` and that the allocator's usable MiB
+   is back to the pre-demo baseline (`gfx: cleanup ok`), restores the console
+   surface and exits. The ring self-test prints `gfx: event ring self-test ok`.
 - A kernel-side IPC client that runs `QUERY_DISKS` + `DIAGNOSE` and prints
   the exchange, proving the protocol shape that Qt will speak.
 
@@ -222,7 +236,7 @@ numbers/structs where they are stable enough to copy field-for-field:
 | M13-1 | `fb_info` + blit/fill/damage core; GOP console refactored onto it | landed (V-a) |
 | M13-2 | Double buffer + present; demo app (kernel task) | landed (V-b) |
 | M13-3 | Input event ring + PS/2 mouse; console + demo consumers | landed (V-c) |
-| M13-4 | Dumb-buffer objects, ADDFB/SETCRTC/PAGE_FLIP semantics + events |
+| M13-4 | Dumb-buffer objects, ADDFB/SETCRTC/PAGE_FLIP semantics + events | landed (V-d) |
 | M13-5 | EDID sourcing (GOP/VBE) + fallback blob + connector properties |
 | M13-6 | Repair broker + protocol + in-kernel client demo |
 | M13-7 | Freeze docs (`GRAPHICS_API.md`, `REPAIR_IPC.md`), smoke phases |
@@ -240,8 +254,20 @@ numbers/structs where they are stable enough to copy field-for-field:
   reports an empty damage set (`graphics: idle damage empty ok`).
 - Input: injected PS/2 events (existing QEMU monitor path) reach the ring
   and the demo reacts; no lost SYNs under a bounded burst.
-- KMS contract: a struct-size/offset self-test compiled against the
-  documented layout (catches accidental ABI drift in CI).
+- KMS (M13-4): `tools/smoke-kms.sh` boots the `rescue` profile with
+  `--vga std`, relays the serial log over a unix socket (socat) so the
+  `gfx:` markers are not buffered behind QEMU's stdio, and asserts the whole
+  V-d sequence: the event-ring self-test, both `addfb` lines, `setcrtc fb=1`,
+  exactly eight `page_flip` lines with alternating `fb=`/`event=` pairs, the
+  `setcrtc mismatch` negative, `cleanup ok` and the absence of a panic. Two
+  screendumps taken at the flip markers must differ and their differing
+  pixels must lie inside the reported framebuffer geometry; the screendump
+  races the demo's 100 ms inter-flip sleep, so the check retries (3
+  attempts), matching the project's known QEMU monitor timing flake.
+- KMS contract: the M13-4 event-ring/struct ABI self-test runs at boot
+  (`gfx: event ring self-test ok`, size/order/drop-oldest guarded). The
+  ioctl-level struct-size/offset test against the §4 table arrives with the
+  userland boundary (M13-5 / M14).
 - IPC: the in-kernel client completes HELLO/QUERY_DISKS/DIAGNOSE and a
   cancelled REPAIR_APPLY leaves nothing written (negative check).
 

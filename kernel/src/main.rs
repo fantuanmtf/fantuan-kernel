@@ -43,6 +43,8 @@ mod drivers;
 mod font;
 #[cfg(kconfig_graphics)]
 mod gfx_demo;
+#[cfg(kconfig_graphics)]
+mod kms_demo;
 mod input;
 mod kbd;
 mod mm;
@@ -160,6 +162,14 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         let _ = writeln!(s, "input: ring self-test ok");
     } else {
         let _ = writeln!(s, "input: ring self-test FAILED");
+    }
+
+    // M13-4: the graphics event ring self-test (ABI size + order + drop policy).
+    #[cfg(kconfig_graphics)]
+    if kernel_core::graphics::event::selftest() {
+        let _ = writeln!(s, "gfx: event ring self-test ok");
+    } else {
+        let _ = writeln!(s, "gfx: event ring self-test FAILED");
     }
 
     // --- M1: interrupt machinery -----------------------------------------
