@@ -409,6 +409,10 @@ pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
         serial::freeze_mirror();
         task::spawn(gfx_demo::run);
     }
+    // P4: the interactive interface is the embedded login shell (bash, else
+    // dash); the built-in shell takes the console back when it exits, and
+    // keeps it outright when no shell is embedded (DESIGN §10).
+    kernel_core::shell::set_login_shell(crate::shell::sh::login);
     // The loop halts between polls, so the scheduler keeps running the tasks.
     shell::enter(mounted, bi, bi.runtime_services);
 }

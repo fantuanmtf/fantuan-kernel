@@ -79,18 +79,20 @@ def run(cmd, pause=0.8):
     time.sleep(pause)
 
 wait("shell: ready", 480)
-time.sleep(0.5)
+# P4: the console lands in the login shell (bash); dash is the fallback shell
+# and stays selectable from it as /bin/dash.
+wait("shell: login shell: bash pid", 240)
+time.sleep(1.0)
 
 # Non-interactive: -c scripts, arithmetic/substitution, a clean and a
-# non-zero exit (the kernel shell logs the wait status).
+# non-zero exit.
 ensure("dash -c 'echo noninteractive-ok'", "noninteractive-ok")
-ensure("dash -c 'exit 7'", "wait status=0x700")
+ensure("dash -c 'exit 7'; echo status=$?", "status=7")
 
 # Interactive: prompt, line editing, builtins, fork/exec, pipes, redirects
-# and scripts.
+# and scripts - dash launched from the login shell.
 send("dash\n")
-wait("sh: dash pid", 120)
-time.sleep(1.0)
+time.sleep(1.5)
 ensure("echo interactive-ok", "interactive-ok")
 ensure("echo arith=$((1+2))", "arith=3")
 ensure("echo sub=$(echo sub)", "sub=sub")
@@ -111,8 +113,16 @@ sys.stdout.flush()
 time.sleep(1.0)
 ensure("echo back=$?", "back=130")
 send("exit\n")
-wait("exited, wait status=0x0", 40)
+time.sleep(1.5)
+
+# P4 fallback: `exit` leaves the login shell for the built-in rescue shell,
+# where the P2 console command path (and the reap status it logs) lives.
+send("exit\n")
+wait("shell: login shell exited", 120)
 time.sleep(1.0)
+ensure("dash -c 'echo dash-builtin-path'", "dash-builtin-path")
+send("dash -c 'exit 7'\n")
+wait("wait status=0x700", 90)
 PY
 )
 python3 -c "$feeder" "$LOG" \
@@ -128,8 +138,12 @@ check() { # marker
   fi
 }
 check "p2: process layer ready"
+check "shell: login shell: bash pid"
+check "shell: login shell exited"
 check "sh: dash pid"
 check "noninteractive-ok"
+check "status=7"
+check "dash-builtin-path"
 check "wait status=0x700"
 check "interactive-ok"
 check "arith=3"

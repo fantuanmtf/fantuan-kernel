@@ -48,13 +48,15 @@ wait "$SENDER" 2>/dev/null || true
 
 OK=1
 grep -q "kbd: i8042 ready" "$LOG" || OK=0
-grep -q "shell: unknown command 'zz'" "$LOG" || OK=0
+# P4: the console lands in the login shell (bash), so the injected line is
+# answered by bash rather than by the built-in shell's dispatcher.
+grep -qaE "zz: command not found" "$LOG" || OK=0
 [ -s "$BEFORE" ] && [ -s "$AFTER" ] || OK=0
 cmp -s "$BEFORE" "$AFTER" && OK=0  # the mirror must have added shell output
 
 if [ "$OK" = "1" ]; then
-  echo "SMOKE PASS (PS/2 keyboard: IRQ1 scancodes reach the shell; serial mirrored to GOP)"
-  grep -aE "kbd: |console: serial output mirrored|unknown command 'zz'" "$LOG" | head -4
+  echo "SMOKE PASS (PS/2 keyboard: IRQ1 scancodes reach the login shell; serial mirrored to GOP)"
+  grep -aE "kbd: |console: serial output mirrored|command not found" "$LOG" | head -4
   exit 0
 fi
 echo "SMOKE FAIL (keyboard/console) — log tail:"

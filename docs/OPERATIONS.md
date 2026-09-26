@@ -11,8 +11,8 @@ itself see [USAGE.md](USAGE.md); for builds see [BUILD.md](BUILD.md).
 | `tools/build.sh [--arch riscv64]` | build all artifacts for one arch | < 1 min |
 | `tools/smoke.sh` | full x86 acceptance suite (13 phases) | ~25 min |
 | `tools/smoke-config.sh` | profile invariants, command-string gating, budget, incrementality | ~3 min |
-| `tools/smoke-bash.sh` | P3 bash gate: -c/interactive transcripts, arithmetic/variables/functions, pipes/redirects/`$(...)`, SIGINT, reaps, `sh`=bash | ~4 min |
-| `tools/smoke-dash.sh` | P2 dash gate (dash selected explicitly): -c/interactive transcripts, pipes/redirects/scripts, SIGINT, reaps | ~2 min |
+| `tools/smoke-bash.sh` | P3/P4 bash gate: the login shell **is** bash, `sh`/`/bin/sh` resolve to it, interactive transcripts, arithmetic/variables/functions, pipes/redirects/`$(...)`, SIGINT, `exit` → built-in rescue shell | ~5 min |
+| `tools/smoke-dash.sh` | P2/P4 dash gate: dash started from the login shell, -c/interactive transcripts, pipes/redirects/scripts, SIGINT, the built-in-shell reap path after `exit` | ~3 min |
 | `tools/smoke-posix.sh` | P1 libc/ELF-loader gate (hello, brk, tmpfs, pipe) | ~1 min |
 | `tools/smoke-net.sh` | M11 offline network gate (loopback/SLIRP/DNS/TLS/UDP) | ~8 min |
 | `tools/smoke-imager.sh` | M12 `clone` gate: verified round trip, size/YES gates, read-only branch | ~2 min |
@@ -32,6 +32,13 @@ itself see [USAGE.md](USAGE.md); for builds see [BUILD.md](BUILD.md).
 
 All smoke scripts bound every QEMU run with `timeout --signal=KILL` and
 exit non-zero on the first failing phase. Logs land in `build/*.log`.
+
+Every smoke builds once with `tools/build.sh` and then boots with
+`tools/run.sh --no-build`, so a phase timeout measures **boot** time: since
+the default build embeds the shell (`tools/build.sh` runs libc + bash + dash)
+a redundant rebuild inside `run.sh` would silently eat 15-20 s of a 60-90 s
+budget and turn timing assertions into flakes. Do the same when driving a
+boot by hand.
 
 ## 2. The x86 suite (`tools/smoke.sh`, 13 phases)
 

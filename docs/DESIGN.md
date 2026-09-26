@@ -396,6 +396,26 @@ crypto-selftest  SHA-256/RSA known-answer tests (M8.1)
 Shell roadmap: built-in minimal -> ash -> bash. (bash: C, POSIX-sh superset, smaller
 than fish; job control and readline come late.)
 
+**Login shell (P4, 2026-09).** The interactive interface at boot is the
+embedded **login shell** — GNU bash 5.3 when built, else dash — running as a
+foreground user task on `/dev/console` with root's environment
+(`USER=root`, `HOME=/root`, `HOSTNAME=Fantuan-MTF`, `PATH=/bin:/usr/bin`, a
+`PS1` of `\u@\h:\w# `). The built-in shell above is **not** the daily
+interface any more; it keeps the rescue role and comes back when the login
+shell exits (`exit`) or when none is embedded (riscv/aarch64 are
+serial-only, a `CONFIG_BASH=n` build, or a tree whose artifact is missing) —
+the boot line says which one happened. Nothing is lost by landing in bash:
+the same `/bin/sh`/`/bin/bash`/`/bin/dash` preference is used, `exit` drops
+to the built-in shell, and typing `sh` there re-enters it.
+
+The interaction this does *not* change yet: the ESP autorun
+(`EFI/fantuan/shell.cmd`) still runs in the built-in shell, because the
+rescue/diagnostic commands (`lsos`, `mount`, `diskhealth`, `grub-fix`,
+`clone`, `gpu`) are kernel built-ins rather than `/bin` programs. Moving them
+onto `PATH` is the M13-6 repair broker's job (a versioned IPC the tools
+call, with the same `RepairToken` gate as the shell), after which the autorun
+and the login shell speak the same commands.
+
 **Implemented (v1, `kernel/src/shell/`)**: serial line editor (echo,
 backspace, 128-byte lines; `Serial::read` polls LSR), tokenizer, command
 table with per-command handlers — `shell/mod.rs` owns input/dispatch/mount

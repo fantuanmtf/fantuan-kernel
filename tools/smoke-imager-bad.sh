@@ -38,7 +38,7 @@ BAD_SECTORS=$(awk '{s += $2} END {print s}' build/imager-bad.img.bad)
 
 LOG="build/smoke-imager-bad.log"
 rm -f "$LOG" build/smoke-report-*.txt
-env BADCLUSTERS="$BAD" ./tools/run.sh --imager-bad > "$LOG" < /dev/null 2>&1 &
+env BADCLUSTERS="$BAD" ./tools/run.sh --no-build --imager-bad > "$LOG" < /dev/null 2>&1 &
 QPID=$!
 i=0
 while [ "$i" -lt "${SMOKE_IMAGER_BAD_TIMEOUT:-180}" ]; do

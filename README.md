@@ -13,7 +13,8 @@ through a menuconfig-style configuration ([docs/CONFIG_PLAN.md](docs/CONFIG_PLAN
 and a content-hashed config keeps rebuilds incremental. Userland tools
 are add-ons, never linked into the kernel or base, so no copyleft code can
 infect them; the desktop scope is XFCE and CDE only. The one GPL program,
-GNU bash (the default `sh`), ships as a separate, source-provided program
+GNU bash (the default `sh` and the login shell), ships as a separate,
+source-provided program
 whose sources are deliberately **not** tracked here — `main` carries only
 the pins and `tools/fetch-bash-src.sh` obtains the verified tarball
 ([THIRD_PARTY.md](THIRD_PARTY.md)). The Live profile

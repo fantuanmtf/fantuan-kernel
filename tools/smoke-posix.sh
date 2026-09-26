@@ -23,7 +23,7 @@ fi
 
 echo "[3/4] booting QEMU (bounded)..."
 rm -f build/smoke-posix.log
-timeout --signal=KILL 90 ./tools/run.sh > build/smoke-posix.log < /dev/null 2>&1 || true
+timeout --signal=KILL 90 ./tools/run.sh --no-build > build/smoke-posix.log < /dev/null 2>&1 || true
 
 echo "[4/4] asserting the C program's markers..."
 ok=1

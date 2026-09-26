@@ -9,9 +9,9 @@ it see [BUILD.md](BUILD.md); for the smoke suites and flag reference see
 
 The kernel of a **Live OS** (RAM-first, clean shutdown, optional
 persistence), self-written and booting on bare metal or in QEMU. The default
-build is the minimal boot set — kernel + boot + shell, where the default
-`sh` is GNU bash 5.3, built and embedded by the default build (dash stays
-selectable as `/bin/dash`) — and everything
+build is the minimal boot set — kernel + boot + shell, where the console
+lands in a **login shell**: GNU bash 5.3, built and embedded by the default
+build, with dash as the fallback (`/bin/dash`) — and everything
 else is opt-in through profiles: `rescue` (diagnostic commands + boot
 repair), `net`/`tls` (TCP/HTTPS; tools come from the app catalog at M14, with
 the non-default in-kernel commands as the interim bridge until then). The
@@ -47,7 +47,10 @@ Quit QEMU with `Ctrl-A X` (headless) or close the window.
 
 x86: bootloader banner -> `handshake ok` -> memory map summary ->
 hardware diagnostics (the storage stage is part of the `rescue` profile) ->
-VFS mount -> userland demo tasks -> the shell prompt `root@Fantuan-MTF> `.
+VFS mount -> userland demo tasks -> `shell: ready` -> the ESP autorun (in the
+built-in shell) -> the **login shell** prompt `root@Fantuan-MTF:/# ` (bash).
+Typing `exit` there drops to the built-in rescue shell `root@Fantuan-MTF> `,
+where the diagnostic commands live.
 
 riscv: OpenSBI banner -> `fantuan v0.0.4 (riscv64)` -> FDT memory/CPU
 report -> Sv39 tables -> `blk: virtio registered` -> VFS + read-only
@@ -81,8 +84,9 @@ profiles enable it; the minimal kernel has no imager).
 |---|---|---|
 | `help` | core | lists the command table |
 | `bootinfo` | core | boot handover details (memory map, framebuffer, RSDP, ...) |
-| `sh [args]` | core | runs the embedded shell on `/dev/console`: GNU bash 5.3 when embedded (the default build embeds it), otherwise dash |
+| `sh [args]` | core | re-enters the login shell (GNU bash 5.3 when embedded, else dash) on `/dev/console` |
 | `bash [args]` / `dash [args]` | core | selects that shell explicitly (`/bin/bash`, `/bin/dash`); `execve("/bin/sh")` resolves to bash when it is embedded |
+| `exit` (in the login shell) | — | leaves bash/dash and returns to the built-in rescue shell |
 | `hwdiag` | [rescue] | re-runs hardware diagnostics (x86 only) |
 | `lsdev` | [rescue] | lists PCI storage/display devices + drive identity (x86 only) |
 | `lsos` | [rescue] | filesystems per partition (the probe table) |

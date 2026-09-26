@@ -58,10 +58,13 @@ in full is `docs/APPS.md`.
   violation. Imported upstream sources keep their headers and are exempt from
   the 300-line rule; our wrappers are not.
 - **GNU bash (GPL-3.0-or-later)** is the one registered copyleft program in
-  the default image: it is the default `sh`, it is never linked, and its built
-  program is embedded in the kernel image as an opaque stripped blob — a
-  deliberate, recorded exception whose source provision is section 4. The M14
-  task is to move it to file-based delivery (`docs/M14_LINUXUSERS.md`).
+  the default image: it is the default `sh` **and the login shell** (DESIGN
+  §10), it is never linked, and its built program is embedded in the kernel
+  image as an opaque stripped blob — a deliberate, recorded exception whose
+  source provision is section 4. The M14 task is to move it to file-based
+  delivery (`docs/M14_LINUXUSERS.md`). Sharing an address space with the
+  kernel is not "linking" in the firewall's sense, but it is distribution:
+  treat every shipped image as a bash distribution and keep section 4 true.
 
 ## 4. Source provision for the embedded shell
 

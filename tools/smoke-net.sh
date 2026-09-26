@@ -191,6 +191,10 @@ def ensure(cmd, pat):
 wait("shell: ready", 480)
 wait("net: wget ok (url=http://test.fantuan", 480)
 time.sleep(2)
+# P4: the console lands in the login shell (bash) and the net tools are kernel
+# built-ins (CONFIG_TOOLS), so drop to the built-in shell before driving them.
+send("exit")
+wait("shell: login shell exited", 60)
 ensure("nslookup test.fantuan 10.0.2.2:%s" % dns_port, "nslookup: test.fantuan =>")
 ensure("ping 10.0.2.2 1", "ping: 10.0.2.2")
 ensure("wget http://10.0.2.2:%s/" % http_port, "wget: http://10.0.2.2")

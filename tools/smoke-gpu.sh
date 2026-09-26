@@ -45,7 +45,7 @@ boot() { # name vga
   local log="build/smoke-gpu-$name.log"
   rm -f "$log"
   timeout --signal=KILL "${SMOKE_GPU_TIMEOUT:-90}" \
-    ./tools/run.sh --keys --vga "$vga" > "$log" < /dev/null 2>&1 || true
+    ./tools/run.sh --no-build --keys --vga "$vga" > "$log" < /dev/null 2>&1 || true
   echo "$log"
 }
 

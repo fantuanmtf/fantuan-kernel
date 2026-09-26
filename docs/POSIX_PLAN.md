@@ -261,6 +261,21 @@ selectable through the new `dash` console command; `execve("/bin/dash")`
 still works. With no bash artifact, `sh` falls back to dash; with neither,
 the built-in shell remains the rescue console.
 
+**P4: bash is also the login shell.** The built-in shell is no longer the
+interactive interface at boot. `kernel_core::shell` gained a login-shell hook
+(`set_login_shell`, the same shape as `set_bin_lookup`/`set_auth_apply`) and
+`kernel/src/shell/sh.rs::login()` runs bash — else dash — as a foreground
+user task on `/dev/console` after the ESP autorun. The environment carries
+the identity (`USER=root`, `HOME=/root`, `HOSTNAME=Fantuan-MTF`,
+`PATH=/bin:/usr/bin`) and a `PS1` that renders `root@Fantuan-MTF:/# `; `exit`
+returns to the built-in shell, which prints
+`shell: login shell exited — built-in rescue shell (...)`. Arches without an
+embedded shell and `CONFIG_BASH=n` builds never install the hook, so the
+built-in shell keeps landing there unchanged. What this does *not* yet change
+is where the diagnostic commands live: they are kernel built-ins, so the ESP
+autorun still runs in the built-in shell until M13-6's repair broker puts
+tools on `PATH` (DESIGN §10).
+
 **The default build always produces bash** (later licensing/branching
 refactor): `tools/build.sh` runs `tools/build-libc.sh` + `tools/build-bash.sh`
 when `CONFIG_BASH=y` and exports `FANTUAN_REQUIRE_BASH=1`, so a missing

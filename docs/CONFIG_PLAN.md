@@ -20,7 +20,7 @@ a `menuconfig`-style configuration instead of being pre-linked.
 
 ```
 CONFIG_SHELL            bool  default y    # built-in kernel shell (kernel-core)
-CONFIG_BASH             bool  default y    # GNU bash 5.3 as /bin/sh (built + embedded by build.sh)
+CONFIG_BASH             bool  default y    # GNU bash 5.3 as the login shell + /bin/sh
 CONFIG_TOOLS            bool  default n    # interim kernel tool bridge
 CONFIG_NET              bool  default n    # rump network stack (M11)
 CONFIG_NET_DRIVERS      bool  depends NET  # e1000 / virtio-net

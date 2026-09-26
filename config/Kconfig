@@ -27,13 +27,15 @@ config BASH
     bool "GNU bash 5.3 as the default /bin/sh (GPLv3 separate program)"
     default y
     help
-        Build and embed GNU bash 5.3 as /bin/sh: tools/build.sh resolves the
-        pinned sources (tools/fetch-bash-src.sh), builds bash against
-        libc-fantuan and embeds the stripped program. The sources are
-        deliberately not tracked on main (THIRD_PARTY.md) and bash is never
-        linked into the kernel. Off: dash stays /bin/dash and the built-in
-        shell keeps the rescue builtins. This is the kernel-build gate; the
-        generated CONFIG_APP_BASH is a separate app-catalog marker.
+        Build and embed GNU bash 5.3 as the login shell and /bin/sh:
+        tools/build.sh resolves the pinned sources (tools/fetch-bash-src.sh),
+        builds bash against libc-fantuan and embeds the stripped program; the
+        console then lands in bash (exit returns to the built-in rescue
+        shell). The sources are deliberately not tracked on main
+        (THIRD_PARTY.md) and bash is never linked into the kernel. Off: dash
+        is the login shell and /bin/dash, and the built-in shell keeps the
+        rescue builtins. This is the kernel-build gate; the generated
+        CONFIG_APP_BASH is a separate app-catalog marker.
 
 config TOOLS
     bool "Userland tool set"

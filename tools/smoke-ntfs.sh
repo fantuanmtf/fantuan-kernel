@@ -32,7 +32,7 @@ ALICE_HOST=$(sha256sum build/ntfs-fixture/Users/alice.txt | cut -d' ' -f1)
 
 LOG="build/smoke-ntfs.log"
 rm -f "$LOG"
-timeout --signal=KILL "${SMOKE_NTFS_TIMEOUT:-150}" ./tools/run.sh --ntfs > "$LOG" < /dev/null 2>&1 || true
+timeout --signal=KILL "${SMOKE_NTFS_TIMEOUT:-150}" ./tools/run.sh --no-build --ntfs > "$LOG" < /dev/null 2>&1 || true
 
 OK=1
 note() { echo "missing: $1"; OK=0; }

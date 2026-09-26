@@ -131,7 +131,7 @@ are documented then, in the threat model.
 | M14-5 | Seed/tcc/self-host chain + `/bootstrap.sh` + reproducibility hash |
 | M14-6 | C++ seed (clang) in the developer image; build one C++ program |
 | M14-7 | Hypervisor V2 (VMX first, SVM second) + guest serial + docs/threat model stubs |
-| M14-8 | POSIX shell: bash over the native ABI (default `sh`, separate GPLv3 program with its sources); the built-in shell keeps the rescue builtins |
+| M14-8 | POSIX shell: bash over the native ABI (**the login shell** since P4, and the default `sh`; separate GPLv3 program with its sources); the built-in shell keeps the rescue builtins |
 
 ## 7.1 bash early start (C5, 2026-09)
 

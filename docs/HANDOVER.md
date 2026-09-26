@@ -52,7 +52,10 @@ as product: the same portable core now runs on two architectures.
   kernel + boot + shell only; the diagnostic commands and boot repair live
   behind the `rescue` profile, the network tools are the non-default interim
   bridge whose catalog home is `apps/{ping,nslookup,wget}`, and bash's early
-  port is recorded in `apps/bash/port/`. bash 5.3 now *is* the default `sh`
+  port is recorded in `apps/bash/port/`. bash 5.3 now *is* the login shell
+  and the default `sh` (the console lands in it; `exit` drops to the built-in
+  rescue shell, which is also where the ESP autorun and the diagnostic
+  commands still live until M13-6 puts them on `PATH`)
   and the default build embeds it (P3 + the licensing refactor): see
   `docs/POSIX_PLAN.md`, `docs/CONFIG_PLAN.md` and `docs/APPS.md`; the repo
   governance rules are in `docs/REPO_POLICY.md`.
@@ -193,6 +196,15 @@ M13 and the governance refactor additions:
   strings to a file) — the M13-3 checks had this inverted and were fixed.
 - The reminder from M10 still stands: the intermittent riscv
   `uart::log_bytes` fault recurs in the repair phases.
+- **Host identity lives in three places**: `kernel_core::shell::HOSTNAME`
+  (`Fantuan-MTF`), the login shell's `PS1` (spelled out, because bash's `\h`
+  goes through `gethostname()`), and `libc-fantuan`'s `gethostname()` stub,
+  which still answers `fantuan`. M14's hostname/uname syscall should collapse
+  them into one source (and let `\h` work again).
+- **The diagnostic tools are kernel built-ins, not `PATH` programs**, so bash
+  cannot run `lsos`/`mount`/`diskhealth`/`grub-fix`/`clone`/`gpu`; the ESP
+  autorun is the only way to drive them without leaving the login shell.
+  M13-6's repair broker is what puts them on `PATH` (DESIGN §10).
 
 ## 7. Roadmap
 

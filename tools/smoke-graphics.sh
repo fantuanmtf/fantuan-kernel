@@ -141,7 +141,7 @@ for attempt in 1 2 3; do
     mon build/mon.sock "quit"
   ) &
   SENDER=$!
-  timeout --signal=KILL 120 ./tools/run.sh --vga std --monitor --serial-unix build/serial.sock \
+  timeout --signal=KILL 120 ./tools/run.sh --no-build --vga std --monitor --serial-unix build/serial.sock \
     < /dev/null > build/gfx-uefi-qemu.log 2>&1 || true
   wait "$SENDER" 2>/dev/null || true
   kill "$RELAY" 2>/dev/null || true

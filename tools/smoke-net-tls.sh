@@ -157,6 +157,10 @@ def send(line):
 
 wait(("net: ext skip", "net: ext done"), 400)
 time.sleep(1)
+# P4: the console lands in the login shell (bash); the HTTPS tool lives in the
+# kernel (CONFIG_TLS), so drop to the built-in shell before driving it.
+send("exit")
+time.sleep(2)
 send("wget https://10.0.2.2:%s/" % tls_port)
 time.sleep(4)
 PY

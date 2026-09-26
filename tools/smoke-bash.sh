@@ -94,20 +94,18 @@ def run(cmd, pause=0.8):
     time.sleep(pause)
 
 wait("shell: ready", 480)
-time.sleep(0.5)
+# P4: the console lands in the login shell, and that shell must be bash.
+wait("shell: login shell: bash pid", 240)
+time.sleep(1.0)
 
-# The default sh must be bash when embedded (dash stays selectable).
+# /bin/sh and /bin/bash both resolve to the embedded bash.
 ensure("sh -c 'echo shver=${BASH_VERSION:+bash-default}'", "bash-default")
-
-# Non-interactive: -c scripts, a clean and a non-zero exit.
 ensure("bash -c 'echo noninteractive-ok'", "noninteractive-ok")
-ensure("bash -c 'exit 7'", "wait status=0x700")
+ensure("bash -c 'exit 7'; echo status=$?", "status=7")
 
-# Interactive bash: prompt, builtins, arithmetic, variables, fork/exec,
-# pipelines, redirects, functions and command substitution.
-send("bash\n")
-wait("sh: bash pid", 120)
-time.sleep(1.5)
+# Interactive bash: this *is* the login shell, so the tests run straight in it -
+# builtins, arithmetic, variables, fork/exec, pipelines, redirects, functions
+# and command substitution.
 ensure("echo interactive-bash-ok", "interactive-bash-ok")
 ensure("echo arith=$((2+3))", "arith=5")
 ensure("x=41; echo x=$((x+1))", "x=42")
@@ -123,11 +121,15 @@ sys.stdout.write("\x03")
 sys.stdout.flush()
 time.sleep(1.0)
 ensure("echo back=$?", "back=130")
-send("exit\n")
-wait("exited, wait status=0x0", 60)
-time.sleep(1.0)
 
-# dash remains selectable with the same console command.
+# P4 fallback: `exit` leaves the login shell for the built-in rescue shell,
+# where the P2/P3 console commands live - and both shells stay selectable there.
+send("exit\n")
+wait("shell: login shell exited", 120)
+time.sleep(1.0)
+ensure("sh -c 'echo sh-again=${BASH_VERSION:+bash-again}'", "bash-again")
+send("sh -c 'exit 7'\n")
+wait("wait status=0x700", 90)
 ensure("dash -c 'echo dash-still-here'", "dash-still-here")
 PY
 )
@@ -144,6 +146,8 @@ check() { # marker
   fi
 }
 check "bash embedded=yes"
+check "shell: login shell: bash pid"
+check "shell: login shell exited"
 check "bash-default"
 check "noninteractive-ok"
 check "wait status=0x700"

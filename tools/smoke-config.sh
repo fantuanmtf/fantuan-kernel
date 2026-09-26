@@ -92,7 +92,9 @@ boot_help() { # log timeout
   ./tools/build.sh >/dev/null 2>&1 || fail "build before boot"
   # --no-build: this helper builds above, and the fixed 20 s injection budget
   # is measured from the run's start - a rebuild inside run.sh would eat it.
-  ( ( sleep 20; printf 'help\n'; sleep 40 ) \
+  # P4: the console lands in the login shell (bash) and the command table below
+  # belongs to the built-in shell, so `exit` first, then `help`.
+  ( ( sleep 20; printf 'exit\n'; sleep 6; printf 'help\n'; sleep 34 ) \
     | timeout --signal=KILL "$2" ./tools/run.sh --no-build > "$1" 2>&1 ) 2>/dev/null || true
 }
 

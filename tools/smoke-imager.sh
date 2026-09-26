@@ -39,7 +39,7 @@ DST_BEFORE=$(head -c "$SRC_BYTES" build/imager-dst.img | sha256sum | cut -d' ' -
 
 LOG="build/smoke-imager.log"
 rm -f "$LOG"
-timeout --signal=KILL "${SMOKE_IMAGER_TIMEOUT:-120}" ./tools/run.sh --imager > "$LOG" < /dev/null 2>&1 || true
+timeout --signal=KILL "${SMOKE_IMAGER_TIMEOUT:-120}" ./tools/run.sh --no-build --imager > "$LOG" < /dev/null 2>&1 || true
 
 # Kernel-reported hashes.
 KHASH=$(grep -a "clone: source sha256" "$LOG" | sed -E 's/.*sha256 ([0-9a-f]{64}).*/\1/' | tail -1)

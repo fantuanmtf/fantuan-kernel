@@ -10,6 +10,7 @@
 //! wakes it, so the scheduler keeps running the demo tasks.
 
 use core::fmt::Write;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use fantuan_abi::BootInfo;
 
@@ -34,6 +35,28 @@ const SCRIPT_LINE_MAX: usize = 96;
 /// Default host identity (C4): the prompt and the help header show
 /// `root@Fantuan-MTF`.
 pub const HOSTNAME: &str = "Fantuan-MTF";
+
+/// Login-shell hook (DESIGN §10, P4): the kernel installs a function that runs
+/// the embedded interactive shell (bash, else dash) as a foreground user task
+/// on /dev/console and returns true once one has run. It returns false when
+/// none is embedded, and arches without one never install it - in both cases
+/// the built-in shell keeps the console.
+static LOGIN_SHELL: AtomicUsize = AtomicUsize::new(0);
+
+/// Install the login shell (called once at boot by the kernel that owns the
+/// embedded shell payloads).
+pub fn set_login_shell(f: fn() -> bool) {
+    LOGIN_SHELL.store(f as usize, Ordering::Release);
+}
+
+fn login_shell() -> bool {
+    let p = LOGIN_SHELL.load(Ordering::Acquire);
+    if p == 0 {
+        return false;
+    }
+    let f: fn() -> bool = unsafe { core::mem::transmute(p) };
+    f()
+}
 
 /// One shell command; the table itself is owned by each kernel.
 pub struct Command {
@@ -294,23 +317,50 @@ impl<'a> Shell<'a> {
         let _ = writeln!(s, "' — try 'help'");
     }
 
-    /// The interactive loop: autorun first, then serial input.
+    /// Print the prompt, read one line and run it. False when the read failed.
+    fn prompt_and_run(&mut self, s: &mut Log) -> bool {
+        let _ = write!(s, "root@{HOSTNAME}> ");
+        if !self.read_line(s) {
+            return false;
+        }
+        let mut copy = [0u8; LINE_MAX];
+        let n = self.len;
+        copy[..n].copy_from_slice(&self.line[..n]);
+        self.run_line(s, &copy[..n]);
+        self.len = 0;
+        true
+    }
+
+    /// The interactive loop: autorun, then the login shell, then serial input.
     pub fn run(&mut self, s: &mut Log) {
         // C4: quiet the boot heartbeat BEFORE the ready line so no `tick:`
         // line can appear after it or split a typed line.
         crate::heartbeat::shell_ready();
-        let _ = writeln!(s, "shell: ready (root@{HOSTNAME}; type 'help'; idle note after 30 s)");
+        let _ = writeln!(s, "shell: ready (root@{HOSTNAME}; idle note after 30 s)");
         self.load_script(s);
+        // The autorun is driven by the built-in shell and must finish before
+        // the console changes hands: the repair fixtures (--shell-repair) are
+        // exactly this script, and `read_line` feeds the queued lines first,
+        // so this loop is the same transcript the interactive loop produces.
+        while self.script_next < self.script_count {
+            if !self.prompt_and_run(s) {
+                break;
+            }
+        }
+        // P4: the daily interface is the embedded login shell (bash, else
+        // dash) - DESIGN §10. The built-in shell keeps the console when none
+        // is embedded, and takes it back when the login shell exits, so the
+        // rescue commands stay reachable in every case.
+        if login_shell() {
+            let _ = writeln!(
+                s,
+                "shell: login shell exited — built-in rescue shell (type 'sh' to re-enter it, 'help' for commands)"
+            );
+        }
         loop {
-            let _ = write!(s, "root@{HOSTNAME}> ");
-            if !self.read_line(s) {
+            if !self.prompt_and_run(s) {
                 continue;
             }
-            let mut copy = [0u8; LINE_MAX];
-            let n = self.len;
-            copy[..n].copy_from_slice(&self.line[..n]);
-            self.run_line(s, &copy[..n]);
-            self.len = 0;
         }
     }
 }
