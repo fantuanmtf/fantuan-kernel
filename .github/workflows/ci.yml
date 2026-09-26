@@ -1,0 +1,21 @@
+name: package tooling
+
+on:
+  pull_request:
+  push:
+    branches: [package]
+
+jobs:
+  appctl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Byte-compile the client
+        run: python3 -m compileall -q tools/appctl
+      - name: CLI help
+        run: python3 tools/appctl/appctl.py --help
+      - name: Offline appctl self-tests
+        run: ./tools/smoke-apps.sh
