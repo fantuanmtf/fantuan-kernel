@@ -52,7 +52,15 @@ pub fn write_locked(buf: &[u8]) -> usize {
 /// while a sys_write (interrupt gate, IF clear) spins on LOCK; holding LOCK
 /// across a task preemption would deadlock that spin. The old
 /// Serial-formatted writers bypassed it the same way.
+///
+/// The whole call runs with interrupts disabled instead, so one marker line
+/// cannot be split by another writer: the graphics demo (`log_bytes_raw`) and
+/// the shell/boot-repair path share COM1 and cannot take LOCK (see above),
+/// while the smokes match exact marker lines. On this single-CPU target
+/// nothing else can run while the flag is clear, and `putc`'s wait is bounded
+/// by the UART, not by another task.
 pub fn log_bytes(buf: &[u8]) {
+    let flags = crate::cpu::irq_save();
     let ser = Serial::new(COM1);
     let mut start = 0;
     for (i, &b) in buf.iter().enumerate() {
@@ -67,11 +75,15 @@ pub fn log_bytes(buf: &[u8]) {
     if start < buf.len() {
         let _ = ser.write(&buf[start..]);
     }
+    crate::cpu::irq_restore(flags);
 }
 
 /// Byte sink for the shared raw logger: LF->CRLF with no GOP mirror (the
-/// graphics demo's damage accounting must not touch the screen).
+/// graphics demo's damage accounting must not touch the screen). Line-atomic
+/// like `log_bytes`: it races the mirrored path by design (same UART, no
+/// LOCK), and an interleaved marker would read as a missing one.
 pub fn log_bytes_raw(buf: &[u8]) {
+    let flags = crate::cpu::irq_save();
     let ser = Serial::new(COM1);
     let mut start = 0;
     for (i, &b) in buf.iter().enumerate() {
@@ -86,6 +98,7 @@ pub fn log_bytes_raw(buf: &[u8]) {
     if start < buf.len() {
         ser.write_raw(&buf[start..]);
     }
+    crate::cpu::irq_restore(flags);
 }
 
 pub fn line(s: &str) {

@@ -61,7 +61,12 @@ pub fn report(acpi: Option<&Tables>) {
     let _ = write!(s, "virt: ");
     if let Some(v) = &vendor {
         let _ = s.write(b"guest under ");
-        let _ = s.write(v);
+        // The vendor field is a fixed 12 bytes padded with NULs (KVM sends
+        // "KVMKVMKVM\0\0\0"). Writing them raw put NUL bytes into every
+        // serial log, which makes `grep` treat the whole file as binary and
+        // silently fail the smoke gates' plain `grep -q` marker checks.
+        let end = v.iter().position(|&b| b == 0).unwrap_or(v.len());
+        let _ = s.write(&v[..end]);
         let _ = write!(s, "  ");
     } else {
         let _ = write!(s, "bare metal  ");
