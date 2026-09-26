@@ -11,13 +11,18 @@ minimal kernel plus the shell (boot + kernel + shell <= 300 MiB); tools,
 networking, TLS, graphics, virtualization and the desktop are opt-in
 through a menuconfig-style configuration ([docs/CONFIG_PLAN.md](docs/CONFIG_PLAN.md)),
 and a content-hashed config keeps rebuilds incremental. Userland tools
-are add-ons, never linked into the kernel or base, so no GPL code can
-infect them; the desktop scope is XFCE and CDE only. The Live profile
+are add-ons, never linked into the kernel or base, so no copyleft code can
+infect them; the desktop scope is XFCE and CDE only. The one GPL program,
+GNU bash (the default `sh`), ships as a separate, source-provided program
+whose sources are deliberately **not** tracked here — `main` carries only
+the pins and `tools/fetch-bash-src.sh` obtains the verified tarball
+([THIRD_PARTY.md](THIRD_PARTY.md)). The Live profile
 wipes RAM on clean shutdown (`CONFIG_SECURE_WIPE`) as a best-effort
 cold-boot (RAM-freezing) mitigation, with the limitations documented.
 Tools and packages are developed on the `fantuan-apps` and `package`
 branches and vendored into `apps/` per configuration
-([docs/APPS.md](docs/APPS.md)).
+([docs/APPS.md](docs/APPS.md)); mirror roles are in
+[docs/REPO_POLICY.md](docs/REPO_POLICY.md).
 
 All repository artifacts are in English. The authoritative design lives in
 [docs/DESIGN.md](docs/DESIGN.md) — change it before changing code.
@@ -33,6 +38,7 @@ All repository artifacts are in English. The authoritative design lives in
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | the smoke suites, the boot/test matrix, `run.sh` flags, troubleshooting |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | conventions, extension recipes, testing, debugging |
 | [docs/HANDOVER.md](docs/HANDOVER.md) | taking over: status, architecture, known debt, roadmap |
+| [docs/REPO_POLICY.md](docs/REPO_POLICY.md) | repository policy: remote roles, branches, licence layers, publication |
 | [docs/DESIGN.md](docs/DESIGN.md) | the design of record (read before code changes) |
 | [docs/M10_PLAN.md](docs/M10_PLAN.md) | the M10 (v0.0.2) completion plan and release checkpoints |
 | [docs/M10_BOOT_32BIT.md](docs/M10_BOOT_32BIT.md) | design: BIOS boot chain + i686 port (v0.0.2) |
@@ -156,8 +162,14 @@ Requirements: Rust (stable) with targets `x86_64-unknown-uefi`,
 `x86_64-unknown-none`, `riscv64gc-unknown-none-elf` and
 `aarch64-unknown-none`, nightly + `rust-src` (i686 only), QEMU (x86_64,
 riscv64 and aarch64), OVMF (`edk2-ovmf`), NASM (BIOS stages), binutils
-(objcopy), clang + llvm-ar (riscv C drivers), llvm-objcopy (aarch64 raw
-image), python3 (disk/ISO fixtures).
+(objcopy), clang + llvm-ar + llvm-ranlib + bison (the embedded shell),
+llvm-objcopy (aarch64 raw image), python3 (disk/ISO fixtures).
+
+The first x86_64 build downloads the pinned GNU bash 5.3 tarball (11 MB,
+sha256 + GPG verified) into `build/cache/`; later builds use the cache.
+`FANTUAN_OFFLINE=1` forbids the fetch, `FANTUAN_BASH_TARBALL=/path` supplies
+a local copy, `--from-branch` reads the `fantuan-apps` mirror, and
+`CONFIG_BASH=n` (`tools/kconfig.py --symbol BASH=N`) builds without a shell.
 
 ```sh
 rustup target add x86_64-unknown-uefi x86_64-unknown-none riscv64gc-unknown-none-elf aarch64-unknown-none

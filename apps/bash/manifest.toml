@@ -11,3 +11,8 @@ patches = ["patches/0001-netopen-no-network-decls.patch"]
 requires = ["posix-libc"]
 description = "GNU Bash 5.3, the default POSIX shell (separate GPLv3 program)"
 gpl = true
+# Where the complete corresponding source for a shipped bash binary comes
+# from (GPLv3 section 6). The tarball is deliberately not tracked on main;
+# tools/fetch-bash-src.sh resolves it and tools/smoke-gpl.sh checks that the
+# pins agree and that the mirror carries the pinned bytes.
+source_provision = "upstream:https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz sha256:0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba mirror:git:fantuan-apps:apps/bash/src patch:patches/0001-netopen-no-network-decls.patch"

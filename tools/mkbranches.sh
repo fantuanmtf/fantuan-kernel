@@ -61,6 +61,12 @@ echo
 echo "Local branches based on $BASE (not pushed). The skeleton README.md becomes"
 echo "the branch landing page; main keeps the kernel README and LICENSE."
 echo
-echo "Publish (owner only):"
-echo "  git push -u origin fantuan-apps"
-echo "  git push -u origin package"
+echo "Publish (owner only). These branches are *rebuilt* on top of $BASE, so the"
+echo "push is a force one; the lease pins the published value each mirror holds"
+echo "now, so a concurrent push is refused rather than clobbered."
+echo "Codeberg mirrors main only - never push a branch there (docs/REPO_POLICY.md)."
+for branch in $BRANCHES; do
+  old="$(git rev-parse --verify -q "refs/remotes/origin/$branch" || true)"
+  echo "  git push --force-with-lease=$branch:${old:-<expected-sha>} origin $branch"
+  echo "  git push --force-with-lease=$branch:${old:-<expected-sha>} gitlab $branch"
+done

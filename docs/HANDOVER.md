@@ -52,8 +52,10 @@ as product: the same portable core now runs on two architectures.
   kernel + boot + shell only; the diagnostic commands and boot repair live
   behind the `rescue` profile, the network tools are the non-default interim
   bridge whose catalog home is `apps/{ping,nslookup,wget}`, and bash's early
-  port is recorded in `apps/bash/port/`. See `docs/CONFIG_PLAN.md` and
-  `docs/APPS.md`.
+  port is recorded in `apps/bash/port/`. bash 5.3 now *is* the default `sh`
+  and the default build embeds it (P3 + the licensing refactor): see
+  `docs/POSIX_PLAN.md`, `docs/CONFIG_PLAN.md` and `docs/APPS.md`; the repo
+  governance rules are in `docs/REPO_POLICY.md`.
 
 ## 3. Architecture in one page
 
@@ -120,7 +122,13 @@ as product: the same portable core now runs on two architectures.
    their own licenses (NetBSD network stack, Spleen font, musl, tcc, and the
    developer-image XFCE/Qt as separate programs). `THIRD_PARTY.md` is the
    register — never import or bundle code without a declaration, and never
-   link GPL/copyleft code into the kernel.
+   link GPL/copyleft code into the kernel or base libraries. GNU bash (GPLv3,
+   the default `sh`) is the registered exception: it is never linked, its
+   **sources are not tracked on `main`** (the `fantuan-apps` branch carries
+   the bundle; `tools/fetch-bash-src.sh` fetches and verifies it), and its
+   built program *is* embedded as a blob in the kernel image — a documented
+   tension with the M14 task of file-based delivery. Never `git push` the
+   branches to Codeberg: it mirrors `main` only.
 
 ## 5. Milestone history (where the bodies are buried)
 
@@ -163,6 +171,28 @@ M10 additions to the debt list:
 - VBE mode setting is only exercised under QEMU/SeaBIOS; physical-firmware
   VBE differences are untested.
 - The hybrid ISO is CD-ROM only (no isohybrid/USB `dd` support).
+
+M13 and the governance refactor additions:
+
+- **`kernel/src/main.rs` is 407 lines**, over the 300-line rule. It was
+  already over before M13 and grew slightly there; splitting it (boot
+  sequence vs. the task/shell wiring) is an independent cleanup.
+- **`kernel-core/src/graphics/kms.rs` is at 298/300 lines.** Compliant, but
+  split it before extending the KMS layer (M13-5 adds the ioctl surface).
+- **bash is embedded in the kernel image** (`include_bytes!`), so the image
+  is a distribution of GPLv3 bash; the source provision is documented and
+  asserted, and M14 moves bash to file-based delivery with an in-image
+  `/usr/src/bash/` bundle (`docs/M14_LINUXUSERS.md`).
+- **The default x86_64 build now needs `bison`, `clang`, `llvm-ar`,
+  `llvm-ranlib` and, on a host without `build/cache/bash-5.3.tar.gz`, one
+  network fetch.** The off-ramps are `FANTUAN_OFFLINE=1`,
+  `FANTUAN_BASH_TARBALL=`, `--from-branch` and `CONFIG_BASH=n`.
+- **Pipefail footgun in the gates**: `strings -a "$ELF" | grep -q …` reads as
+  *not found* when it matches, because the early `grep` exit SIGPIPEs
+  `strings`. Use `elf_has_string`/`elf_has_substring` (or materialize the
+  strings to a file) — the M13-3 checks had this inverted and were fixed.
+- The reminder from M10 still stands: the intermittent riscv
+  `uart::log_bytes` fault recurs in the repair phases.
 
 ## 7. Roadmap
 

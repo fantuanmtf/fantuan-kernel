@@ -171,9 +171,21 @@ redirects, `$(...)`, `^C` and the reaps. M14-8 is therefore closed at the
 shell level; the spike now reports 0/43 missing headers and 102/102
 probed symbols (M14_LINUXUSERS §7.1). **M14-4** decides musl vs
 libc-fantuan per the P4 triggers, and the remaining shell follow-ups (pty,
-job-control stop/continue, the in-image `/usr/src/bash` sources bundle)
-stay on the M14/P4 backlog; the built-in shell and the interim
-`ping`/`nslookup`/`wget` bridge remain.
+job-control stop/continue) stay on the M14/P4 backlog; the built-in shell
+and the interim `ping`/`nslookup`/`wget` bridge remain.
+
+**M14-8 follow-up — file-based bash delivery (added by the licensing
+refactor).** Today bash's program is embedded in the kernel image as an
+opaque blob (`include_bytes!`), so the image is a distribution of GPLv3 bash
+and the source provision of `THIRD_PARTY.md` applies to it. M14 replaces the
+embedded payload with file-based delivery: ship the bash ELF (and `dash`)
+through the filesystem the kernel grows (initrd/tmpfs/ESP) at `/bin`, and
+ship the complete corresponding sources in the image next to it at
+`/usr/src/bash/` (`bash-5.3.tar.gz` + `.sig` + `COPYING` + `SOURCE` + the
+patch and the build recipe), so the running system and any image copy carry
+what GPLv3 §6 requires without embedding anything in the kernel. Until then
+the embedding is deliberate and recorded, and `tools/smoke-gpl.sh` asserts
+both halves of the truth (not linked, but embedded).
 
 ## 8. Spikes before coding
 

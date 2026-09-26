@@ -10,6 +10,13 @@
 /.config
 /build/config/
 
+# The default build fetches the pinned bash tarball into build/cache/
+# (gitignored). These entries are belt-and-braces: main must never track GPL
+# source, so a hand-placed copy under apps/bash/src/ cannot dirty the tree.
+/apps/bash/src/bash-5.3.tar.gz
+/apps/bash/src/bash-5.3.tar.gz.sig
+/kernel/bash_program.sha256
+
 # Python bytecode cache (tools/*.py)
 __pycache__/
 

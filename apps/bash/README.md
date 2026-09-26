@@ -9,22 +9,28 @@ registered in [THIRD_PARTY.md](../../THIRD_PARTY.md) and allowed by
 
 | Path | Content |
 |---|---|
-| `src/bash-5.3.tar.gz` | pristine upstream release tarball (complete corresponding source) |
-| `src/bash-5.3.tar.gz.sig` | upstream detached signature (verified against the GNU keyring) |
-| `src/SHA256SUMS` | sha256 of the tarball (`sha256sum -c` in `src/`) |
+| `src/SHA256SUMS` | sha256 of the upstream tarball (`sha256sum -c` in `src/` once fetched) |
 | `src/SOURCE` | release URL, retrieval date, signature and provenance notes |
 | `COPYING` | GPLv3 text, extracted from the tarball |
 | `patches/` | replayable fantuan-ABI patches (`0001-netopen-no-network-decls.patch`; replayed by `tools/build-bash.sh`) |
 | `port/` | port record: `README.md` (config + build recipe) and `REQUIREMENTS.md` (the minimal POSIX surface) |
 
+The pristine tarball (`bash-5.3.tar.gz`) and its `.sig` are **not tracked
+here**: they are provisioned on the `fantuan-apps` branch under
+`apps/bash/src/` and fetched at build time by `tools/fetch-bash-src.sh`
+(cache → vendored tree → pinned upstream URL → branch).
+
 ## Source provision (GPLv3)
 
-GPLv3 compliance is satisfied with the complete corresponding source next to
-the binary: the repo carries the pristine tarball under `apps/bash/src/`
-(pinned by `apps.lock` and `SHA256SUMS`), and image assembly copies it into
-the shipped image at `/usr/src/bash/` (sources bundle) together with
-`COPYING` and `SOURCE`. The build recipe (manifest + this README + `patches/`)
-travels with the same tree, so a recipient can rebuild the exact binary.
+The complete corresponding source is the pristine upstream `bash-5.3.tar.gz`
+(sha256 pin in `src/SHA256SUMS`, mirrored in `manifest.toml:tarball_sha256`
+and `src/SOURCE`, GPG-verified against the GNU keyring) plus our patch under
+`patches/`. It is deliberately **not** in `main`'s tree; `tools/fetch-bash-src.sh`
+obtains and verifies it, and the `fantuan-apps` branch carries the archive
+copy. Note that the kernel image embeds bash's built program as a blob, so
+distributing the image is distributing bash — the in-image `/usr/src/bash/`
+sources bundle is the M14 deliverable that closes this properly
+(`docs/M14_LINUXUSERS.md`, `THIRD_PARTY.md`).
 
 ## How it is built (P3, 2026-09)
 
@@ -33,7 +39,10 @@ layer; P3 filled the remaining libc surface (fnmatch/glob, regex, locale,
 wchar, wordexp, popen, iconv/dl/dlfcn stubs) and `tools/build-bash.sh`
 cross-builds the pristine tarball for `x86_64-unknown-none`:
 
-1. extracts `src/bash-5.3.tar.gz` into `build/bash/src/`;
+1. `tools/fetch-bash-src.sh` resolves and verifies the tarball
+   (`build/cache/bash-5.3.tar.gz`), which `build-bash.sh` then extracts into
+   `build/bash/src/`; `tools/build.sh` runs both by default when
+   `CONFIG_BASH=y`;
 2. replays the patches listed in `patches/` (currently one: the
    `!HAVE_NETWORK` fallback declaration fix);
 3. configures with the freestanding clang and `-nostdlib`, so link probes
@@ -54,6 +63,13 @@ app-layer availability marker.
 
 Bash is a **separate executable**: it is never linked into the kernel, the
 bootloader or any base library, no Rust crate depends on it, and the kernel
-build does not read `apps/`. `tools/smoke-gpl.sh` proves this in CI (kernel
-ELF has no bash symbols/paths, Cargo workspace has no edge into `apps/`, the
-vendored tree is untouched by the build).
+build does not read `apps/`. `tools/smoke-gpl.sh` proves this (kernel ELF has
+no bash symbols/paths, Cargo workspace has no edge into `apps/`, the vendored
+tree is untouched by the build).
+
+Honesty note: because `kernel/build.rs` embeds the built program with
+`include_bytes!`, the shipped kernel image *does* contain bash's bytes. The
+firewall is about linking; the image is a distribution of bash and the source
+provision above is what covers it. `tools/smoke-gpl.sh` asserts both halves —
+no link, and the exact artifact hash present in the image — rather than only
+the convenient one.

@@ -12,7 +12,7 @@ license = "GPL-3.0-or-later"
 gpl = true
 source = "upstream"
 rev = "unversioned"
-sha256 = "afc73162ec83245f37e7f864b5a980fbb14094b92a2c1ce1888f70aa54c87874"
+sha256 = "a2d0f7954e4e146a6c6579787a8850120c977a5a5c8680ea3c0caaa291ba7752"
 
 [[app]]
 name = "dash"

@@ -72,7 +72,10 @@ layers the app needs; while a layer is unavailable, `menu` writes the
 
 Tree hash: sha256 over the sorted lines `"<relpath> <file-sha256>\n"` for every
 regular file below `apps/<name>/` (bytewise-sorted relpaths, forward slashes).
-`verify` recomputes it and fails on any drift. Symlinks are refused.
+`verify` recomputes it and fails on any drift. Symlinks are refused. For bash
+the hash covers the metadata tree that is on `main` only — the fetched tarball
+never enters `apps/`, so it cannot invalidate the lock; `appctl relock
+[--name <name>]` recomputes a lock entry after a deliberate tree change.
 
 ## Licensing and the GPL firewall
 
@@ -81,9 +84,13 @@ regular file below `apps/<name>/` (bytewise-sorted relpaths, forward slashes).
   accepted with `--apps-layer` **and** an entry in the catalog's
   `[licensing] gpl_allow` list; `menu` skips such apps otherwise. The kernel
   and base libraries stay BSD/MIT/Apache-only.
-- bash is the registered GPLv3 exception (`docs/APPS.md`): it is vendored in
-  `apps/bash/` (C3) with its complete sources, `COPYING` and a manifest in
-  the allow list, and it is never linked into the kernel or base libraries.
+- bash is the registered GPLv3 exception (`docs/APPS.md`): `main` keeps its
+  metadata (`COPYING`, the manifest, the patch, the source pins) and its
+  tarball is provisioned on the `fantuan-apps` branch, fetched by
+  `tools/fetch-bash-src.sh`. It is never linked into the kernel or base
+  libraries; its built program *is* embedded as a blob in the kernel image
+  (a documented tension — see the file-based-delivery task in
+  `docs/M14_LINUXUSERS.md`).
 
 ## Adding an app
 

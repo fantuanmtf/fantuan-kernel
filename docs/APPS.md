@@ -8,7 +8,7 @@ build only through configuration; nothing optional is linked in by default.
 | Branch | Role |
 |---|---|
 | `main` | the kernel: boot + kernel + shell (+ apps vendored under `apps/` when configured) |
-| `fantuan-apps` | the applications catalog: one directory per app with its sources, patches, manifest and README; community PRs land here |
+| `fantuan-apps` | the applications catalog: one directory per app with its sources, patches, manifest and README; community PRs land here. It also carries the **GPL source bundle** (`apps/bash/src/`: the bash 5.3 tarball + `.sig`), which `main` deliberately does not track |
 | `package` | the package tooling (`tools/appctl`) and the catalog/build glue |
 
 These are branches of this repository for now. If the catalog outgrows the
@@ -16,8 +16,12 @@ kernel repo it splits into standalone repositories with `git subtree
 split` (history follows); the integration contract below stays identical.
 
 Mirrors: GitHub carries every branch (`main`, `fantuan-apps`, `package`);
-Codeberg mirrors the **pure kernel only** (`main`), with no catalog or
-tooling branches.
+GitLab mirrors GitHub; Codeberg mirrors the **pure kernel only** (`main`),
+with no catalog or tooling branches and therefore no copy of the bash source
+bundle. That is why the build resolves bash from the pinned upstream URL
+first and treats the branch as the offline archive, not as a build
+dependency — a main-only clone must still be able to build. The full policy
+is `REPO_POLICY.md`.
 
 ## Integration point on main
 
@@ -25,7 +29,10 @@ tooling branches.
 apps/<name>/manifest.toml     app metadata and build recipe
 apps/<name>/README.md         what it is, how to build/run (menu help)
 apps/<name>/patches/          portability patches (replayable)
-apps/<name>/src/              vendored upstream sources (unmodified base)
+apps/<name>/src/              vendored upstream sources (unmodified base);
+                              bash is the exception - main keeps only
+                              src/SOURCE + src/SHA256SUMS and the tarball is
+                              fetched at build time (tools/fetch-bash-src.sh)
 apps-catalog.toml             catalog sources (fantuan-apps / overlay / local)
 apps.lock                     source branch/commit + sha256 per vendored tree
 build/apps/<name>/            scratch build dir (gitignored)
@@ -60,11 +67,15 @@ gpl = false                     # true only in the apps layer, never linked
 - SPDX in every manifest; CI refuses any GPL manifest in the kernel/base
   layer and records the app-layer ones in the SBOM.
 - **bash is the registered exception**: it is the default `sh`
-  (M14-8/P3 landed; dash stays selectable as `/bin/dash`), GPLv3,
-  shipped as a separate program with complete corresponding sources
-  (vendored `src/`, `COPYING`, plus a sources copy in the image at
-  `/usr/src/bash`), and it is never linked into the kernel or base
-  libraries. `THIRD_PARTY.md` keeps the human-readable register.
+  (M14-8/P3 landed; dash stays selectable as `/bin/dash`), GPLv3, shipped as
+  a separate program with complete corresponding sources — the tarball is
+  provisioned on the `fantuan-apps` branch (`apps/bash/src/`) and fetched by
+  `tools/fetch-bash-src.sh`, `COPYING` and the pins stay on `main`, and the
+  manifest records the whole arrangement in `source_provision`. It is never
+  *linked* into the kernel or base libraries; note that its built program is
+  however **embedded as a blob** in the kernel image, which therefore counts
+  as distributing bash (M14 moves it to file-based delivery). `THIRD_PARTY.md`
+  keeps the human-readable register.
 - Desktop (XFCE, CDE) is vendored in the `fantuan-apps` branch and synced
   only for desktop profiles; the kernel repo stays light by default.
 
@@ -125,11 +136,12 @@ lands in C3.
 `apps/bash/` vendors GNU Bash 5.3 as the first real app (the GPLv3 default
 shell): `manifest.toml` (`license = "GPL-3.0-or-later"`, `gpl = true`,
 `upstream` = the release tarball URL, `rev = "unversioned"`,
-`tarball_sha256`, `build = "custom"`, `abi_min = 1`), the pristine
-`src/bash-5.3.tar.gz` with its `.sig`, `SHA256SUMS` and `SOURCE`, the GPLv3
-text in `COPYING`, and a `patches/` directory that stays empty until M14-8.
-`apps.lock` pins the whole tree (`source = "upstream"` - a pinned release
-tarball, which `sync`/`upgrade` report and leave alone);
+`tarball_sha256`, `build = "custom"`, `abi_min = 1`), the source pins
+(`src/SHA256SUMS`, `src/SOURCE`) and the GPLv3 text in `COPYING` (the
+tarball itself was vendored here in C3 and moved to the `fantuan-apps`
+branch in the licensing refactor below). `apps.lock` pins the tree that is
+actually on `main` (`source = "upstream"` - a pinned release tarball, which
+`sync`/`upgrade` report and leave alone);
 `apps-catalog.toml` lists bash in `[licensing] gpl_allow`; `THIRD_PARTY.md`
 carries the register row and the source-provision note.
 
@@ -143,19 +155,40 @@ POSIX/libc layer))" prompt plus the stderr note
 (integrity/licence only): bash still fails in the kernel/base layer and
 passes with `--apps-layer` because it is in `gpl_allow`.
 
-Source-provision policy: the repo ships the complete corresponding source
-(the pristine tarball, pinned by `apps.lock` + `SHA256SUMS`); image assembly
-adds it to `/usr/src/bash/` with `COPYING` and `SOURCE`, so the built binary
-travels with its exact sources and build recipe. bash is a separate M14-8
-executable over the native ABI, never linked into the kernel, bootloader or
-base libraries.
+Source-provision policy (as revised): the complete corresponding source is
+the pristine upstream tarball plus our patch; it is **not** shipped in the
+repo's `main` tree, and the in-image `/usr/src/bash/` bundle is not
+implemented (M14). bash is a separate M14-8 executable over the native ABI,
+never linked into the kernel, bootloader or base libraries — but see the
+embedding note in the licensing section.
 
-`tools/smoke-gpl.sh` (offline) proves the five invariants: tarball sha256 and
+`tools/smoke-gpl.sh` (offline) proves the invariants: tarball sha256 and
 `COPYING` provenance; kernel/base refusal and apps-layer allow; the `requires`
-gate in `menu`; the SBOM entry (`gpl = true`, `GPL-3.0-or-later`); and
-kernel/base isolation (the x86_64 kernel rebuild has no Cargo edge into
-`apps/`, leaves the bash tree hash and mtimes untouched, and the kernel ELF
-contains no bash symbols or app paths).
+gate in `menu`; the SBOM entry (`gpl = true`, `GPL-3.0-or-later`); the tip
+tree carries no bash source; the three source pins agree; the `fantuan-apps`
+branch carries the pinned bytes; and kernel/base isolation (the x86_64 kernel
+rebuild has no Cargo edge into `apps/`, leaves the bash tree hash and mtimes
+untouched, and the kernel ELF contains no bash symbols or app paths) plus the
+positive assertion that the image embeds the recorded bash artifact.
+
+## Implemented in the licensing refactor (2026-09)
+
+`main` no longer carries GNU bash's source: `apps/bash/src/bash-5.3.tar.gz`
+and its `.sig` were removed from the tree (and from history) and are
+provisioned on the `fantuan-apps` branch. The script
+`tools/fetch-bash-src.sh` resolves them from `$FANTUAN_BASH_TARBALL`,
+`build/cache/`, a vendored `apps/bash/src/`, the pinned upstream URL
+(sha256 + GPG against the GNU keyring) or `--from-branch`, so the default
+build still works from a `main`-only clone (with one network fetch, cached
+afterwards; `FANTUAN_OFFLINE=1` and `CONFIG_BASH=n` are the off-ramps). The
+manifest gained `source_provision`, `apps.lock`'s bash entry was recomputed
+for the metadata tree, `appctl` gained `relock` (recompute a tree hash
+without hand-editing the lock) and `app_vendor` stopped dropping `COPYING`/
+`port/` when vendoring. The three source pins (`manifest.tarball_sha256`,
+`src/SHA256SUMS`, `src/SOURCE`) are asserted to agree offline. This is also
+where `tools/smoke-gpl.sh` was made **honest** about the kernel image
+embedding bash's program as a blob rather than only claiming link isolation,
+and where `tools/build.sh` was changed to build and embed bash by default.
 
 ## Implemented in R8 (2026-09)
 

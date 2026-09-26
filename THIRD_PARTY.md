@@ -12,7 +12,12 @@ each layer use the best available source.
    Linux `net/` (GPL).
 2. **Copyleft programs** (XFCE, Qt, tcc as an executable) may ship in the
    optional developer image as separate programs, never linked into the
-   kernel; their sources are provided alongside.
+   kernel; their sources are provided alongside. bash is the one such
+   program in the default image, and its bytes are **embedded as an opaque,
+   stripped blob** inside the kernel image (`include_bytes!`,
+   `kernel/build.rs`) rather than linked: a deliberate, documented exception
+   — because the image *is* then a distribution of bash, the GPLv3 source
+   provision below applies to it. File-based delivery is the M14 task.
 3. Every bundled component is registered below with version/origin, license,
    usage and modifications; imported sources keep their upstream headers.
    Imported files are **exempt from the 300-line rule**; wrappers we write
@@ -30,7 +35,7 @@ each layer use the best available source.
 | `cc` crate | crates.io v1.x | MIT OR Apache-2.0 | build-time C compilation | `kernel/build.rs`, `kernel-riscv/build.rs` | none (build dependency only) |
 | NetBSD rump subset | `netbsd-10` @ `e145e524ee8362fa7d14824b2921b0ba1b694bfe` (2026-09-18) | BSD-2-Clause (124), BSD-3-Clause (126), Public-Domain (2), MIT/CMU (1), Beerware (1), no per-file header (5) - per-file in `MANIFEST.tsv` | kernel network stack: mbuf/pool/callout/locks slice, the ifnet/route slice, the real IPv4 stack (`ip_input`/`ip_output`/`ip_icmp`/`in`/`in_pcb`/`udp_usrreq`/`if_arp`/...) and the real socket/TCP layer (`uipc_socket`/`uipc_socket2`/`tcp_input`/`tcp_output`/`tcp_subr`/`tcp_timer`/`tcp_usrreq`/`tcp_congctl`/`tcp_sack`/`tcp_syncache`; M11 R1-R5) | `third_party/netbsd/` - 259 files, 3,086,329 bytes, per-file sha256/upstream URL in `third_party/netbsd/MANIFEST.tsv` | upstream files unmodified; shim/adaptation additions listed in `third_party/netbsd/ADAPTATION.md` |
 | dash | upstream 0.5.12 release tarball, `https://git.kernel.org/pub/scm/utils/dash/dash.git/snapshot/dash-0.5.12.tar.gz`, sha256 `0d632f6b945058d84809cac7805326775bd60cb4a316907d0bd4228ff7107154`; P2 | BSD-3-Clause | POSIX shell (`/bin/dash`, the fallback shell and `sh` when bash is not embedded); separate executable, never linked into the kernel or base libraries | `apps/dash/` - pristine tarball under `src/`, `COPYING`, manifest/README; cross-built by `tools/build-dash.sh` against libc-fantuan | upstream sources unmodified |
-| GNU bash | upstream 5.3 release (2025-07-30), `https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz`, sha256 `0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba`, GPG-verified against the GNU keyring (Chet Ramey); P3/M14-8 | GPL-3.0-or-later | default POSIX shell (`/bin/sh` and `/bin/bash`); separate executable, never linked into the kernel, bootloader or base libraries | `apps/bash/` - pristine tarball `src/bash-5.3.tar.gz` (plus `.sig`, `SHA256SUMS`, `SOURCE`), GPLv3 text in `COPYING`, replayable port patch under `patches/`, guarded by `tools/smoke-gpl.sh` | upstream sources unmodified in C3; P3 adds one source patch (`0001-netopen-no-network-decls.patch`, include-only) and builds with `tools/build-bash.sh` against libc-fantuan |
+| GNU bash | upstream 5.3 release (2025-07-30), `https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz`, sha256 `0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba`, GPG-verified against the GNU keyring (Chet Ramey); P3/M14-8 | GPL-3.0-or-later | default POSIX shell (`/bin/sh` and `/bin/bash`); separate executable, never linked into the kernel, bootloader or base libraries | `main` carries only the metadata tree (`apps/bash/`: `manifest.toml`, `README.md`, GPLv3 text in `COPYING`, the replayable port patch under `patches/`, the port record under `port/`, and the source pins `src/SOURCE` + `src/SHA256SUMS`); the pristine tarball and its `.sig` are provisioned on the `fantuan-apps` branch under `apps/bash/src/` and fetched at build time by `tools/fetch-bash-src.sh`. The built program (`kernel/bash_program.bin`, sha256 `38ec6a3028d89bbb879315707ba3a0274b6264345181a0693dc55bc94c65e5ac`) is embedded in the kernel image; `tools/smoke-gpl.sh` gates all of it | upstream sources unmodified in C3; P3 adds one source patch (`0001-netopen-no-network-decls.patch`, include-only) and builds with `tools/build-bash.sh` against libc-fantuan |
 | tcc | upstream 0.9.x seed (M14) | LGPL-2.1 | in-system C compiler (executable) | developer image | none planned; shipped with sources |
 | NASM | upstream 2.16.x seed (M14) | BSD-2-Clause | assembler (executable) | developer image | none planned |
 | musl | upstream (M14) | MIT | C library | base/developer image | ported to the fantuan ABI |
@@ -41,13 +46,28 @@ each layer use the best available source.
 | Qt | upstream 6.x (M15) | LGPL-3.0 / GPL | repair GUI | developer image only | separate programs |
 
 Source provision for bash (GPLv3): the complete corresponding source is the
-pristine `bash-5.3.tar.gz` vendored at `apps/bash/src/`, pinned by `apps.lock`
-and `apps/bash/src/SHA256SUMS` (GPG-verified upstream release); image assembly
-copies it together with `COPYING` and `SOURCE` to `/usr/src/bash/`, and the
-manifest, README and `patches/` next to it carry the build recipe.
-`tools/smoke-gpl.sh` gates the tarball hash, the GPL firewall, the M14
-`requires` note, the SBOM entry and the kernel/base isolation (no bash symbols
-or app paths in the kernel ELF, no Cargo edge into `apps/`).
+pristine upstream `bash-5.3.tar.gz` (sha256
+`0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba`, GPG-verified
+against the GNU keyring — fingerprint and signature date in
+`apps/bash/src/SOURCE`) plus our port patch in `apps/bash/patches/`. It is
+**not tracked on `main`**: `main` keeps the pins and the build recipe, and the
+tarball is obtained by `tools/fetch-bash-src.sh` from one of four places —
+`build/cache/`, a vendored `apps/bash/src/`, the pinned upstream URL, or the
+`fantuan-apps` branch, which carries a copy at `apps/bash/src/` as the
+provisioned archive. `apps/bash/manifest.toml` records this in
+`source_provision`.
+
+Because the shipped kernel image embeds the bash program (see policy 2), the
+image is a distribution of bash and this provision applies to it. The in-image
+sources bundle at `/usr/src/bash/` described in earlier revisions is **not
+implemented**: it is an M14 deliverable (`M14_LINUXUSERS.md`), together with
+moving bash out of the kernel image into file-based delivery.
+
+`tools/smoke-gpl.sh` gates the tip tree (no bash source on `main`), the three
+source pins, the GPL firewall, the `requires` note, the SBOM entry, the
+branch's provisioned bytes, and the link isolation (no bash symbols or app
+paths in the kernel ELF, no Cargo edge into `apps/`) — plus a positive
+assertion that the image carries the recorded bash artifact.
 
 ## Runtime-fetched components (not bundled)
 

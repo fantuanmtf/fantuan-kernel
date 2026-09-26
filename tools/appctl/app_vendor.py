@@ -7,7 +7,18 @@ import app_catalog
 from app_manifest import parse
 from app_util import tree_sha256
 
-VENDOR_FILES = ("manifest.toml", "README.md", "patches", "src")
+# Everything a vendored app may carry besides its sources. The licence texts
+# (COPYING/LICENSE) and the port record (port/) belong to the vendored tree -
+# dropping them made a re-vendored app hash differently from the pinned entry.
+VENDOR_FILES = (
+    "manifest.toml",
+    "README.md",
+    "COPYING",
+    "LICENSE",
+    "patches",
+    "port",
+    "src",
+)
 
 
 def _copy_app(source_dir, destination):

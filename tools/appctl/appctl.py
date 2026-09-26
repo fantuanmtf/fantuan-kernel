@@ -150,6 +150,34 @@ def cmd_verify(args, root, catalog):
     return 0
 
 
+def cmd_relock(args, root, catalog=None):
+    """Recompute the tree hash of vendored apps after a deliberate change.
+
+    `apps.lock` is generated, and `sync` only touches catalog-sourced apps, so
+    an `source = "upstream"` tree (bash) whose files changed on purpose had no
+    supported way to be re-pinned short of editing the lock by hand.
+    """
+    lock_path = os.path.join(root, "apps.lock")
+    entries = app_lock.load(lock_path)
+    targets = [e for e in entries if not args.name or e["name"] == args.name]
+    if args.name and not targets:
+        app_util.die(f"{args.name}: not in apps.lock")
+    changed = 0
+    for entry in targets:
+        appdir = os.path.join(root, "apps", entry["name"])
+        if not os.path.isdir(appdir):
+            app_util.die(f"{entry['name']}: vendored tree apps/{entry['name']}/ is missing")
+        actual = app_util.tree_sha256(appdir)
+        if actual != entry["sha256"]:
+            print(f"{entry['name']}: {entry['sha256'][:12]} -> {actual[:12]}")
+            entry["sha256"] = actual
+            changed += 1
+    if changed:
+        app_lock.save(lock_path, entries)
+    print(f"relock: {len(targets)} app(s) checked, {changed} updated")
+    return 0
+
+
 def cmd_menu(args, root, catalog):
     written, skipped, notes = app_menu.generate(root, catalog)
     if written:
@@ -202,6 +230,12 @@ def parse_args(argv):
         help="allow GPL apps listed in the catalog (apps layer only)",
     )
 
+    p_relock = sub.add_parser(
+        "relock",
+        help="recompute apps.lock tree hashes from disk after a deliberate tree change",
+    )
+    p_relock.add_argument("--name", help="only this app (default: every entry)")
+
     sub.add_parser("menu", help="generate config/apps/<name>.kconfig fragments")
 
     p_sbom = sub.add_parser("sbom", help="emit the JSON SBOM")
@@ -227,6 +261,8 @@ def main(argv):
             return sync_command(args, root, load_catalog(args, root), preserve=True)
         if args.command == "verify":
             return cmd_verify(args, root, load_catalog(args, root))
+        if args.command == "relock":
+            return cmd_relock(args, root)
         if args.command == "menu":
             return cmd_menu(args, root, load_catalog(args, root))
         if args.command == "sbom":
