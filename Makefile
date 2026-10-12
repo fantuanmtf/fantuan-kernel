@@ -17,7 +17,7 @@
         build build-riscv build-aarch64 build-i686 build-bios build-all iso \
         run run-graphics run-riscv run-aarch64 run-bios run-i686 \
         config config-text config-check menuconfig \
-        check check-i686 payload \
+        check check-i686 check-lines payload \
         smoke test test-matrix \
         apps apps-list sbom \
         clean distclean
@@ -42,6 +42,7 @@ help:
 	@echo "    iso             hybrid BIOS+UEFI ISO (tools/build-iso.sh)"
 	@echo "    check           fast compile check of the workspace (no QEMU, no shell build)"
 	@echo "    check-i686      the 32-bit build (nightly + build-std, slower)"
+	@echo "    check-lines     the 300-line rule ratchet (tools/line-budget.txt)"
 	@echo
 	@echo "  Run (QEMU)"
 	@echo "    run             boot the built image for ARCH"
@@ -136,7 +137,7 @@ payload:
 # and reports warnings, without building the shells, the C layer or booting
 # anything. kernel-i686 is out of reach here (its own nightly toolchain pin and
 # custom target JSON: use tools/build-i686.sh, or `make build ARCH=i686`).
-check: payload
+check: payload check-lines
 	cargo check -p fantuan-kernel --target x86_64-unknown-none --locked
 	cargo check -p kernel-core --target riscv64gc-unknown-none-elf --locked
 	cargo check -p kernel-core --target aarch64-unknown-none --locked
@@ -147,6 +148,11 @@ check: payload
 
 check-i686:
 	./tools/build-i686.sh
+
+# The 300-line rule as a ratchet: new offenders fail, and a budgeted file that
+# dropped back under the limit must leave tools/line-budget.txt.
+check-lines:
+	./tools/check-lines.sh
 
 # --- run ------------------------------------------------------------------
 run:

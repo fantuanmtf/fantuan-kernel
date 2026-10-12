@@ -1,0 +1,22 @@
+# Files allowed to exceed the 300-line rule (docs/DEVELOPMENT.md §1.3), with
+# the reason they were not split yet. tools/check-lines.sh fails when a file
+# is over the limit and absent from this list, and also fails when a listed
+# file drops back under the limit — so the list can only shrink.
+#
+# Format: <path> <line-count-when-recorded> <note>
+#
+# Scope note: the rule covers kernel*, abi, user, boot, boot-bios and drivers.
+# third_party is exempt by THIRD_PARTY.md; tools/, libc-fantuan/ and docs/ are
+# outside the scope as docs/OPERATIONS.md §5 words it. Ten files were over the
+# limit when the gate was added (2026-10).
+
+kernel-core/src/process.rs 911   the process layer: task state, fork/execve/wait, signals, VMA, pipes — split by responsibility before M14-1 touches it
+kernel-core/src/vfs/fd.rs 445    open-file table, pipes, the /bin registry overlay — split when the repair broker adds client fds (M13-6)
+kernel/src/main.rs 418           the x86_64 boot sequence plus the task/shell wiring — split into boot + wiring before M13-5
+kernel-core/src/task.rs 386      scheduler, task slots, and the user-entry bookkeeping
+abi/src/lib.rs 384               the append-only syscall table with its history comments — grows by design, but the P1/P2 sections can move to a companion
+kernel-core/src/shell/mod.rs 377 the built-in shell: line editor, dispatch, mount aliases, autorun and the login-shell hook — the hook and autorun can move to their own module
+kernel-core/src/vfs/posix.rs 328 user copies and the POSIX path syscalls
+kernel-net/src/lib.rs 303        the net_ops registry and the rump shim surface
+kernel-i686/src/fb.rs 302        the VBE console: the 16 MiB window change (2026-10) pushed it just over — the geometry/window helpers can move out
+kernel-riscv/src/main.rs 301     the RISC-V boot sequence

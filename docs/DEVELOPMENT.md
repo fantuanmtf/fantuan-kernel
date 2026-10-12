@@ -11,7 +11,11 @@ authoritative design), then this file.
 2. **Docs before code**: change `docs/DESIGN.md` (and the milestone plan)
    before changing behavior; the doc is the record of intent.
 3. **300-line limit**: no source file over 300 lines. Split by
-   responsibility, not by accident.
+   responsibility, not by accident. It is a ratchet now (`tools/check-lines.sh`,
+   part of `make check`): the files that were over the line when the gate
+   landed are listed in `tools/line-budget.txt` with a reason each, a new
+   offender fails the check, and a budgeted file that drops back under the
+   limit must leave the list — so the debt can only shrink.
 4. **Read-only iron rule**: the boot path and every diagnostic is
    read-only. Disk/NVRAM writes are only reachable through the
    `RepairToken` (issued after an explicit `YES`). Never add a write path

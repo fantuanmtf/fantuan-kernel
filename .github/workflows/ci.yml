@@ -1,0 +1,49 @@
+# The gates main never had: everything here runs without QEMU, so it is cheap
+# enough for every push and pull request. The QEMU suites stay local (they need
+# OVMF, SeaBIOS, OpenSBI and tens of minutes) - see docs/OPERATIONS.md.
+#
+# What each step buys:
+#   make check      - every stable-target crate compiles with zero warnings,
+#                     plus the 300-line ratchet (tools/check-lines.sh), so the
+#                     file-size debt can only shrink.
+#   smoke-gpl       - the licensing gate: no GPL source on the tip, the three
+#                     source pins agree, the firewall holds, and the published
+#                     fantuan-apps bundle matches the pin (the branch is
+#                     fetched below for exactly that assertion).
+#   smoke-apps      - the catalog pipeline: add/sync/verify/menu/sbom/remove
+#                     on a fixture catalog, including the GPL firewall.
+#
+# smoke-gpl runs in its normal (non-strict) mode: SMOKE_GPL_STRICT=1 would
+# also demand the bash tarball locally, and the whole point of the licensing
+# refactor is that main does not carry it. Use strict mode on a release check.
+name: kernel gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  offline-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rust targets
+        run: |
+          rustup target add x86_64-unknown-none x86_64-unknown-uefi \
+                            riscv64gc-unknown-none-elf aarch64-unknown-none
+
+      - name: Compile check + line-count ratchet
+        run: make check
+
+      - name: Licensing gate
+        run: |
+          git fetch --depth=1 origin fantuan-apps || echo "fantuan-apps not fetched; the mirror assertion will skip"
+          make smoke-gpl
+
+      - name: App-catalog gate
+        run: make smoke-apps

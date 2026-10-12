@@ -73,6 +73,7 @@ make build-i686 build-bios iso   # 32-bit, BIOS chain, hybrid ISO (or: make buil
 make run                   # boot the built image; make run-graphics, run-riscv, ...
 make check                 # compile check of every stable-target crate (~10 s, no QEMU)
 make check-i686            # the 32-bit build (nightly + build-std, slower)
+make check-lines            # the 300-line rule ratchet (tools/line-budget.txt)
 make smoke                 # the quick suites: config gpl apps posix
 make smoke-kms             # any single suite, by name
 make test                  # the full x86 acceptance suite (13 phases, ~25 min)

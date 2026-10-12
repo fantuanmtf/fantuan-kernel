@@ -33,6 +33,12 @@ itself see [USAGE.md](USAGE.md); for builds see [BUILD.md](BUILD.md).
 All smoke scripts bound every QEMU run with `timeout --signal=KILL` and
 exit non-zero on the first failing phase. Logs land in `build/*.log`.
 
+On CI (`.github/workflows/ci.yml`) only the offline half runs — `make check`,
+`make smoke-gpl` and `make smoke-apps` — because the QEMU suites need firmware
+images and tens of minutes. A green CI run therefore means "compiles, and the
+licence and catalog invariants hold", not "verified": run the relevant
+`make smoke-*` locally for that.
+
 Every suite is reachable through make as well, which is the shorter thing to
 remember: `make smoke-<name>` (`make smoke-gpl`, `make smoke-kms`), `make
 smoke` for the quick set, `make test` for `smoke.sh` and `make test-matrix`

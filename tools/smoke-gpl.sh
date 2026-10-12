@@ -34,6 +34,14 @@ mkdir -p "$WORK"
 fail() { echo "SMOKE FAIL (gpl): $*"; exit 1; }
 ok() { echo "SMOKE PASS (gpl: $*)"; }
 
+# A phase that cannot run must say so; SMOKE_GPL_STRICT=1 (CI) turns the
+# "not available here" cases into failures, so a green run always means the
+# whole gate ran rather than part of it.
+skip_or_fail() {
+  if [ "${SMOKE_GPL_STRICT:-0}" = "1" ]; then fail "$1 [SMOKE_GPL_STRICT=1]"; fi
+  echo "  SKIP: $1"
+}
+
 tree_hash() {
   python3 - "$1" <<'PY'
 import sys
@@ -99,7 +107,7 @@ if [ -n "$TARBALL" ]; then
   grep -q "Version 3, 29 June 2007" "$BASH_DIR/COPYING" || fail "COPYING is not GPLv3"
   ok "tarball: $(basename "$(dirname "$TARBALL")")/$(basename "$TARBALL") matches the pin; COPYING = GPLv3 from it"
 else
-  echo "  SKIP: no local tarball (run tools/fetch-bash-src.sh to prove the archive)"
+  skip_or_fail "no local tarball (run tools/fetch-bash-src.sh to prove the archive)"
 fi
 
 echo "[a4] the fantuan-apps mirror carries the pinned bytes..."
@@ -111,7 +119,7 @@ if git rev-parse --verify -q "$BRANCH_REF:apps/bash/src/bash-5.3.tar.gz" >/dev/n
     || fail "$BRANCH_REF's port patch differs from main's"
   ok "mirror: $BRANCH_REF bytes match the pin; the port patch matches main"
 else
-  echo "  SKIP: $BRANCH_REF not fetched (git fetch origin fantuan-apps)"
+  skip_or_fail "$BRANCH_REF not fetched (git fetch origin fantuan-apps)"
 fi
 
 echo "[b] GPL firewall..."
@@ -176,6 +184,15 @@ PY
 ok "sbom: bash entry present with gpl=true and GPL-3.0-or-later"
 
 echo "[e] kernel/base isolation (and what the image actually carries)..."
+# kernel/build.rs embeds kernel/user_program.bin and panics without it, so the
+# gate has to produce it before it can build the kernel (a fresh clone has no
+# artifact; tools/build.sh does this too, via sync_embed).
+if [ ! -f "$ROOT/kernel/user_program.bin" ]; then
+  echo "  building kernel/user_program.bin (the kernel build embeds it)..."
+  cargo build -p fantuan-user --target x86_64-unknown-none --release \
+    > "$WORK/user-build.log" 2>&1 || { tail -20 "$WORK/user-build.log"; fail "fantuan-user build"; }
+  cp target/x86_64-unknown-none/release/fantuan-user "$ROOT/kernel/user_program.bin"
+fi
 BEFORE="$(tree_hash "$BASH_DIR")"
 START="$(date +%s)"
 echo "  x86_64 kernel build (incremental), watching apps/bash mtimes and tree hash..."
@@ -220,7 +237,7 @@ if [ -f "$BLOB" ] && [ -f "$MARKER" ]; then
     || fail "the embedded shell hash is not the one recorded in port/README.md"
   ok "not linked, but the image embeds the shell: $BLOB sha256 ${SHELL_SHA:0:12} is in the ELF (GPLv3 source provision applies)"
 else
-  echo "  SKIP: no embedded shell artifact (the default tools/build.sh produces it, plus $MARKER)"
+  skip_or_fail "no embedded shell artifact (the default tools/build.sh produces it, plus $MARKER)"
 fi
 
 if [ "${SMOKE_GPL_KEEP:-0}" = "1" ]; then
