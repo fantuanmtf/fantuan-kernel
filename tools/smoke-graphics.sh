@@ -204,7 +204,7 @@ for attempt in 1 2 3; do
   wait "$SENDER" 2>/dev/null || true
 
   if [ "$attempt" = "1" ]; then
-    grep -q "fb: 1024x768x32 pitch=4096 at 0xBFC00000" build/gfx-vbe.log || note "vbe geometry line"
+    grep -q "fb: 1920x1080x32 pitch=7680 at 0xBF000000" build/gfx-vbe.log || note "vbe geometry line"
     grep -q "fb: console up" build/gfx-vbe.log || note "vbe console up"
     grep -q "handshake ok: arch=3" build/gfx-vbe.log || note "i686 handshake"
     grep -q "graphics: demo start" build/gfx-vbe.log || note "vbe demo start"
@@ -218,7 +218,7 @@ for attempt in 1 2 3; do
       BRIGHT="${VBE_STATS##*bright=}"
       [ "$BRIGHT" -gt 1000 ] || note "vbe screendump non-blank (bright=$BRIGHT)"
       DIMS="${VBE_STATS%% *}"
-      [ "$DIMS" = "1024x768" ] || note "vbe screendump dimensions ($DIMS)"
+      [ "$DIMS" = "1920x1080" ] || note "vbe screendump dimensions ($DIMS)"
     fi
     if diff_contains build/gfx-vbe-a.ppm build/gfx-vbe-b.ppm build/gfx-vbe.log 10 32; then
       VBE_CONTAINED=1
@@ -253,7 +253,7 @@ fi
 
 if [ "$OK" = "1" ]; then
   echo "SMOKE PASS (graphics: double-buffer demo + damage containment, GOP + VBE)"
-  grep -aE "graphics: damage self-test|graphics: demo (start|stop|damage total|idle)|fb: (1024|console up|unavailable)" \
+  grep -aE "graphics: damage self-test|graphics: demo (start|stop|damage total|idle)|fb: (1920|console up|unavailable)" \
     build/gfx-uefi.log build/gfx-vbe.log build/gfx-none.log | head -16
   exit 0
 fi

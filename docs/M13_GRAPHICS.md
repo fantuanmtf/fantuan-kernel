@@ -35,7 +35,7 @@ The core landed as `kernel-core::graphics` (gated by `CONFIG_GRAPHICS`,
 
 - `FbInfo { base, width, height, pitch, format }` — `base` is a
   kernel-visible address (each kernel supplies it: GOP via `phys_to_virt`,
-  VBE via the `0xBFC00000` PSE slot); `pitch` is bytes per scanline;
+  VBE via the 16 MiB window at `0xBF000000`); `pitch` is bytes per scanline;
   `format` is `Bpp32 | Bpp24 | Bpp16` (the three modes the consoles render).
   `Format::{store,load,xor}` centralise the per-bpp 0x00RRGGBB conversion.
 - `Rect { x, y, w, h }` with `intersect`/`union` (the hard-clip primitive).

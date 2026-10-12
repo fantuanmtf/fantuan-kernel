@@ -6,8 +6,8 @@
 ;
 ; INT 10h AX=4F00 (controller info), 4F01 (mode info), 4F02 with bit 14 (set
 ; the mode with the linear framebuffer), 1130 BH=6 (ROM 8x16 font pointer).
-; The kernel accesses the LFB at 0xBFC00000, the PSE slot stage2 maps for the
-; 4 MiB-aligned physical range.
+; The kernel accesses the LFB at 0xBF000000, the 16 MiB window of PSE slots
+; (PDEs 764..767) stage2 maps for the 4 MiB-aligned physical range.
 
 %define VBE_INFO_ADDR 0x1000
 %define VBE_MODE_ADDR 0x1200
@@ -15,7 +15,9 @@
 ; kernel stack top, and clear of the CD preload at 0xC000..0x7C000.
 %define VBE_FONT_ADDR 0x90000
 %define VBE_FONT_BYTES 4096
-%define VBE_CAND_COUNT 6
+; 16 MiB of LFB window (4 x 4 MiB PSE slots ending at PDE 767).
+%define VBE_LFB_SLOTS 4
+%define VBE_CAND_COUNT 7
 
 vbe_setup:
     mov dword [vbe_fb_phys], 0
@@ -122,7 +124,7 @@ vbe_setup:
     mov edx, [VBE_MODE_ADDR + 0x28]
     and edx, 0x3FFFFF                      ; offset into the 4 MiB PSE slot
     add eax, edx
-    cmp eax, 0x400000                      ; must fit the single mapped slot
+    cmp eax, VBE_LFB_SLOTS * 0x400000      ; must fit the mapped window
     ja .mode
     mov bx, [vbe_mode]
     or bx, 0x4000                          ; linear framebuffer
@@ -188,10 +190,11 @@ vbe_font_copy:
     pop ds
     ret
 
-; Most preferred first: 1024x768x32, then 800x600 (32/24), then 640x480
-; (32/24/16). Every entry is checked against the mode list and rejected when
-; its pitch or total size does not fit the 4 MiB slot.
+; Most preferred first: 1920x1080x32, then 1024x768x32, then 800x600 (32/24),
+; then 640x480 (32/24/16). Every entry is checked against the mode list and
+; rejected when its pitch or total size does not fit the mapped window.
 vbe_candidates:
+    dw 1920, 1080, 32
     dw 1024, 768, 32
     dw 800, 600, 32
     dw 800, 600, 24

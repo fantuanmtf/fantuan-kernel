@@ -269,15 +269,22 @@ tables32_build:
     inc ebx
     cmp ebx, 256
     jb .alias
-    ; M10-5: PDE 767 (0xBFC00000) maps the 4 MiB-aligned VBE LFB range in
-    ; every address space; the kernel and the per-task clones reach the
-    ; console there instead of through the 1 GiB-bounded PHYS_OFFSET alias.
+    ; M10-5: PDEs 764..767 (0xBF000000..0xBFFFFFFF) map the 4 MiB-aligned
+    ; VBE LFB range in every address space; the kernel and the per-task
+    ; clones reach the console there instead of through the 1 GiB-bounded
+    ; PHYS_OFFSET alias.
     mov eax, [vbe_fb_phys]
     test eax, eax
     jz .no_fb
     and eax, 0xFFC00000
     or eax, 0x83
-    mov [PML4_PHYS + 767 * 4], eax
+    mov edi, 768 - VBE_LFB_SLOTS
+    mov ecx, VBE_LFB_SLOTS
+.map_fb:
+    mov [PML4_PHYS + edi * 4], eax
+    add eax, 0x400000
+    inc edi
+    loop .map_fb
 .no_fb:
     ret
 

@@ -7,12 +7,12 @@
 //!
 //! stage2 sets one VBE linear mode and leaves the geometry, the LFB physical
 //! base and a BIOS-copied 8x16 font in BootInfo. The kernel reaches the LFB
-//! through the dedicated 0xBFC00000 PSE slot that stage2 maps in every page
-//! directory (PDE 767, cloned by user.rs), never through phys_to_virt: the
-//! 3G/1G alias stops below 1 GiB while the QEMU LFB sits near 0xFD000000.
-//! 16/24/32 bpp are rendered; anything else degrades to the serial console.
-//! Serial output is mirrored here byte-for-byte, so the smoke logs are
-//! identical with and without a framebuffer.
+//! through the dedicated 16 MiB window at 0xBF000000 that stage2 maps in every
+//! page directory (PDEs 764..767, cloned by user.rs), never through
+//! phys_to_virt: the 3G/1G alias stops below 1 GiB while the QEMU LFB sits
+//! near 0xFD000000. 16/24/32 bpp are rendered; anything else degrades to the
+//! serial console. Serial output is mirrored here byte-for-byte, so the smoke
+//! logs are identical with and without a framebuffer.
 
 use core::ptr;
 
@@ -24,7 +24,9 @@ use kernel_core::graphics::{
 
 use crate::serial;
 
-const FB_SLOT: u32 = 0xBFC0_0000;
+const FB_SLOT: u32 = 0xBF00_0000;
+/// Mapped window size (4 x 4 MiB PSE slots, PDEs 764..767).
+const FB_WINDOW: u64 = 16 * 1024 * 1024;
 const GLYPH_W: u32 = 8;
 const GLYPH_H: u32 = 16;
 const CURSOR_H: u32 = 2;
@@ -68,7 +70,7 @@ pub fn init(bi: &BootInfo) -> bool {
         && width >= GLYPH_W
         && height >= GLYPH_H
         && pitch >= width * bpp / 8
-        && (bi.fb_phys & 0x3F_FFFF) + size <= 0x40_0000;
+        && (bi.fb_phys & 0x3F_FFFF) + size <= FB_WINDOW;
     if !ok {
         serial::puts("fb: unavailable (serial console)\n");
         return false;
