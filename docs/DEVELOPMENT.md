@@ -118,9 +118,14 @@ swap, x86 uses the TSS `rsp0`.
 
 ## 5. Testing
 
+Each of these has a make target that calls the same script (`make check`,
+`make build-riscv`, `make test`, `make smoke-<name>`, …) — see
+[BUILD.md](BUILD.md) §3.1 if you prefer the shorter spelling.
+
 | Check | Command | Notes |
 |---|---|---|
-| both builds, zero warnings | `tools/build.sh` + `tools/build.sh --arch riscv64` | fastest signal |
+| compile check, zero warnings | `make check` (`tools/build.sh` builds for real) | fastest signal, no QEMU |
+| both builds, zero warnings | `tools/build.sh` + `tools/build.sh --arch riscv64` | fastest full signal |
 | i686 build, zero warnings | `tools/build-i686.sh` | nightly `-Z build-std`; the only nightly step |
 | full x86 acceptance | `tools/smoke.sh` | 13 phases, ~25 min, needs SMM OVMF for phases 11–13 |
 | legacy BIOS acceptance | `tools/smoke-bios.sh` | 2 phases: x86_64 MBR chain, i686 chain + PIO ATA VFS |

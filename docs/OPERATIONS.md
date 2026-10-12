@@ -33,6 +33,11 @@ itself see [USAGE.md](USAGE.md); for builds see [BUILD.md](BUILD.md).
 All smoke scripts bound every QEMU run with `timeout --signal=KILL` and
 exit non-zero on the first failing phase. Logs land in `build/*.log`.
 
+Every suite is reachable through make as well, which is the shorter thing to
+remember: `make smoke-<name>` (`make smoke-gpl`, `make smoke-kms`), `make
+smoke` for the quick set, `make test` for `smoke.sh` and `make test-matrix`
+for the cross-architecture set — see [BUILD.md](BUILD.md) §3.1.
+
 Every smoke builds once with `tools/build.sh` and then boots with
 `tools/run.sh --no-build`, so a phase timeout measures **boot** time: since
 the default build embeds the shell (`tools/build.sh` runs libc + bash + dash)
@@ -79,7 +84,7 @@ template before phases 11–13 because NVRAM repairs mutate it.
 | aarch64 direct | QEMU `virt` raw `Image` boot (no firmware; DTB in x0) | `smoke-aarch64.sh` 2/2 | phase R9a: boot/PL011/FDT, 4K-granule MMU + PHYS_OFFSET direct map, GICv2 + generic timer at 100 Hz, BRK-resume exception demo, kernel tasks, shell; phase R9b: virtio-net MMIO on SLIRP (modern transport), the rump self-tests, DHCP + IPv4/TCP, HTTP/DNS/ping/wget, pinned-CA HTTPS (mbedTLS KATs) and the host UDP echo, plus the shell tool transcripts |
 | Hybrid ISO BIOS | SeaBIOS `-cdrom`, El Torito no-emulation preload | `smoke-iso.sh` phase 1 | the x86_64 kernel reaches the shell from the ISO; the CD chain copies the kernel from the firmware preload instead of ATA |
 | Hybrid ISO UEFI | OVMF `-cdrom`, platform id 0xEF FAT ESP | `smoke-iso.sh` phase 2 | OVMF mounts the 0xEF FAT image and boots the same kernel to VFS + shell |
-| VBE console (i686) | SeaBIOS `-vga std` + stage2 VBE 2.0 mode set | `smoke-bios.sh` phase 2 asserts `fb: 1024x768x32` + `fb: console up`; the W5 checkpoint added a headless screendump decode and the `-vga none` fallback run | 1024x768x32 text console with serial mirroring; without VBE the kernel logs `fb: unavailable (serial console)` and continues on serial |
+| VBE console (i686) | SeaBIOS `-vga std` + stage2 VBE 2.0 mode set | `smoke-bios.sh` phase 2 asserts `fb: 1920x1080x32` + `fb: console up`; the W5 checkpoint added a headless screendump decode and the `-vga none` fallback run | 1920x1080x32 text console (16 MiB LFB window at `0xBF000000`) with serial mirroring; without VBE the kernel logs `fb: unavailable (serial console)` and continues on serial |
 
 Known limitations across the matrix:
 

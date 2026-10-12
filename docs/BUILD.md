@@ -49,11 +49,55 @@ user/          fantuan-user   the userland test program (all arches)
 drivers/c/     C driver layer: blk.c + blk_ops + ahci/nvme/i8042/virtio_mmio
 tools/         build/run/smoke scripts + mkdisk.py + mkiso.py
 docs/          DESIGN.md (authoritative), milestone/award docs, this set
+Makefile       make front end for the scripts above (build/run/smoke/clean)
+config.mk      make knobs (tracked defaults; config.local.mk overrides them)
 ```
 
 All crates are version `0.0.4` (`panic = "abort"`, release `opt-level = "z"`).
 
-## 3. Build with the scripts (recommended)
+## 3. Build (the recommended paths)
+
+### 3.1 make — the front door
+
+The tree mixes Rust, C, NASM, Python and shell, and the entry point depends on
+what you want (a kernel for one arch, a BIOS image, a smoke suite). `make`
+wraps all of it so a fresh clone does not have to guess:
+
+```sh
+make help                  # every target, grouped, with the knobs in effect
+make doctor                # toolchain check (Rust targets, QEMU, OVMF, nasm, clang, python3)
+make build                 # ARCH (default x86_64), writes PROFILE first if you set one
+make build-riscv           # = tools/build.sh --arch riscv64
+make build-aarch64         # = tools/build.sh --arch aarch64
+make build-i686 build-bios iso   # 32-bit, BIOS chain, hybrid ISO (or: make build-all)
+make run                   # boot the built image; make run-graphics, run-riscv, ...
+make check                 # fast compile check of the workspace (~15 s, no QEMU)
+make smoke                 # the quick suites: config gpl apps posix
+make smoke-kms             # any single suite, by name
+make test                  # the full x86 acceptance suite (13 phases, ~25 min)
+make apps                  # the vendored catalog; make sbom for licences
+make clean / distclean     # remove cargo targets (+ payloads) / also build/
+```
+
+`make` implements no build step of its own — every target calls the script
+that owns it, so this file and the scripts cannot drift apart. It works with
+GNU make and bmake.
+
+**Two different configuration files, do not confuse them:**
+
+| File | What it configures | Edited by |
+|---|---|---|
+| `config.mk` + `config.local.mk` | the *build orchestration*: `ARCH`, `PROFILE`, `RUN_ARGS`, `BUILD_ARGS`, the smoke sets | `config.local.mk` is yours (gitignored); `config.mk` is the tracked default |
+| `.config` (generated, ignored) | the *kernel* itself: the `CONFIG_*` symbols — see §3.3 | `make config` / `tools/kconfig.py` |
+
+Environment variables the scripts read (`FANTUAN_OFFLINE`,
+`FANTUAN_BUILD_BASH`, `FANTUAN_BASH_TARBALL`, …) pass straight through:
+`FANTUAN_OFFLINE=1 make build`.
+
+### 3.2 the scripts behind it
+
+What the make targets call (useful when you want one step at a time, or are
+scripting something make does not cover):
 
 ```sh
 tools/build.sh                 # x86: userland -> kernel -> bootloader
@@ -80,7 +124,7 @@ Artifacts:
 
 Both `user_program.bin` files are generated and git-ignored; never edit them.
 
-## 3.1 Configuration profiles (Kconfig-lite)
+### 3.3 Configuration profiles (Kconfig-lite)
 
 The kernel is configured before it is built; a missing `.config` resolves to
 the default **minimal** profile (kernel + boot + shell, where `CONFIG_BASH=y`
@@ -161,7 +205,7 @@ warning as a build break.
   `-mno-red-zone`). It also embeds the optional program payloads
   (`kernel/{hello,proc_test,dash,bash,ls,cat}_program.bin`); `tools/build.sh`
   produces `bash_program.bin` and its `bash_program.sha256` marker by default
-  (see §3.1), and exports `FANTUAN_REQUIRE_BASH=1` so a missing artifact is a
+  (see §3.3), and exports `FANTUAN_REQUIRE_BASH=1` so a missing artifact is a
   build error rather than a silent fallback.
 - `kernel-riscv/build.rs`: embeds the riscv user ELF and compiles
   `drivers/c/blk.c` + `drivers/c/virtio_mmio.c` with **clang**

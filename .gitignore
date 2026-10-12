@@ -10,6 +10,9 @@
 /.config
 /build/config/
 
+# Per-checkout make overrides (config.mk holds the tracked defaults)
+/config.local.mk
+
 # The default build fetches the pinned bash tarball into build/cache/
 # (gitignored). These entries are belt-and-braces: main must never track GPL
 # source, so a hand-placed copy under apps/bash/src/ cannot dirty the tree.

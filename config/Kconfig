@@ -24,7 +24,7 @@ config SHELL
         boot banner only (debug builds).
 
 config BASH
-    bool "GNU bash 5.3 as the default /bin/sh (GPLv3 separate program)"
+    bool "GNU bash 5.3 as the login shell and /bin/sh (GPLv3 separate program)"
     default y
     help
         Build and embed GNU bash 5.3 as the login shell and /bin/sh:

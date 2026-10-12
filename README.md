@@ -175,6 +175,15 @@ a local copy, `--from-branch` reads the `fantuan-apps` mirror, and
 ```sh
 rustup target add x86_64-unknown-uefi x86_64-unknown-none riscv64gc-unknown-none-elf aarch64-unknown-none
 rustup toolchain install nightly --profile minimal --component rust-src
+
+make help                                # every target, grouped (make build/run/smoke/…)
+make doctor                              # check the toolchain before the first build
+make build && make run                   # x86_64: build, then boot it (serial console)
+make run-graphics                        # x86: window (GOP console)
+make smoke                               # the quick suites (config, gpl, apps, posix)
+make test                                # the full x86 acceptance suite (13 phases)
+
+# the same steps as scripts, when you want one at a time:
 tools/run.sh                             # x86: serial console
 tools/run.sh --graphics                  # x86: window (GOP console)
 tools/run-bios.sh                        # x86_64: legacy BIOS chain
