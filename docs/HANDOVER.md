@@ -177,9 +177,15 @@ M10 additions to the debt list:
 
 M13 and the governance refactor additions:
 
-- **`kernel/src/main.rs` is 407 lines**, over the 300-line rule. It was
-  already over before M13 and grew slightly there; splitting it (boot
-  sequence vs. the task/shell wiring) is an independent cleanup.
+- **The 300-line rule is widely violated** (2026-10 audit; scope is
+  `kernel*`/`abi`/`user`/`boot`/`drivers`, `third_party` is exempt). Seven
+  files, worst first: `kernel-core/src/process.rs` **911**,
+  `kernel-core/src/vfs/fd.rs` 445, `kernel/src/main.rs` 418,
+  `kernel-core/src/task.rs` 386, `abi/src/lib.rs` 384,
+  `kernel-core/src/shell/mod.rs` 377, `kernel-core/src/vfs/posix.rs` 328.
+  `process.rs` is the one to split first — M14-1's memory work has to touch
+  it anyway. The rule has no gate yet; `make check` was extended to carry the
+  line-count check so the list can only shrink.
 - **`kernel-core/src/graphics/kms.rs` is at 298/300 lines.** Compliant, but
   split it before extending the KMS layer (M13-5 adds the ioctl surface).
 - **bash is embedded in the kernel image** (`include_bytes!`), so the image

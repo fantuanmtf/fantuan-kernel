@@ -71,7 +71,8 @@ make build-riscv           # = tools/build.sh --arch riscv64
 make build-aarch64         # = tools/build.sh --arch aarch64
 make build-i686 build-bios iso   # 32-bit, BIOS chain, hybrid ISO (or: make build-all)
 make run                   # boot the built image; make run-graphics, run-riscv, ...
-make check                 # fast compile check of the workspace (~15 s, no QEMU)
+make check                 # compile check of every stable-target crate (~10 s, no QEMU)
+make check-i686            # the 32-bit build (nightly + build-std, slower)
 make smoke                 # the quick suites: config gpl apps posix
 make smoke-kms             # any single suite, by name
 make test                  # the full x86 acceptance suite (13 phases, ~25 min)

@@ -396,7 +396,7 @@ crypto-selftest  SHA-256/RSA known-answer tests (M8.1)
 Shell roadmap: built-in minimal -> ash -> bash. (bash: C, POSIX-sh superset, smaller
 than fish; job control and readline come late.)
 
-**Login shell (P4, 2026-09).** The interactive interface at boot is the
+**Login shell (2026-10).** The interactive interface at boot is the
 embedded **login shell** — GNU bash 5.3 when built, else dash — running as a
 foreground user task on `/dev/console` with root's environment
 (`USER=root`, `HOME=/root`, `HOSTNAME=Fantuan-MTF`, `PATH=/bin:/usr/bin`, a

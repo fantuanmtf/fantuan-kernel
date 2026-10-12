@@ -17,7 +17,7 @@
         build build-riscv build-aarch64 build-i686 build-bios build-all iso \
         run run-graphics run-riscv run-aarch64 run-bios run-i686 \
         config config-text config-check menuconfig \
-        check check-riscv payload \
+        check check-i686 payload \
         smoke test test-matrix \
         apps apps-list sbom \
         clean distclean
@@ -41,6 +41,7 @@ help:
 	@echo "    build-all       x86_64 + i686 + BIOS chain + hybrid ISO"
 	@echo "    iso             hybrid BIOS+UEFI ISO (tools/build-iso.sh)"
 	@echo "    check           fast compile check of the workspace (no QEMU, no shell build)"
+	@echo "    check-i686      the 32-bit build (nightly + build-std, slower)"
 	@echo
 	@echo "  Run (QEMU)"
 	@echo "    run             boot the built image for ARCH"
@@ -131,15 +132,21 @@ payload:
 	  cargo build -p fantuan-user --target x86_64-unknown-none --release && \
 	  cp target/x86_64-unknown-none/release/fantuan-user kernel/user_program.bin; }
 
-# Fast feedback: compiles the workspace for the three main targets and reports
-# warnings, without building the shells or booting anything.
+# Fast feedback: checks every crate that can be checked with a stable target
+# and reports warnings, without building the shells, the C layer or booting
+# anything. kernel-i686 is out of reach here (its own nightly toolchain pin and
+# custom target JSON: use tools/build-i686.sh, or `make build ARCH=i686`).
 check: payload
 	cargo check -p fantuan-kernel --target x86_64-unknown-none --locked
 	cargo check -p kernel-core --target riscv64gc-unknown-none-elf --locked
 	cargo check -p kernel-core --target aarch64-unknown-none --locked
-
-check-riscv: payload
 	cargo check -p kernel-riscv --target riscv64gc-unknown-none-elf --locked
+	cargo check -p kernel-aarch64 --target aarch64-unknown-none --locked
+	cargo check -p fantuan-user --target x86_64-unknown-none --locked
+	cargo check -p fantuan-boot --target x86_64-unknown-uefi --locked
+
+check-i686:
+	./tools/build-i686.sh
 
 # --- run ------------------------------------------------------------------
 run:
@@ -182,7 +189,11 @@ test:
 
 test-matrix:
 	@rc=0; for s in $(MATRIX_SET); do \
-	  echo "== smoke-$$s"; ./tools/smoke-$$s.sh $(SMOKE_ARGS) || rc=1; \
+	  case "$$s" in \
+	    x86|smoke) script=./tools/smoke.sh ;; \
+	    *) script=./tools/smoke-$$s.sh ;; \
+	  esac; \
+	  echo "== $$s ($$script)"; "$$script" $(SMOKE_ARGS) || rc=1; \
 	done; exit $$rc
 
 # --- apps and licensing ---------------------------------------------------

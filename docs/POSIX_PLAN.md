@@ -261,8 +261,10 @@ selectable through the new `dash` console command; `execve("/bin/dash")`
 still works. With no bash artifact, `sh` falls back to dash; with neither,
 the built-in shell remains the rescue console.
 
-**P4: bash is also the login shell.** The built-in shell is no longer the
-interactive interface at boot. `kernel_core::shell` gained a login-shell hook
+**Login shell (2026-10): bash is also the interactive interface.** This is
+not a P-batch — **P4 below is the musl-vs-libc-fantuan decision and nothing
+else** (the label was briefly reused for this change and reverted). The
+built-in shell is no longer the interactive interface at boot. `kernel_core::shell` gained a login-shell hook
 (`set_login_shell`, the same shape as `set_bin_lookup`/`set_auth_apply`) and
 `kernel/src/shell/sh.rs::login()` runs bash — else dash — as a foreground
 user task on `/dev/console` after the ESP autorun. The environment carries

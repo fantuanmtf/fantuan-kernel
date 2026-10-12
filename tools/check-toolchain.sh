@@ -36,6 +36,15 @@ echo "[2] Build-time C / binary tools"
 for CMD in cc objcopy ld; do
   if command -v "$CMD" >/dev/null 2>&1; then pass "$CMD ($(which "$CMD"))"; else fail "$CMD missing"; fi
 done
+# The default x86_64 build now builds and embeds the shells, which needs the
+# LLVM toolchain and bison; nasm is BIOS-only and llvm-objcopy is aarch64-only,
+# so those are warnings rather than failures.
+for CMD in clang llvm-ar llvm-ranlib bison; do
+  if command -v "$CMD" >/dev/null 2>&1; then pass "$CMD ($(which "$CMD"))"; else fail "$CMD missing — needed by the default build (bash/dash)"; fi
+done
+for CMD in nasm llvm-objcopy; do
+  if command -v "$CMD" >/dev/null 2>&1; then pass "$CMD ($(which "$CMD"))"; else warn "$CMD missing (BIOS stages / aarch64 image only)"; fi
+done
 
 echo "[3] Run-time emulation + test helpers"
 if command -v qemu-system-x86_64 >/dev/null 2>&1; then

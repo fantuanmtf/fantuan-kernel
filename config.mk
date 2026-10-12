@@ -45,5 +45,11 @@ SMOKE_ARGS ?=
 SMOKE_SET ?= config gpl apps posix
 
 # `make test-matrix` runs these across the architectures (each is slow and
-# needs QEMU + OVMF + OpenSBI).
-MATRIX_SET ?= smoke bios riscv aarch64 iso
+# needs QEMU + OVMF + OpenSBI). Each name maps to tools/smoke-<name>.sh; the
+# special name `x86` is the full 13-phase acceptance suite (tools/smoke.sh,
+# which has no smoke- prefix), plus `iso` for the hybrid image.
+MATRIX_SET ?= x86 bios riscv aarch64 iso
+
+# Note for ARCH=i686: tools/build-i686.sh and tools/run-bios.sh take no flags
+# (they are single-purpose entry points), so BUILD_ARGS/RUN_ARGS do not apply
+# to the i686 build/run targets; the other architectures honour both.
