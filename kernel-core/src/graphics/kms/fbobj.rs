@@ -1,44 +1,16 @@
-//! M13-4 dumb-buffer objects and the KMS-like contract (ADDFB/SETCRTC/PAGE_FLIP)
-//! plus the single-CRTC scanout state (docs/M13_GRAPHICS.md §4). Internal API;
-//! the userland boundary arrives with the POSIX graph layer (M14).
+//! The dumb-buffer pool and the framebuffer registry (the ADDFB/RMFB half of
+//! the KMS-like contract). A child of `graphics::kms`; see `super` for the
+//! memory-source and single-writer arguments.
 //!
-//! Memory source and bounds: the dumb-buffer pool is a fixed table of MAX_DUMB
-//! slots whose memory comes from the shared frame allocator
-//! (`kernel-core::frame`, `alloc_contiguous`, freed frame-by-frame on destroy)
-//! and is reached through the kernel's phys->virt alias (`kernel-core::mem`).
-//! A buffer is exactly ceil(w*h*bpp/4096) contiguous frames; `dumb_create`
-//! fails when the run cannot be satisfied or the table is full. The pool, the
-//! FB table and the CRTC are single-writer (the graphics demo task) but hold
-//! an IRQ-safe lock so the layout stays safe when the DRM fd path (M14) adds
-//! a second consumer.
+//! Both tables take `super::LOCK` rather than a lock each: `dumb_destroy` walks
+//! the FB table to invalidate anything pointing at the buffer it is freeing, so
+//! the two are always read together.
 
-use core::sync::atomic::AtomicBool;
-
-use super::event::{self, GfxEvent};
-use super::{FbInfo, Format, Rect};
+use super::{LOCK, MAX_DUMB, MAX_FB};
 use crate::arch::IrqLock;
 use crate::frame;
+use crate::graphics::{FbInfo, Format};
 use crate::mem;
-
-pub const MAX_DUMB: usize = 8;
-pub const MAX_FB: usize = 16;
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum KmsError {
-    NoScanout,
-    BadFb,
-    GeometryMismatch,
-}
-
-impl KmsError {
-    pub const fn code(self) -> u16 {
-        match self {
-            KmsError::NoScanout => event::code::NO_SCANOUT,
-            KmsError::BadFb => event::code::BAD_FB,
-            KmsError::GeometryMismatch => event::code::GEOMETRY_MISMATCH,
-        }
-    }
-}
 
 #[derive(Clone, Copy)]
 struct DumbSlot {
@@ -55,13 +27,6 @@ struct FbSlot {
     used: bool,
 }
 
-#[derive(Clone, Copy)]
-struct Crtc {
-    device: Option<FbInfo>,
-    fb_id: u32,
-    seq: u32,
-}
-
 const NULL_FB: FbInfo = FbInfo {
     base: core::ptr::null_mut(),
     width: 0,
@@ -71,12 +36,9 @@ const NULL_FB: FbInfo = FbInfo {
 };
 const DUMB_EMPTY: DumbSlot = DumbSlot { phys: 0, frames: 0, fb: NULL_FB, used: false };
 const FB_EMPTY: FbSlot = FbSlot { handle: 0, fb: NULL_FB, used: false };
-const CRTC_EMPTY: Crtc = Crtc { device: None, fb_id: 0, seq: 0 };
 
-static LOCK: AtomicBool = AtomicBool::new(false);
 static mut DUMB: [DumbSlot; MAX_DUMB] = [DUMB_EMPTY; MAX_DUMB];
 static mut FBS: [FbSlot; MAX_FB] = [FB_EMPTY; MAX_FB];
-static mut CRTC: Crtc = CRTC_EMPTY;
 
 fn dumb() -> &'static mut [DumbSlot; MAX_DUMB] {
     unsafe { &mut *core::ptr::addr_of_mut!(DUMB) }
@@ -84,10 +46,6 @@ fn dumb() -> &'static mut [DumbSlot; MAX_DUMB] {
 
 fn fbs() -> &'static mut [FbSlot; MAX_FB] {
     unsafe { &mut *core::ptr::addr_of_mut!(FBS) }
-}
-
-fn crtc() -> &'static mut Crtc {
-    unsafe { &mut *core::ptr::addr_of_mut!(CRTC) }
 }
 
 fn bytes_per_pixel(format: Format) -> u32 {
@@ -234,65 +192,4 @@ pub fn fb_info(fb_id: u32) -> Option<FbInfo> {
     let _g = IrqLock::acquire(&LOCK);
     let s = &fbs()[slot];
     s.used.then_some(s.fb)
-}
-
-/// Install the single CRTC's scanout surface (called once by the console).
-pub fn set_scanout(device: FbInfo) {
-    let _g = IrqLock::acquire(&LOCK);
-    crtc().device = Some(device);
-}
-
-/// The installed scanout surface, or None before the console brings one up.
-pub fn scanout() -> Option<FbInfo> {
-    let _g = IrqLock::acquire(&LOCK);
-    crtc().device
-}
-
-/// The fb id currently bound to the CRTC (0 = none).
-pub fn crtc_fb() -> u32 {
-    let _g = IrqLock::acquire(&LOCK);
-    crtc().fb_id
-}
-
-/// Copy a validated fb onto the scanout; the FB must match the CRTC mode.
-fn present(fb: FbInfo, dev: FbInfo) -> Result<(), KmsError> {
-    if fb.width != dev.width || fb.height != dev.height || fb.format != dev.format {
-        return Err(KmsError::GeometryMismatch);
-    }
-    let _ = dev.blit(fb.base, fb.pitch, Rect::new(0, 0, dev.width, dev.height));
-    Ok(())
-}
-
-/// Bind an fb id to the CRTC and present it (a modeset). Emits an ERROR event
-/// and returns Err on a bad id or a geometry/mode mismatch.
-pub fn setcrtc(fb_id: u32) -> Result<(), KmsError> {
-    let fb = fb_info(fb_id).ok_or(KmsError::BadFb)?;
-    let dev = scanout().ok_or(KmsError::NoScanout)?;
-    if let Err(e) = present(fb, dev) {
-        event::push(GfxEvent::error(fb_id, e.code()));
-        return Err(e);
-    }
-    let _g = IrqLock::acquire(&LOCK);
-    crtc().fb_id = fb_id;
-    Ok(())
-}
-
-/// Swap the CRTC to another fb id, present it, and emit a flip-complete event
-/// carrying the monotonic flip sequence number. Emits an ERROR event and
-/// returns Err on a bad id or a geometry/mode mismatch.
-pub fn page_flip(fb_id: u32) -> Result<(), KmsError> {
-    let fb = fb_info(fb_id).ok_or(KmsError::BadFb)?;
-    let dev = scanout().ok_or(KmsError::NoScanout)?;
-    if let Err(e) = present(fb, dev) {
-        event::push(GfxEvent::error(fb_id, e.code()));
-        return Err(e);
-    }
-    let seq = {
-        let _g = IrqLock::acquire(&LOCK);
-        crtc().fb_id = fb_id;
-        crtc().seq += 1;
-        crtc().seq
-    };
-    event::push(GfxEvent::flip_complete(fb_id, seq));
-    Ok(())
 }
