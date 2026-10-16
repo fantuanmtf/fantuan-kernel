@@ -21,7 +21,7 @@ license = "BSD-3-Clause"
 gpl = false
 source = "upstream"
 rev = "unversioned"
-sha256 = "1d2a871658a0785c12771d815c227f81d6a2affc8f1e15ef7092b4ad9c8e3763"
+sha256 = "daf1d5e298b149e7881a42e529297209b0e5080d367b28e886c7651bd36e9ce4"
 
 [[app]]
 name = "mbedtls"

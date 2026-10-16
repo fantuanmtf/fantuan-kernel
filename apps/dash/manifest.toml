@@ -9,5 +9,5 @@ build = "custom"
 deps = []
 patches = []
 requires = ["posix-libc"]
-description = "dash 0.5.12, the default POSIX shell (BSD-3-Clause)"
+description = "dash 0.5.12, the fallback POSIX shell (/bin/dash) (BSD-3-Clause)"
 gpl = false
