@@ -67,9 +67,11 @@ Legend: `[ ]` open · `[x]` done · `[!]` blocked · `[-]` skipped (with reason)
 - [x] P0.1 `make doctor`, environment snapshot, back up `.config` (rescue profile)
 - [x] P0.2 `make config-check`, `make check`, `make check-i686`
 - [x] P0.3 `make smoke` (config, gpl, apps, posix) — 4/4 PASS
-- [ ] P0.4 Orphan suites: bash, dash, net, net-tls, imager, imager-bad, ntfs, gpu, graphics, input, kms
-- [ ] P0.5 `make test-matrix` (smoke.sh 13 phases, bios, riscv, aarch64, iso)
-- [ ] P0.6 Classify pass / fail / env-blocked, write `build/baseline/RESULTS.txt`, restore `.config`
+- [x] P0.4 Orphan suites: 9 PASS, 1 suspect FAIL (`net`, re-run pending) — 35 min
+- [x] P0.5 `make test-matrix`: x86 13/13, bios 2/2, riscv 3/3 (after 22+23), aarch64 3/3 (after 23), iso FAIL (finding 24)
+- [x] P0.6 Classify: 25 suites, 23 PASS, 1 FAIL, 1 resolved by fix, 0 env-blocked
+- [ ] P0.7 Re-run `smoke-net` with the machine unloaded, to settle whether its failure was the load
+- [x] P0.8 Fix the two pre-existing failures that block Phase 1 verification on riscv/aarch64 (findings 22, 23) — commits `e2e166d`, `453f1e9`
 
 ### Phase 1 — refactor
 
@@ -127,14 +129,176 @@ installed (`x86_64-unknown-none`, `x86_64-unknown-uefi`,
 | apps | **PASS** | 9 assertions: add/sync/verify/menu/sbom/remove plus the GPL firewall both ways |
 | posix | **PASS** | 11 assertions: ELF embedded and spawned, argv, pid, malloc/brk, cwd, tmpfs read-back, pipe, uptime, exit code, reap |
 
-### Remaining suites
+### Orphan suites (P0.4)
 
-*Pending — P0.4/P0.5 were held back deliberately. The owner's
-`emerge app-emulation/qemu` was compiling at `-j4` on a 4-CPU box (load
-average 10.6), and these suites bound QEMU with `timeout`. Running them under
-that load would risk spurious failures and put a false FAIL into the baseline
-record. This is the "do not conflate a failure with an environment problem"
-rule from the CSV's R-001 applied before the fact rather than after.*
+Ten distinct suites — `smoke-net.sh` invokes `smoke-net-tls.sh` itself at
+line 242, so net-tls is covered transitively, not separately.
+
+| Suite | Result | Duration | Evidence |
+|---|---|---|---|
+| bash | **PASS** | 371 s | `[0/5]` deleted the artifacts and proved `tools/build.sh` alone rebuilds and embeds bash, marker `38ec6a3028d8…` matching both the ELF `strings` and the artifact hash; then `-c`, interactive, arithmetic, variables, functions, pipelines, redirects, `$(...)`, SIGINT (`back=130`), reaps, `sh`=bash and dash still selectable |
+| dash | **PASS** | 146 s | `-c`, interactive, pipes, redirects, scripts, SIGINT, reaps |
+| net | **FAIL** | 778 s | loopback PASS, slirp PASS, **dns tools FAIL** — but that was under load; the unloaded re-run reached `dns tools` PASS and failed later, at `tls udp`. See finding 26 |
+| imager | **PASS** | 202 s | verified round trip, size gate, YES gate, read-only branch linked |
+| imager-bad | **PASS** | 182 s | abort, `--continue` zero-fill, report ranges/counts, quick verify |
+| ntfs | **PASS** | 194 s | ro mount, listing equality, resident + fragmented hashes, corrupt rejection, **no writes** |
+| gpu | **PASS** | 315 s | std + cirrus identity/BAR, 64-bit aperture mapped, pcie n/a, no ACPI TZ, shell command |
+| graphics | **PASS** | 209 s | double-buffer demo + damage containment, GOP + VBE |
+| input | **PASS** | 58 s | ring self-test, PS/2 mouse → demo cursor, key stop |
+| kms | **PASS** | 80 s | dumb buffers + ADDFB/SETCRTC/PAGE_FLIP + events + cleanup |
+
+9 PASS, 1 FAIL, 0 env-blocked.
+
+**The `net` failure is recorded as suspect, not as a verdict,** and
+deliberately not yet written into `PROGRESS.md` as a known issue. Reason:
+this run overlapped the owner's `emerge` compiling QEMU at `-j4` on a 4-CPU
+box (load average 11–16 throughout). The failing phase is "net dns tools",
+which boots through `timeout --signal=KILL ${DNS_TOOLS_TIMEOUT:-180}
+./tools/run.sh --net` — and `run.sh` without `--no-build` runs
+`tools/build.sh` **inside that same 180-second window**. That phase is the
+only one in the suite that switches profile (`--profile net`), so it is the
+only one that forces a full `kernel-core` + `kernel-net` + `kernel` rebuild
+before the VM starts. The captured log confirms it: the transcript ends at
+`rump: pool self-test ok` during network bring-up, and contains **zero**
+`shell: ready` / `login shell` markers, so the kernel never reached a shell
+before the kill. A functional DNS failure would show the shell and a failed
+lookup, not a truncated boot under a profile rebuild. P0.7 re-runs it
+unloaded; only if it fails again does it become a finding.
+
+**Finding from this: several suites bound a rebuilding `run.sh` with a
+timeout sized for a boot.** `smoke-bash.sh:137` (120 s) and
+`smoke-net.sh:206` (180 s) both put `tools/build.sh` inside the wall-clock
+bound intended for the QEMU run. On an idle machine the rebuild is a stamp
+hit and nearly free, which is why this has not bitten before; under load it
+is the dominant cost and the run is killed mid-boot. Not fixed here — the
+baseline should be measured first — but recorded so the fix (pass
+`--no-build`, as `tools/smoke.sh` already does for its 13 phases) is not
+rediscovered from scratch.
+
+### Cross-architecture matrix (P0.5)
+
+| Suite | Result | Note |
+|---|---|---|
+| x86 (`tools/smoke.sh`) | **PASS 13/13** | read-only boot path, broken-ESP repair via YES, ext4 root + fstab + /boot inventory + systemd/UKI, firmware-default SMBIOS, `grub-fix install`, crafted-FAT truncation, 4 KiB-cluster zero-pad, shell autorun + surface scan + crypto KATs + GPU report + login shell, confirmation-gated repair, PS/2 keyboard with serial mirrored to GOP, NVMe + VFS + SMART + boot repair, Secure Boot `.auth`, NVRAM delete/create/keep |
+| bios | **PASS 2/2** | `bios x86_64` (MBR → LBA → E820 → BootInfo → ATA → long mode → kernel/tasks/shell) and `bios i686` (BootInfo → paging → allocator → IDT/PIC/PIT → scheduler → ring 3 ELF32 / int 0x80 → PIO ATA VFS) |
+| riscv | **PASS 3/3** | after the `sscratch` fix (22) and the feeder fix (23): phase A boot/Sv39/traps/timer/userland/virtio-blk/VFS/shell; phase B repair YES; phase C repair NO |
+| aarch64 | **PASS 3/3** | R9a direct-FDT boot (PL011, 4K MMU + direct map, GICv2, 100 Hz, BRK resume, tasks, shell) + R9b virtio-net MMIO + DHCP + IPv4/TCP + HTTP/DNS/wget + TLS/HTTPS/UDP. **First full runtime run of aarch64 on this host** |
+| iso | **FAIL** | pre-existing regression, finding 24 — cannot pass on any default build |
+
+**Baseline total: 25 suites run — 23 PASS, 1 FAIL (`iso`), 1 resolved to
+PASS after a fix (`riscv`). Zero environment-blocked**; the single gap, the
+aarch64 emulator, was closed during the batch.
+
+### Findings 22–25, from the baseline
+
+**22. riscv: a task boundary left `sscratch` stale, and the next S-mode trap
+faulted. FIXED** (`e2e166d`). `smoke-riscv` failed 3/3 with an identical
+signature — `scause=0xf stval=0x303e58 sepc=0xffffffc0802000a2 [kernel]`, a
+store page fault inside `trap_entry`. `trap_entry` swaps `sscratch` and `sp`
+(`csrrw t0, sscratch, sp`), so a trap from U-mode leaves `sscratch` holding
+the *user* sp while the kernel runs in S-mode. The asm epilogue clears it,
+but the epilogue does not run when the handler never returns, and two
+handlers never return: the fault branch calls `task::exit(1)`, and the
+`ecall` branch calls `syscall::dispatch`, which routes `SYS_EXIT` to
+`task::exit` too. `sscratch` kept the dead task's user sp, the next S-mode
+trap (the 100 Hz timer is enough) swapped it into `sp`, and the trap frame
+was stored at an unmapped user address — the kernel root carries no user
+mappings in S-mode. `stval` 0x303e58 sits just under `USER_STACK_TOP`
+(0x304000), which identifies it as a user sp. Fixed by clearing `sscratch`
+once at the top of `trap_dispatch`, which also covers a nested trap taken
+mid-handler.
+
+This is the item the docs have carried as the "intermittent riscv
+`uart::log_bytes` fault" since M10, hit at every checkpoint and confirmed
+pre-existing on pristine HEAD during P1. It is not intermittent and it is not
+the UART: it is a task-boundary bug, and the earlier `scause=0xd` readings
+are the same stale value going into a load instead of a store. PROGRESS's
+housekeeping line ("hunt the intermittent riscv `uart::log_bytes` fault") is
+answered by this.
+
+**23. Two smoke suites fed the serial shell on a fixed sleep. FIXED**
+(`453f1e9`). `smoke-riscv.sh` used `(sleep 5; printf ...)` and
+`smoke-aarch64.sh` used `(sleep 4; printf ...)`; both assume the boot finished
+inside that window, and when it has not the bytes are lost rather than
+buffered, so the commands never arrive and the suite fails on markers the
+kernel would have printed. This is a host-speed dependency presenting as a
+kernel failure, and it cost a misread here: aarch64's R9a failed its output
+assertions while its boot log was complete and healthy, and feeding the same
+machine at 8 s worked. Both now poll the run log for `shell: ready` before
+writing — the pattern `tools/smoke-bash.sh` already used. Assertions
+unchanged.
+
+**24. `tools/smoke-iso.sh` cannot pass on a default build — the embedded bash
+broke the CD-preload budget. NOT FIXED** (a design change, not a batch item).
+`tools/build-bios.sh:59` fails when the BIOS kernel exceeds `0x70000`
+(448 KiB), because the El Torito variant is preloaded at 0x7C00 and carries
+the kernel at 0xC000, under the 0x9FC00 top of usable low RAM. The kernel is
+**1,246,392 bytes — 2.7× over**. The cause is in the artifacts:
+`kernel/bash_program.bin` is 743,312 bytes and is embedded, and `CONFIG_BASH`
+defaults to `y` **even in the `minimal` profile** (a schema default, not a
+profile entry), so `smoke-iso.sh`'s `--profile minimal` does not avoid it. The
+CD path therefore broke when bash was embedded (P3, 2026-10) and nothing
+caught it: `smoke-iso` is not in CI, and `make test-matrix`, which includes
+`iso`, is run by hand. Two decisions it raises: whether the CD variant should
+build with `CONFIG_BASH=n` (743,312 + ~503,080 still exceeds 448 KiB, so that
+alone is not enough), and whether the preload strategy should change to
+loading the kernel from the ISO filesystem instead. Not attempted here.
+
+**25. `tools/check-toolchain.sh` searches a narrower OVMF path list than
+`tools/run.sh`, so `make doctor` warns falsely** — carried below as finding
+21, which this restates: it also checks only the two x86_64 Rust targets and
+only `qemu-system-x86_64`, which is why the missing `qemu-system-aarch64` was
+never reported and had to be found by hand.
+
+**26. `smoke-net`'s load failure was the load — confirmed — and a different
+failure sits behind it. NOT FIXED.**
+
+The unloaded re-run settles the original question: `net dns tools` **PASSES**
+on an idle machine (`net: dhcp lease 10.0.2.15/24`, `net: dns ok`, `net: ping
+test.fantuan ok`, `net: wget ok` with matching hashes). The earlier failure
+was the `DNS_TOOLS_TIMEOUT=180` window containing a full `--profile net`
+rebuild, exactly as predicted, and it is **not** a known issue to file against
+the kernel. The "several suites bound a rebuilding `run.sh` with a
+boot-sized timeout" note above stands as the real defect there.
+
+The same re-run then reached the TLS/UDP phase and failed it — everything
+network-side passed (`net: https get ok` with the pinned CA, `net: udp host
+ok (tx=4 rx=4 bytes=1024)`, `net: ext skip`) and the log ends on:
+
+```
+exc 1 (#DB debug) err=0x0 rip=0xffff8000010702a7
+```
+
+`addr2line` resolves that rip to **`kernel_core::process::wait4`**, and there
+is no deliberate `int1`/`#DB` demo anywhere in the tree — `EXC_DEBUG` is only
+a name in the exception table — so this is an unexpected debug exception in
+`wait4`. It is not in `PROGRESS.md`'s known issues and not in the task list.
+The failing assertion is the built-in shell's `wget https://…`, which the
+feeder sends after `exit` drops out of the login shell; the log never shows
+`shell: login shell exited`, so the exception lands around that transition.
+No x86 source was touched anywhere in this batch, so this is pre-existing.
+
+Not investigated further here — it wants the same treatment the riscv
+`sscratch` bug got (reproduce, identify the instruction, fix as its own
+commit), and that is a kernel-debugging task rather than part of this batch.
+Recorded so the next session starts from the rip rather than from "TLS is
+broken", which is what the assertion failure reads as and is not.
+
+### A correction about this agent's own environment, recorded because it
+### invalidated measurements
+
+`grep` in this session is a shell **function** exported by the Claude Code
+harness that aliases to `ugrep -I`, and `-I` **skips files it considers
+binary**. The riscv log carries one NUL byte (a CPU-model string copied out of
+the FDT), so `file` calls it `data` and every `grep -q` inside
+`tools/smoke-riscv.sh` returned false — the suite could not pass on any
+kernel, including a correct one, and several early "failures" in this batch
+were that rather than the kernel. All suite runs after the discovery were made
+with the function unexported. This is a property of the agent harness, not of
+the repository: a normal shell's GNU grep 3.12 matches those lines and returns
+0. It is recorded because a reader of this log's earlier drafts would
+otherwise inherit a false conclusion. The NUL byte is harmless under GNU grep
+but is worth a look on its own account.
 
 ### New discrepancy found while running the baseline
 
