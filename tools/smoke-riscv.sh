@@ -28,7 +28,25 @@ LOG="build/smoke-riscv.log"
 rm -f "$LOG"
 # Feed the shell commands through the serial console (the pipe is kept open
 # so QEMU does not see EOF); each run is bounded by its timeout.
-(sleep 5; printf 'diskhealth\ncat HELLO.TXT\n'; sleep 70) \
+# Feed only once the shell owns the console. A fixed sleep assumes the boot
+# finished first; when it has not, the bytes are lost rather than buffered and
+# the commands never arrive, which reads as a missing-command failure. Poll
+# the log for `shell: ready` instead (the pattern tools/smoke-bash.sh uses).
+python3 -c '
+import sys, time
+log = sys.argv[1]
+for _ in range(480):
+    try:
+        if b"shell: ready" in open(log, "rb").read():
+            break
+    except FileNotFoundError:
+        pass
+    time.sleep(0.25)
+time.sleep(0.5)
+sys.stdout.write("diskhealth\ncat HELLO.TXT\n")
+sys.stdout.flush()
+time.sleep(70)
+' "$LOG" \
   | timeout --signal=KILL 60 ./tools/run.sh --arch riscv64 --disk --two-fs > "$LOG" 2>&1 || true
 
 # C4: the heartbeat stops as soon as the shell owns the console, so no

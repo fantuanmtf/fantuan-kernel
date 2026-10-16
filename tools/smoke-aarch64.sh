@@ -59,7 +59,25 @@ phase_r9a() {
   rm -f "$log"
   # Feed the shell through the serial console (the pipe stays open so QEMU
   # does not see EOF); the run is bounded by the timeout.
-  (sleep 4; printf 'help\nbootinfo\n'; sleep 8) \
+  # Feed only once the shell owns the console. A fixed sleep assumes the boot
+  # finished first; when it has not, the bytes are lost rather than buffered
+  # and the commands never arrive, which reads as a missing-command failure.
+  # Poll the log for `shell: ready` instead (the tools/smoke-bash.sh pattern).
+  python3 -c '
+import sys, time
+log = sys.argv[1]
+for _ in range(480):
+    try:
+        if b"shell: ready" in open(log, "rb").read():
+            break
+    except FileNotFoundError:
+        pass
+    time.sleep(0.25)
+time.sleep(0.5)
+sys.stdout.write("help\nbootinfo\n")
+sys.stdout.flush()
+time.sleep(8)
+' "$log" \
     | timeout --signal=KILL 30 ./tools/run.sh --arch aarch64 > "$log" 2>&1 || true
 
   # C4: the heartbeat stops once the shell owns the console.
