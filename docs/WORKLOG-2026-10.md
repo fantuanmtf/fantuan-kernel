@@ -387,7 +387,69 @@ which adds a prerequisite to its route:
 
 ## §7 Open items and hand-over notes
 
-Filled in at close: what needs an owner action, what was deliberately
-deferred, and where the next reader should start.
+The batch is paused here for the owner to review and push. Phases 2 and 3 have
+landed in part (see §2); the refactor in Phase 1 has **not** started, and
+nothing in it has been attempted — the tree carries no half-finished split.
 
-*Pending.*
+### What is done and committed
+
+| Commit | What |
+|---|---|
+| `d7f6444` | this ledger |
+| `1705b97` | documentation reconciled against the source (18 forward-looking claims) |
+| `5d07b14` | dash's manifest no longer calls it the default shell + `appctl relock` |
+| `e2e166d` | **riscv `sscratch` fix** — the task-boundary store fault (finding 22) |
+| `453f1e9` | **smoke feeders wait for `shell: ready`** (finding 23) |
+| `02a16a5` | the measured baseline and its findings |
+
+### Decisions taken, recorded so they are not re-litigated
+
+- **The CD/ISO preload strategy is to be redesigned**, not patched. The owner
+  chose this over disabling bash in the CD variant or raising the budget. The
+  direction is to stop preloading the kernel in the El Torito image's low-RAM
+  window and load it from the ISO filesystem instead, which removes the
+  448 KiB constraint entirely rather than negotiating with it. This touches
+  `boot-bios/stage2*` and `tools/{build-bios,mkiso}.sh` and is a milestone of
+  its own; it is **not** part of this batch. Until it lands, `make test-matrix`
+  cannot pass, because it includes `iso`.
+- **The `wait4` `#DB` is recorded, not chased** (finding 26). The owner chose
+  to defer it. The next session should start from `rip 0xffff8000010702a7`
+  (`addr2line` → `kernel_core::process::wait4`) and the context that it lands
+  around `exit` from the login shell, not from "TLS is broken" — which is what
+  `SMOKE FAIL (net tls udp)` reads as, and is not.
+
+### The next session should start here
+
+1. **Phase 1, `kernel-core/src/graphics/kms.rs`** (298/300). This is the
+   M13-5 prerequisite and `docs/PROGRESS.md` says "split it before extending".
+   `tools/line-budget.txt` needs no edit — 298 is not over the line. Target
+   layout and the reservation for M13-5's `ioctl.rs`/`connector.rs` are in §2
+   of the batch plan.
+2. Then `kernel/src/main.rs` (418 → boot/wiring; **delete its budget line**),
+   `kernel-core/src/process.rs` (911 → six modules; **delete its budget
+   line**), `kernel-core/src/vfs/mod.rs` (300/300), then the fdt and uart
+   de-duplication.
+3. Every split is a pure move; because this project has no unit tests, the
+   evidence is that the same smoke assertion holds before and after. The
+   suites that cover each split are listed in §2.
+
+### Still open, in rough priority
+
+- `iso` preload redesign (above) — blocks a fully green `make test-matrix`.
+- `wait4` `#DB` (above).
+- `smoke-iso` and the other QEMU suites are still absent from CI, which is why
+  finding 24 sat undetected since P3. The cheapest honest mitigation remains
+  the one in the batch plan's Phase 3: an `ALL_SMOKE_SET` + `make test-all`,
+  and a dated full-matrix line in `PROGRESS.md` so "last verified" is a fact
+  rather than a memory.
+- Finding 25 (`check-toolchain.sh` 's narrow OVMF list, and its x86-only
+  probes) is a small, self-contained fix.
+- The NUL byte in the riscv CPU-model string (§3) is harmless under GNU grep
+  but would bite any tooling that treats the log as binary.
+
+### What the next reader should know about the numbers
+
+`docs/PROGRESS.md` is the authority for milestone state and this file is not.
+Where this file states a count (files over 300 lines, suites passing), it was
+measured at the commit above and will drift; `tools/line-budget.txt` owns the
+line-count list, and `build/baseline/RESULTS.txt` owns the baseline table.
