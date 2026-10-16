@@ -68,9 +68,19 @@ global_asm!(
     "    j       3b",
     ".section .bss",
     ".align 4",
+    // 64 KiB. This was 16 KiB until 2026-10, which was too small and had been
+    // marginally so for a while: `bootrepair::diagnose` runs on this stack and
+    // its chain reaches `fstab::parse_ext4`, which puts a 4 KiB buffer on it,
+    // under `high_main`'s frame. A refactor that shifted inlining by a little
+    // pushed it over, and the overflow corrupted whatever .bss neighbours sat
+    // below the stack - presenting as a kernel that re-entered `_start` with
+    // garbage arguments, 21,971 times in one 60-second run. Widening the stack
+    // fixed it outright, which is the proof it was the stack. x86_64 has
+    // always had 64 KiB here (`boot/src/memory.rs` allocates 16 pages); riscv
+    // and aarch64 were the outliers.
     ".global BOOT_STACK",
     "BOOT_STACK:",
-    "    .space 16384",
+    "    .space 65536",
     ".global BOOT_STACK_TOP",
     "BOOT_STACK_TOP:",
 );

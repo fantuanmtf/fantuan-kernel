@@ -77,6 +77,13 @@ global_asm!(
     "    b 7b",
     ".section .bss",
     ".align 4",
+    // 16 KiB. Deliberately NOT raised to 64 KiB with the riscv port in
+    // 2026-10: this port does not run `bootrepair::diagnose` (it has no
+    // storage transport yet), so the deep chain that overflowed riscv's stack
+    // never executes here, and raising the size anyway perturbed .bss enough
+    // to surface an unrelated PL011 interleaving problem. **When the R9b
+    // storage work lands, raise this to 64 KiB before wiring diagnose in** -
+    // the 4 KiB buffer in `fstab::parse_ext4` is what makes 16 KiB too small.
     ".global BOOT_STACK",
     "BOOT_STACK:",
     "    .space 16384",

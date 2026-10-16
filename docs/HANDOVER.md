@@ -118,7 +118,13 @@ as product: the same portable core now runs on two architectures.
 4. **ABI is append-only**: BootInfo appends + `BOOT_VERSION`, syscall
    numbers never renumber.
 5. **No allocator**: fixed buffers, `static mut` scratch, 4 KiB copy
-   windows — remember stacks are only 16 KiB.
+   windows — remember the **task kernel stacks are 16 KiB** (`task::STACK_PAGES
+   = 4`), which is the tight one. The boot stacks are 64 KiB: x86_64 allocates
+   16 pages in `boot/src/memory.rs`, and riscv/aarch64 were raised from 16 KiB
+   to match in 2026-10 after `bootrepair::diagnose` overflowed the smaller one
+   (the chain reaches a 4 KiB buffer in `fstab::parse_ext4`). Boot-time code
+   may therefore be deeper than the task-stack budget allows — do not copy a
+   boot-path frame size into a task.
 6. **300-line files, English, docs-first, zero warnings** (see
    [DEVELOPMENT.md](DEVELOPMENT.md) §1).
 7. **Multi-component licensing**: our code is BSD-3; bundled components keep
