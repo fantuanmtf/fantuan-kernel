@@ -10,7 +10,6 @@
 # outside the scope as docs/OPERATIONS.md §5 words it. Ten files were over the
 # limit when the gate was added (2026-10).
 
-kernel-core/src/process.rs 911   the process layer: task state, fork/execve/wait, signals, VMA, pipes — split by responsibility before M14-1 touches it
 kernel-core/src/vfs/fd.rs 445    open-file table, pipes, the /bin registry overlay — split when the repair broker adds client fds (M13-6)
 kernel-core/src/task.rs 386      scheduler, task slots, and the user-entry bookkeeping
 abi/src/lib.rs 384               the append-only syscall table with its history comments — grows by design, but the P1/P2 sections can move to a companion
