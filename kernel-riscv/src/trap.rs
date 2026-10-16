@@ -158,8 +158,38 @@ fn reenter_user_root(from_user: bool) {
     }
 }
 
+/// Restore the S-mode `sscratch` invariant for the lifetime of the handler.
+///
+/// `trap_entry` swaps `sscratch` and `sp` (`csrrw t0, sscratch, sp`), so a
+/// trap taken from U-mode leaves `sscratch` holding the *user* sp for as long
+/// as the kernel stays in S-mode. The asm epilogue clears it on the S-mode
+/// return, and the entry spin leaves it as the kernel stack top for the
+/// U-mode return — but **neither runs if the handler does not return**.
+///
+/// Two paths abandon the frame: the fault branch below (`task::exit`) and the
+/// `ecall` branch, because `syscall::dispatch` routes `SYS_EXIT` to
+/// `task::exit` as well. Both schedule away. The next S-mode trap — the
+/// 100 Hz timer is enough — then swaps the stale user sp into `sp` and stores
+/// the trap frame at an unmapped user address; the kernel root is active in
+/// S-mode and carries no user mappings, so that is a store page fault at
+/// `trap_entry`+0x12:
+///
+///   `userland: tid 3 exiting`
+///   `trap: exception scause=0xf stval=0x303e58 sepc=0xffffffc0802000a2 [kernel]`
+///
+/// `stval` 0x303e58 sits just under `USER_STACK_TOP` (0x304000, abi), which is
+/// what identifies the stale value as a user sp rather than a kernel stack.
+/// Clearing it once here — rather than at each abandoning call site — also
+/// covers a nested trap arriving mid-handler, which took the same bad branch.
+fn clear_sscratch() {
+    unsafe { asm!("csrw sscratch, zero", options(nostack)) };
+}
+
 #[no_mangle]
 pub extern "C" fn trap_dispatch(tf: *mut TrapFrame, scause: u64, stval: u64) {
+    // The frame is on the kernel stack and records the interrupted sp itself,
+    // so sscratch is no longer needed: drop it to 0 for the whole handler.
+    clear_sscratch();
     let tf = unsafe { &mut *tf };
     let interrupt = scause >> 63 != 0;
     let code = scause & 0xFF;
@@ -210,6 +240,7 @@ pub extern "C" fn trap_dispatch(tf: *mut TrapFrame, scause: u64, stval: u64) {
             put_dec(kernel_core::task::current_id());
             puts("\n");
             // exit() schedules; its hook pointers are link addresses.
+            // sscratch was already cleared on entry to this handler.
             crate::paging::set_root(crate::paging::kernel_root());
             kernel_core::task::exit(1);
         }
