@@ -93,6 +93,7 @@ global_asm!(
 
 #[no_mangle]
 pub extern "C" fn rust_entry(dtb: usize) -> ! {
+    uart::install();
     cpu::init();
     uart::init();
     kernel_core::log::set_sink(uart::log_bytes);

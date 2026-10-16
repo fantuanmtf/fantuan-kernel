@@ -324,7 +324,51 @@ serial-log assertions in the smoke scripts are the whole verification story),
 a "pure move" can only be evidenced by the same smoke assertion holding
 before and after.
 
-*Pending.*
+| Step | Before → after | Suites re-run | Result |
+|---|---|---|---|
+| kms (`96f0d9e`) | `kms.rs` 298 → `mod` 58 + `fbobj` 195 + `crtc` 88 | kms, graphics, input | PASS |
+| main (`0c62732`) | `main.rs` 418 → `main` 94 + `boot/mod` 241 + `boot/report` 87 + `wiring` 125 | config, posix, bash | PASS |
+| process (`0bfd019`) | `process.rs` 911 → `mod` 185 + `lifecycle` 273 + `vma` 201 + `sigstate` 144 + `identity` 102 + `group` 75 | posix, dash, bash | PASS |
+| vfs (`39e80f5`) | `vfs/mod.rs` 300 → `mod` 66 + `mount` 135 + `name83` 92 + `repair` 51 | posix, ntfs, imager | PASS on x86; **broke riscv** (see below) |
+| fdt (`merge`) | riscv 215 + aarch64 240 → `kernel-core/fdt` 257 + shims 33 + 41 | riscv, aarch64 | see below |
+| uart (`merge`) | riscv 105 + aarch64 127 → `kernel-core/uconsole` 110 + drivers 43 + 65 | riscv, aarch64 | see below |
+
+`tools/line-budget.txt` went from ten files to eight: `kernel/src/main.rs` and
+`kernel-core/src/process.rs` left the list entirely, as the ratchet requires
+when a file drops back under the line. Nothing was added to it.
+
+### What the vfs split actually uncovered
+
+The vfs split's moved code is **byte-identical** to what it replaced — verified
+with `diff` against `git show 39e80f5^:kernel-core/src/vfs/mod.rs`, which is
+how the search was steered away from the code and towards the environment. It
+still broke riscv, and the way it broke was the interesting part: two runs of
+the same tree failed differently, once with an instruction page fault at 0
+after `cat HELLO.TXT`, once with the kernel re-entering `_start` **21,971
+times** in a 60-second run, printing `boot: hartid=0xffffffc080222d41
+dtb=0x37` each time. Two symptoms from one tree is memory corruption.
+
+`git bisect` by hand put it on the vfs commit (riscv: PASS at `0bfd019`, FAIL
+at `39e80f5`). The cause was not the split at all: **the riscv boot stack was
+16 KiB** and `bootrepair::diagnose` runs on it, down a chain that reaches a
+4 KiB buffer in `fstab::parse_ext4`. That had been marginal for a long time —
+an overflow writes below the stack into neighbouring `.bss`, so what breaks
+depends on the linker's layout — and a small change in inlining was enough to
+tip it. Widening to 64 KiB fixed it outright on the same tree, which is the
+proof. x86_64 has always used 64 KiB here; riscv was the outlier. Fixed in
+`a705c5e`.
+
+Two things fall out of that worth carrying forward:
+
+- **aarch64 is deliberately still at 16 KiB.** Raising it too was tried and
+  made things worse in an unrelated way: the `.bss` shift surfaced a PL011
+  interleaving problem where two writers share the UART (`stask 1 (tid 1)` and
+  `hell: ready` in one log). That port does not run `diagnose` — it has no
+  storage transport — so it never had the deep chain. Its comment now records
+  the cliff and says to raise it before wiring diagnose in.
+- **That interleaving is a real, pre-existing bug**, the same class as the x86
+  COM1 issue `2cfacbe` fixed: two writers on one UART. It is not caused by any
+  change here; a change here only made it visible. Not investigated.
 
 ---
 

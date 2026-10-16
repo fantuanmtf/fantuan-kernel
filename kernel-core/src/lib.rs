@@ -15,6 +15,7 @@ pub mod brk;
 pub mod diag;
 pub mod drv;
 pub mod elf;
+pub mod fdt;
 pub mod frame;
 #[cfg(kconfig_graphics)]
 pub mod graphics;
@@ -31,6 +32,7 @@ pub mod mouse;
 pub mod process;
 pub mod runtime;
 pub mod sha256;
+pub mod uconsole;
 pub mod shell;
 pub mod signal;
 pub mod syscall;

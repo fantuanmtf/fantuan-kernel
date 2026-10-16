@@ -149,6 +149,7 @@ fn build_bootinfo(mem: &fdt::MemInfo, hartid: usize, dtb: usize) -> &'static Boo
 
 #[no_mangle]
 pub extern "C" fn rust_entry(hartid: usize, dtb: usize) -> ! {
+    uart::install();
     kernel_core::log::set_sink(uart::log_bytes);
     puts(uart::LOGO);
     puts("fantuan v0.0.4 (riscv64) - OpenSBI S-mode bring-up\n");
