@@ -49,6 +49,14 @@ fn state() -> Option<&'static mut State> {
     unsafe { (*core::ptr::addr_of_mut!(STATE)).as_mut() }
 }
 
+/// Whether a framebuffer console came up. Boot phases that run after the
+/// console is created ask this instead of threading `new`'s handle through
+/// every one of them. (`gfx_kms_ready` is a different question: it reports the
+/// double-buffered upgrade, not whether a console exists.)
+pub(crate) fn up() -> bool {
+    state().is_some()
+}
+
 impl Console {
     pub fn new(fb: &FrameBuffer) -> Option<Self> {
         if fb.size == 0 || fb.base == 0 || fb.width < GLYPH_W || fb.height < GLYPH_H {

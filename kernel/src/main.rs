@@ -6,29 +6,29 @@
 //! tasks/scheduler + syscall ABI (M3), ring-3 + ELF loader (M4), the C driver
 //! boundary + AHCI (M4.5), diagnostics (M5/M5.5), the VFS (M6), boot repair
 //! (M7.x), the built-in shell (§10), and the storage ops registry + NVMe (M8).
+//!
+//! `kmain` below is a table of contents, not an implementation: the phases
+//! live in `boot.rs` (power the machine on) and `wiring.rs` (start tasks and
+//! hand the console to the shell). **The call order is the correctness
+//! argument** — each phase's doc comment names what it must follow. Both files
+//! were split out of this one in 2026-10, when it reached 418 lines against
+//! the 300-line rule.
 
 #![no_std]
 #![no_main]
 
-use core::fmt::Write;
-
-use fantuan_abi::{BootInfo, BOOT_MAGIC, BOOT_VERSION};
-
-use bootlog::{halt_forever, print_memmap_summary, serial};
+use fantuan_abi::BootInfo;
 
 // The first userland program, embedded at build time (tools/build.sh builds
-// the user crate first; kernel/build.rs bakes the ELF in).
+// the user crate first; kernel/build.rs bakes the ELF in). This include must
+// stay at the crate root: every phase reads the ELFs as `crate::USER_ELF` and
+// friends, so moving it into a module would move all of those with it.
 include!(concat!(env!("OUT_DIR"), "/user_program.rs"));
-
-// Kernel image end (link.ld); the shared frame allocator needs it to punch
-// the kernel hole in its bitmap.
-extern "C" {
-    static __bss_end: u8;
-}
 
 #[cfg(any(kconfig_virt, kconfig_graphics))]
 mod acpi;
 mod arch;
+mod boot;
 #[cfg(kconfig_rescue_repair)]
 mod bootrepair;
 mod bootlog;
@@ -58,6 +58,7 @@ mod shell;
 mod smbios;
 mod task;
 mod timer;
+mod wiring;
 pub use kernel_core::runtime;
 pub use kernel_core::vfs;
 
@@ -67,352 +68,27 @@ pub use arch::x86_64::{
     cpu, exceptions, gdt, idt, interrupts, pci, pic, pit, port, serial, syscall, tsc,
 };
 
-/// P2/P3 embedded-binary registry: execve("/bin/sh") resolves without a
-/// filesystem mount (the tmpfs file cap is far below a static shell).
-/// P3: /bin/sh prefers bash when embedded, dash stays /bin/dash.
-fn lookup_bin(path: &[u8]) -> Option<&'static [u8]> {
-    if path == b"/bin/bash" && !BASH_ELF.is_empty() {
-        Some(BASH_ELF)
-    } else if path == b"/bin/sh" {
-        if !BASH_ELF.is_empty() {
-            Some(BASH_ELF)
-        } else if !DASH_ELF.is_empty() {
-            Some(DASH_ELF)
-        } else {
-            None
-        }
-    } else if path == b"/bin/dash" && !DASH_ELF.is_empty() {
-        Some(DASH_ELF)
-    } else if path == b"/bin/hello" && !HELLO_ELF.is_empty() {
-        Some(HELLO_ELF)
-    } else if path == b"/bin/proc-test" && !PROC_ELF.is_empty() {
-        Some(PROC_ELF)
-    } else if path == b"/bin/ls" && !LS_ELF.is_empty() {
-        Some(LS_ELF)
-    } else if path == b"/bin/cat" && !CAT_ELF.is_empty() {
-        Some(CAT_ELF)
-    } else {
-        None
-    }
-}
-
 #[no_mangle]
 pub extern "sysv64" fn kmain(boot_info: *const BootInfo) -> ! {
     let bi = unsafe { &*boot_info };
 
-    // Output channel 1: serial (16550 COM1), 115200 8N1.
-    let mut s = serial();
-    s.init();
-    // Shared (kernel-core) diagnostics log through the serial sink.
-    kernel_core::log::set_sink(crate::serial::log_bytes);
+    // Bring the machine up, in an order that does not survive reordering.
+    let mut s = boot::phase_core(bi);
+    boot::phase_interrupts(&mut s);
+    boot::phase_memory(bi, &mut s);
+    boot::phase_traps_and_crypto(&mut s);
 
-    // M9.4-2: install the x86 hooks the shared modules need. All of them are
-    // safe to install here; the ones with boot-time dependencies resolve
-    // lazily (e.g. the clock is 0 until tsc::calibrate).
-    drivers::install_hooks();
+    // Start the kernel and user tasks.
+    wiring::phase_processes(bi, &mut s);
 
-    // Handshake: validate what the bootloader handed over (DESIGN.md §4).
-    if bi.magic != BOOT_MAGIC || bi.version != BOOT_VERSION {
-        let _ = writeln!(s, "fatal: bad handshake magic={:#x} version={}", bi.magic, bi.version);
-        pit::beep_n(4, pit::BeepLen::Short);
-        halt_forever();
-    }
+    // NX must be live before the ELF loader maps anything with P_NX.
+    boot::phase_hardening(&mut s);
+    wiring::phase_userland(&mut s);
 
-    let _ = writeln!(s);
-    let _ = writeln!(s, "fantuan v0.0.4");
-    let _ = writeln!(
-        s,
-        "handshake ok: magic={:#x} version={} rsdp={:#x}",
-        bi.magic, bi.version, bi.rsdp
-    );
-    let _ = writeln!(s, "kernel_base={:#x} stack_top={:#x}", bi.kernel_base, bi.stack_top);
-    print_memmap_summary(&mut s, bi);
+    // Read-only hardware reporting, then the storage stack it needs.
+    boot::report::phase_diagnostics(bi);
+    let mounted = boot::report::phase_storage(bi, &mut s);
 
-    // Output channel 2: GOP framebuffer console (skipped when headless).
-    let fb = &bi.fb;
-    let _ = writeln!(
-        s,
-        "framebuffer: base={:#x} size={:#x} {}x{} stride={} format={}",
-        fb.base, fb.size, fb.width, fb.height, fb.stride, fb.format
-    );
-    #[cfg(kconfig_graphics)]
-    let mut con = console::Console::new(fb);
-    #[cfg(kconfig_graphics)]
-    if let Some(c) = con.as_mut() {
-        let _ = writeln!(c, "fantuan v0.0.4");
-        let _ = writeln!(c, "handshake ok: magic={:#x} version={}", bi.magic, bi.version);
-        let _ = writeln!(c, "console: GOP framebuffer {}x{}", fb.width, fb.height);
-    } else {
-        let _ = writeln!(s, "console: none (serial-only; GOP unavailable)");
-    }
-    #[cfg(not(kconfig_graphics))]
-    let _ = writeln!(s, "console: none (serial-only; GOP unavailable)");
-
-    // M13-1: the framebuffer core self-test (pure logic, no drawing).
-    #[cfg(kconfig_graphics)]
-    if kernel_core::graphics::selftest() {
-        let _ = writeln!(s, "graphics: damage self-test ok");
-    } else {
-        let _ = writeln!(s, "graphics: damage self-test FAILED");
-    }
-
-    // M13-3: the input event ring self-test (order + drop policy, no input).
-    #[cfg(kconfig_graphics)]
-    if kernel_core::input_ring::selftest() {
-        let _ = writeln!(s, "input: ring self-test ok");
-    } else {
-        let _ = writeln!(s, "input: ring self-test FAILED");
-    }
-
-    // M13-4: the graphics event ring self-test (ABI size + order + drop policy).
-    #[cfg(kconfig_graphics)]
-    if kernel_core::graphics::event::selftest() {
-        let _ = writeln!(s, "gfx: event ring self-test ok");
-    } else {
-        let _ = writeln!(s, "gfx: event ring self-test FAILED");
-    }
-
-    // --- M1: interrupt machinery -----------------------------------------
-    gdt::init();
-    let _ = writeln!(s, "gdt: authoritative GDT + TSS (IST1 = #DF stack)");
-    idt::init();
-    let _ = writeln!(s, "idt: 256 entries, #DF on IST1");
-    pic::init();
-    let _ = writeln!(s, "pic: remapped 0x20/0x28, only IRQ0 unmasked");
-
-    // M8.5a: PS/2 keyboard on IRQ1. Absent hardware degrades to serial-only.
-    if kbd::init() {
-        pic::unmask(consts::IRQ_KEYBOARD);
-        let _ = writeln!(s, "kbd: IRQ1 unmasked (serial + keyboard input)");
-    } else {
-        let _ = writeln!(s, "kbd: no PS/2 keyboard (serial-only input)");
-    }
-
-    // TSC calibration MUST precede the PIT going periodic (channel 0).
-    tsc::calibrate();
-    pit::init_timer(100);
-    let _ = writeln!(s, "timer: PIT 100 Hz on IRQ0, TSC {} MHz", tsc::hz() / 1_000_000);
-
-    // M13-3: PS/2 mouse on the 8042 aux port (IRQ12). After the timer so the
-    // bounded ACK waits can sleep; before interrupts so the reset bytes are
-    // polled, not routed through the (masked) IRQ12.
-    #[cfg(kconfig_graphics)]
-    if mouse::init() {
-        let _ = writeln!(s, "mouse: PS/2 aux enabled (IRQ12, 3-byte packets)");
-    } else {
-        let _ = writeln!(s, "mouse: PS/2 aux unavailable (no pointer input)");
-    }
-
-    cpu::sti();
-    let _ = writeln!(s, "interrupts: enabled");
-
-    // --- M2: memory management --------------------------------------------
-    // Guard: the kernel must actually run at its linked higher-half address.
-    if (kmain as *const () as u64) < fantuan_abi::PHYS_OFFSET {
-        let _ = writeln!(s, "fatal: kernel not running at PHYS_OFFSET (link/paging mismatch)");
-        halt_forever();
-    }
-
-    // M9.2a: install the arch IRQ hooks for the shared allocator, then
-    // initialize it from the memory map (kernel end from the linker script).
-    kernel_core::arch::set_irq_ops(cpu::irq_save, cpu::irq_restore);
-    kernel_core::arch::set_irq_enable(cpu::sti);
-    let kernel_end_phys = core::ptr::addr_of!(__bss_end) as u64 - fantuan_abi::PHYS_OFFSET;
-    mm::frame::init(bi, kernel_end_phys, &[]);
-    let alloc = mm::frame::get();
-    let _ = writeln!(s, "mm: frame allocator ready: {} MiB usable (bitmap {} KiB)",
-        alloc.usable_mib(), mm::frame::BITMAP_BYTES / 1024);
-    let new_pml4 = mm::paging::init(alloc);
-    let _ = writeln!(s, "paging: kernel tables @ phys {:#x}, kmain @ {:#x}",
-        new_pml4, kmain as *const () as usize);
-
-    // The bootloader's tables are unreferenced after the switch: reclaim them.
-    // reclaim() (not free()) because these reserved frames were never handed
-    // out by the allocator.
-    for i in 0..bi.boot_tables_pages {
-        alloc.reclaim(bi.boot_pml4 + i * mm::frame::FRAME_SIZE);
-    }
-    let _ = writeln!(s, "mm: reclaimed {} bootloader table pages", bi.boot_tables_pages);
-
-    // Self-test: a fresh frame must be readable/writable through the alias.
-    if let Some(f) = alloc.alloc() {
-        let probe = mm::paging::phys_to_virt(f) as *mut u64;
-        unsafe { probe.write_volatile(0xDEAD_BEEF_CAFE_F00D); }
-        let ok = unsafe { probe.read_volatile() } == 0xDEAD_BEEF_CAFE_F00D;
-        alloc.free(f);
-        let _ = writeln!(s, "mm: frame self-test {} (frame {:#x} via PHYS_OFFSET alias)", if ok { "ok" } else { "FAILED" }, f);
-        if !ok {
-            halt_forever();
-        }
-    } else {
-        let _ = writeln!(s, "mm: frame self-test FAILED (allocator returned no frames)");
-        halt_forever();
-    }
-
-    // M13-2: swap the console to a frame-allocator back buffer (double buffer).
-    #[cfg(kconfig_graphics)]
-    if con.is_some() {
-        if console::upgrade_buffered() {
-            let _ = writeln!(s, "console: double-buffered (frame-allocator back buffer)");
-        } else {
-            let _ = writeln!(s, "console: direct present (back buffer unavailable)");
-        }
-    }
-
-    // Exception demos: both paths (with/without error code) must work.
-    unsafe {
-        core::arch::asm!("int3", options(nomem, nostack));
-    }
-    let _ = writeln!(s, "demo: #BP handled (no error code path)");
-    unsafe {
-        core::arch::asm!("int 0", options(nomem, nostack));
-    }
-    let _ = writeln!(s, "demo: #DE handled (no error code path)");
-
-    // --- M8.1: crypto known-answer tests (SHA-256 + RSA-2048) --------------
-    // Failure does not halt the boot: crypto is only needed to apply
-    // operator-provided .auth bundles (the shell can re-run the tests).
-    if crypto::selftest(&mut s, false) {
-        let _ = writeln!(s, "crypto: KATs ok (sha256 + rsa-2048)");
-    } else {
-        let _ = writeln!(s, "crypto: KATs FAILED — authenticated variable updates unavailable");
-    }
-
-    // --- M3: kernel tasks + syscall ABI ------------------------------------
-    let abi = syscall::syscall(syscall::SYS_VERSION, 0, 0, 0, 0, 0);
-    let _ = writeln!(s, "syscall: ABI v{} (int 0x60, versioned dispatch)", abi);
-    task::init_arch();
-    syscall::init_frame_ops();
-    kernel_core::process::set_bin_lookup(lookup_bin);
-    let _ = writeln!(
-        s,
-        "p2: process layer ready (fork/exec/wait, signals, VMA; dash embedded={} bash embedded={})",
-        if DASH_ELF.is_empty() { "no" } else { "yes" },
-        if BASH_ELF.is_empty() { "no" } else { "yes" }
-    );
-    // P3/licensing: state which shell artifact the image carries. The hash
-    // comes from kernel/bash_program.sha256 via build.rs (SHELL_IMAGE_SHA256)
-    // and is what tools/smoke-gpl.sh searches the ELF for, so the source
-    // provision claim in THIRD_PARTY.md is checkable inside the image.
-    if !SHELL_IMAGE_SHA256.is_empty() {
-        let _ = writeln!(s, "shell: image sha256 {}", SHELL_IMAGE_SHA256);
-    }
-    task::init(bi.stack_top);
-    task::spawn(demo::demo_1);
-    task::spawn(demo::demo_2);
-    task::spawn(demo::demo_3);
-    let _ = writeln!(s, "sched: 3 kernel demo tasks spawned (quantum 100 ms)");
-
-    // M11 R2: NetBSD rump adaptation layer (pools, callouts, mbufs).
-    #[cfg(kconfig_net)]
-    net::init();
-
-    // --- M8.3c: memory hardening (NX + SMEP/SMAP) --------------------------
-    // NX must be live before the ELF loader sets P_NX entries. Missing
-    // features are reported and skipped (the default qemu64 CPU lacks
-    // SMEP/SMAP; tools/run.sh passes -cpu max so smoke exercises them).
-    let nx = cpu::enable_nxe();
-    let smep = cpu::enable_smep();
-    let smap = cpu::enable_smap();
-    let _ = writeln!(s, "mmu: nx {} smep {} smap {} (unsupported features skipped)", nx, smep, smap);
-
-    // --- M4: user mode ------------------------------------------------------
-    let u1 = task::spawn_user(USER_ELF);
-    let u2 = task::spawn_user(USER_ELF);
-    let _ = writeln!(s, "user: ELF {} bytes -> tids {} {} (ring 3, per-task page tables)", USER_ELF.len(), u1.unwrap_or(0), u2.unwrap_or(0));
-
-    // --- P1: POSIX round 1 --------------------------------------------------
-    // The C hello (libc-fantuan) uses the same loader with SysV argv; it is
-    // only present when tools/build-libc.sh produced it.
-    syscall::init_mem_ops();
-    if !HELLO_ELF.is_empty() {
-        let h = task::spawn_user_args(HELLO_ELF, &[b"/bin/hello"]);
-        let _ = writeln!(s, "user: C hello ELF {} bytes -> tid {} (libc-fantuan, fd syscalls)", HELLO_ELF.len(), h.unwrap_or(0));
-    }
-    if !PROC_ELF.is_empty() {
-        let p = task::spawn_user_args(PROC_ELF, &[b"/bin/proc-test"]);
-        let _ = writeln!(s, "user: P2 proc-test ELF {} bytes -> tid {} (fork/exec/wait/signals/mmap)", PROC_ELF.len(), p.unwrap_or(0));
-    }
-
-    // --- M5: diagnostics stage 1 (pure Rust core, DESIGN.md §6) ------------
-    // M5.5: SMBIOS tables feed the CPU/GPU diagnostics (CONFIG_SMBIOS, C4);
-    // a missing anchor degrades gracefully.
-    #[cfg(kconfig_smbios)]
-    unsafe {
-        smbios::init_from_entry(bi.smbios_table);
-        smbios::init(0xF_0000, 0x1_0000);
-    }
-    // M12-1/M12-7/M12-6: ACPI tables feed the virtualization report
-    // (CONFIG_VIRT) and the GPU thermal hook (CONFIG_GRAPHICS).
-    #[cfg(any(kconfig_virt, kconfig_graphics))]
-    let _acpi = acpi::init(bi.rsdp);
-    #[cfg(kconfig_virt)]
-    diag::virt::report(_acpi.as_ref());
-
-    let stage1 = [
-        diag::Check { name: "cpu", run: diag::cpu::check },
-        #[cfg(kconfig_graphics)]
-        diag::Check { name: "gpu", run: diag::gpu::check },
-        diag::Check { name: "ram", run: diag::ram::check },
-    ];
-    diag::run_stage("1 hardware", &stage1);
-
-    // --- M4.5: C driver layer -----------------------------------------------
-    let mut mounted: Option<vfs::Vfs> = None;
-    if drivers::init() {
-        let _ = writeln!(s, "drivers: C layer + AHCI read-only verified");
-
-        // --- M6: VFS + partition table + FAT32 read-only ------------------
-        // Mount first: stage 2 reports per-partition filesystem types from
-        // the probe table (M5.5) and the ESP bootloaders it found.
-        mounted = vfs::init();
-        if mounted.is_some() {
-            let _ = writeln!(s, "vfs: ok");
-        } else {
-            let _ = writeln!(s, "vfs: unavailable (boot continues)");
-        }
-
-        // --- M5: diagnostics stage 2 (needs the C storage driver) ----------
-        // Rescue/diagnostic reporting; CONFIG_RESCUE_REPAIR (C5).
-        #[cfg(kconfig_rescue_repair)]
-        diag::run_stage("2 storage", &[diag::Check { name: "storage", run: diag::storage::check }]);
-
-        // --- M7: boot repair v1 (read-only diagnosis; CONFIG_RESCUE_REPAIR) -
-        // The boot path is READ-ONLY: repairs run solely from the shell's
-        // confirmation-gated `grub-fix repair` (iron rule).
-        #[cfg(kconfig_rescue_repair)]
-        if let Some(v) = mounted {
-            // Shared boot repair logs through the kernel-core Log sink.
-            bootrepair::diagnose(&mut kernel_core::log::Log::new(), &v, bi.runtime_services);
-        }
-    } else {
-        let _ = writeln!(s, "drivers: AHCI unavailable (boot continues)");
-    }
-
-    // Boot-complete signal: one LONG beep — distinct from the short-beep
-    // diagnostic codes (DESIGN.md §6.2).
-    pit::beep_long();
-    let _ = writeln!(s, "beep: boot ok (1 long)");
-
-    // --- §10 Minimal shell -------------------------------------------------
-    // M8.5b: mirror serial to the GOP so the shell works without a serial port.
-    #[cfg(kconfig_graphics)]
-    if con.is_some() {
-        serial::enable_mirror();
-        let _ = writeln!(s, "console: serial output mirrored to GOP (keyboard + display)");
-        // M13-2: wait for the userland/proc-test tasks to be reaped, then
-        // freeze the GOP mirror while the demo animates so the box is the only
-        // thing moving on screen (serial keeps flowing; the demo unfreezes).
-        while kernel_core::task::user_tasks_remaining() {
-            kernel_core::task::sleep_ms(100);
-        }
-        serial::freeze_mirror();
-        task::spawn(gfx_demo::run);
-    }
-    // P4: the interactive interface is the embedded login shell (bash, else
-    // dash); the built-in shell takes the console back when it exits, and
-    // keeps it outright when no shell is embedded (DESIGN §10).
-    kernel_core::shell::set_login_shell(crate::shell::sh::login);
-    // The loop halts between polls, so the scheduler keeps running the tasks.
-    shell::enter(mounted, bi, bi.runtime_services);
+    // Never returns.
+    wiring::enter_shell(bi, mounted)
 }
