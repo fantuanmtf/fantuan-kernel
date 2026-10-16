@@ -19,6 +19,10 @@ use crate::serial::Serial;
 /// the stage runners log through the kernel-core sink, and ACPI is consumed
 /// here by the virtualization report, which is its only reader.
 pub fn phase_diagnostics(bi: &BootInfo) {
+    // `bi` is read only by the cfg-gated subsystems below (SMBIOS, ACPI); the
+    // minimal profile compiles none of them, and the parameter stays named for
+    // the signature's sake.
+    let _ = bi;
     // --- M5: diagnostics stage 1 (pure Rust core, DESIGN.md §6) ------------
     // M5.5: SMBIOS tables feed the CPU/GPU diagnostics (CONFIG_SMBIOS, C4);
     // a missing anchor degrades gracefully.
@@ -46,6 +50,8 @@ pub fn phase_diagnostics(bi: &BootInfo) {
 /// The C driver layer, the VFS mount, stage-2 diagnostics, the read-only boot
 /// diagnosis and the boot-complete beep. Returns the mount for the shell.
 pub fn phase_storage(bi: &BootInfo, s: &mut Serial) -> Option<crate::vfs::Vfs> {
+    // Read only under CONFIG_RESCUE_REPAIR (UEFI runtime services); see above.
+    let _ = bi;
     // --- M4.5: C driver layer -----------------------------------------------
     let mut mounted: Option<crate::vfs::Vfs> = None;
     if crate::drivers::init() {

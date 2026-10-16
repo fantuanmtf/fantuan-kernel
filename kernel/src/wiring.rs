@@ -12,8 +12,11 @@ use core::fmt::Write;
 
 use fantuan_abi::BootInfo;
 
-use crate::bootlog::serial;
 use crate::serial::Serial;
+// Only the graphics half of `enter_shell` writes to serial; on a minimal build
+// that block is compiled out, so the import goes with it.
+#[cfg(kconfig_graphics)]
+use crate::bootlog::serial;
 
 /// P2/P3 embedded-binary registry: execve("/bin/sh") resolves without a
 /// filesystem mount (the tmpfs file cap is far below a static shell).
