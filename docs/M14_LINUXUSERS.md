@@ -81,7 +81,9 @@ address spaces, `tmpfs`, a minimal `/dev` (null/zero/tty/fb/input) and
 `/proc` (self/status/mounts). **P1/P2 status:** the tmpfs, the minimal
 `/dev` (null/console) and the per-process VMA list (anonymous mappings,
 eager copy on fork) exist; demand paging, COW and the kernel heap remain
-for M14-1.
+for M14-1. **Current `/dev` is `console` and `null` only** — `zero`, `tty`,
+`fb*` and `input/*` are targets, not present — and **there is no `/proc`
+at all**: no `procfs`, and no `SYS_` number for it in the ABI.
 
 ## 5. Toolchain bootstrap chain (F7)
 

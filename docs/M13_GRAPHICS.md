@@ -106,8 +106,8 @@ The core landed as `kernel-core::input_ring` and `kernel-core::mouse`, both
 gated by `CONFIG_GRAPHICS` (so the `minimal`/`net` profiles link neither and
 carry no `input:`/`PS/2 aux` markers). The design doc's per-device ring and
 the evdev `{type, code, value}` tuple are a later refinement; M13-3 ships one
-frozen shared ring whose consumers (M13-4 / V-f) compile against these
-exact offsets:
+frozen shared ring whose consumers (M13-4, and the M13-5 KMS ioctl path)
+compile against these exact offsets:
 
 - **`InputEvent`** — a `#[repr(C)]`, 32-byte layout (the **M13-3 contract**):
 

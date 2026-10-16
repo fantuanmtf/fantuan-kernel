@@ -108,8 +108,9 @@ CPUs are supported. Design: `M10_BOOT_32BIT.md` (written before code).
   designed so an unmodified Xorg modesetting driver can target it in M15.
 - Shared memory + mmap groundwork (F3); the **repair-service IPC contract**
   (versioned, socket-like) that Qt frontends will speak.
-- **Verification**: a demo framebuffer app and an IPC client; contracts are
-  frozen and documented (`GRAPHICS_API.md`, `REPAIR_IPC.md`).
+- **Verification**: a demo framebuffer app and an IPC client; the contracts
+  are frozen and documented in M13-7 (`GRAPHICS_API.md`, `REPAIR_IPC.md` —
+  **neither file exists yet**; M13-5/6/7 are still open).
 
 ## 6. M14 — v0.1.0: Linux userspace + hypervisor V2
 
@@ -198,5 +199,5 @@ Every milestone updates: `DESIGN.md` (design of record), the support matrix
 (`USAGE.md`), the test matrix (`OPERATIONS.md`), and adds/extends its design
 documents before code. The design set is now complete for M10-M14:
 `M10_BOOT_32BIT.md`, `M11_NET.md`, `M12_TOOLS_HW.md`, `M13_GRAPHICS.md`
-(plus `GRAPHICS_API.md`/`REPAIR_IPC.md` frozen in M13), and
-`M14_LINUXUSERS.md`.
+(plus `GRAPHICS_API.md`/`REPAIR_IPC.md`, to be frozen in M13-7 — neither file
+exists yet), and `M14_LINUXUSERS.md`.

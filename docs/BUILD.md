@@ -147,10 +147,10 @@ tools/smoke-config.sh                  # profile invariants, string gating, budg
 `tools/build.sh` / `build-bios.sh` / `build-i686.sh` materialize the minimal
 profile when `.config` is absent and pass `--features kconfig-net` only when
 `CONFIG_NET=y`. The `.config` is read by every crate's `build.rs` through
-`tools/kconfig_emit.rs`; the profile, enabled list and config hash appear in
-the boot banner. Apps add `CONFIG_APP_*` symbols via
-`tools/appctl/appctl.py menu` (see [APPS.md](APPS.md)). Note the two distinct
-symbols: `CONFIG_BASH` (kernel build: fetch, build and embed bash as `/bin/sh`,
+`tools/kconfig_emit.rs`; use `make config-text` to see the effective
+configuration — the boot banner does not print it. Apps add `CONFIG_APP_*`
+symbols via `tools/appctl/appctl.py menu` (see [APPS.md](APPS.md)). Note the
+two distinct symbols: `CONFIG_BASH` (kernel build: fetch, build and embed bash as `/bin/sh`,
 `default y`) and the generated `CONFIG_APP_BASH` (app-catalog marker, still
 `default n` behind its `requires = ["posix-libc"]` gate). The early-port
 record stays in `apps/bash/port/`; the sources live on the `fantuan-apps`

@@ -64,9 +64,9 @@ Legend: `[ ]` open · `[x]` done · `[!]` blocked · `[-]` skipped (with reason)
 
 ### Phase 0 — baseline (R-001)
 
-- [ ] P0.1 `make doctor`, environment snapshot, back up `.config` (rescue profile)
-- [ ] P0.2 `make config-check`, `make check`, `make check-i686`
-- [ ] P0.3 `make smoke` (config, gpl, apps, posix)
+- [x] P0.1 `make doctor`, environment snapshot, back up `.config` (rescue profile)
+- [x] P0.2 `make config-check`, `make check`, `make check-i686`
+- [x] P0.3 `make smoke` (config, gpl, apps, posix) — 4/4 PASS
 - [ ] P0.4 Orphan suites: bash, dash, net, net-tls, imager, imager-bad, ntfs, gpu, graphics, input, kms
 - [ ] P0.5 `make test-matrix` (smoke.sh 13 phases, bios, riscv, aarch64, iso)
 - [ ] P0.6 Classify pass / fail / env-blocked, write `build/baseline/RESULTS.txt`, restore `.config`
@@ -100,11 +100,54 @@ Legend: `[ ]` open · `[x]` done · `[!]` blocked · `[-]` skipped (with reason)
 
 ## §3 Baseline results
 
-Filled in by Phase 0. One row per suite: result, duration, verbatim reason on
-skip, reproduction command, and whether it was already failing before any
-change in this batch (`pre-existing at <sha>`).
+Baseline tree: `d7f6444` (the worklog commit) plus the working tree as found.
+One row per suite: result, verbatim reason on skip, reproduction command, and
+whether it was already failing before any change in this batch.
 
-*Pending.*
+Environment as measured (full dump: `build/baseline/00-env.txt`): rustc
+1.98.1, QEMU 10.2.3, clang 22, python 3.14.7, 4 CPUs. All four Rust targets
+installed (`x86_64-unknown-none`, `x86_64-unknown-uefi`,
+`riscv64gc-unknown-none-elf`, `aarch64-unknown-none`).
+
+### Compile and gate
+
+| Step | Result | Note |
+|---|---|---|
+| `make doctor` | PASS, with one false warning | See discrepancy 21 below |
+| `make config-check` | PASS | `config: OK (6/21 symbols enabled, profile rescue)` |
+| `make check` | PASS | 19.6 s warm; ratchet `OK (10 file(s) over 300 lines, all budgeted)`; seven crates, zero warnings |
+| `make check-i686` | PASS | 11.1 s; `build/kernel-i686.bin: 182636 bytes` |
+
+### `make smoke` (`SMOKE_SET = config gpl apps posix`)
+
+| Suite | Result | Evidence |
+|---|---|---|
+| config | **PASS** | 8 assertions: net-profile cargo tree on x86_64 *and* aarch64, net markers, minimal profile free of net/rump/tls/rescue strings, rescue profile, 6 MiB budget against the 300 MiB limit with the 1-byte simulation rejecting, rebuild-set incrementality (fantuan-abi untouched), no-shell profile |
+| gpl | **PASS** | 7 assertions, including the `origin/fantuan-apps` mirror byte comparison — the fetch succeeded, so the assertion actually ran rather than skipping |
+| apps | **PASS** | 9 assertions: add/sync/verify/menu/sbom/remove plus the GPL firewall both ways |
+| posix | **PASS** | 11 assertions: ELF embedded and spawned, argv, pid, malloc/brk, cwd, tmpfs read-back, pipe, uptime, exit code, reap |
+
+### Remaining suites
+
+*Pending — P0.4/P0.5 were held back deliberately. The owner's
+`emerge app-emulation/qemu` was compiling at `-j4` on a 4-CPU box (load
+average 10.6), and these suites bound QEMU with `timeout`. Running them under
+that load would risk spurious failures and put a false FAIL into the baseline
+record. This is the "do not conflate a failure with an environment problem"
+rule from the CSV's R-001 applied before the fact rather than after.*
+
+### New discrepancy found while running the baseline
+
+**21. `tools/check-toolchain.sh` searches a narrower OVMF path list than
+`tools/run.sh`, so it emits a false warning.** The doctor prints
+`[warn] OVMF firmware not in standard paths` on this machine, but OVMF **is**
+present and usable: `/usr/share/edk2/OvmfX64/` holds `OVMF_CODE.fd` and
+`OVMF_VARS.fd`. `tools/run.sh:198` searches five directories including
+`/usr/share/edk2/OvmfX64`; `tools/check-toolchain.sh:62` searches three and
+omits it (and the `/usr/share/edk2-ovmf` symlink that resolves to the same
+place). Separately, the doctor checks only the two x86_64 Rust targets and
+only `qemu-system-x86_64`, which is why the missing `qemu-system-aarch64` was
+never reported by `make doctor` — it had to be found by hand.
 
 ---
 

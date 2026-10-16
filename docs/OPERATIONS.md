@@ -256,8 +256,12 @@ the flags table above.
   to `build/OVMF_VARS.smm.fd` first; delete that file to reset by hand.
 - **Logs**: `build/smoke*.log` are the raw serial transcripts; keep the
   failing one for evidence when reporting a regression.
-- **Line-size rule**: `find . -name '*.rs' ...` — nothing under `kernel*`,
-  `abi`, `user`, `boot`, `drivers` may exceed 300 lines.
+- **Line-size rule**: absolute for **new** files, over `kernel*`, `abi`,
+  `user`, `boot`, `boot-bios` and `drivers` (`third_party/` is exempt by
+  `THIRD_PARTY.md`; `tools/`, `libc-fantuan/` and `docs/` are outside the
+  scope). `tools/check-lines.sh` enforces it as part of `make check`, and the
+  files that predate the gate are enumerated with a reason each in
+  `tools/line-budget.txt` — **that list is the count**; do not restate it.
 
 ## 9. Release operations
 

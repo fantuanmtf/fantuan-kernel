@@ -24,7 +24,11 @@ writes after an explicit `YES`. The main paths:
 | Console | 16550 serial + GOP framebuffer mirror | NS16550 MMIO UART |
 | Storage | AHCI (reference) and NVMe | virtio-mmio block |
 | UEFI/NVRAM repair | yes (Runtime Services) | no (diagnosis only, honest degrade) |
-| Shell commands | 2 core; `rescue` adds 12; `net`/`tls` add 3 tools | 2 core; `rescue` adds 7 |
+| Shell commands | 5 core; `rescue` adds 11–12 (`CONFIG_GRAPHICS` adds one); `net`/`tls` add 3 tools | 2 core; `rescue` adds 8 |
+
+The command counts change with `CONFIG_*`; the smoke suites assert the
+presence/absence invariants, and the authoritative lists are the per-arch
+shell tables (`kernel/src/shell/mod.rs`, `kernel-riscv/src/shell.rs`).
 
 Current release: **v0.0.4** (see [HANDOVER.md](HANDOVER.md) for status).
 The release adds the verified disk imager (`clone` with a `--continue`

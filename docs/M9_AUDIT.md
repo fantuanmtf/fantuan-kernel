@@ -4,6 +4,13 @@
 > Method: static review with file:line evidence, fresh builds for both
 > targets, the full x86 smoke suite and the riscv smoke. Findings marked
 > RISK were either fixed in the M9.5 commit or listed as recorded debt.
+>
+> **This is a point-in-time record of v0.0.1 and its table is not updated.**
+> One finding has since been superseded: **M9.5-17** ("the only `blk_write`
+> call site is `vfs/fat_write.rs`") — M12-2 added a second write path, the
+> disk imager at `kernel-core/src/imager/`, itself behind the same
+> `RepairToken` gate plus the shell's explicit `YES`. Read the verdict above
+> as true at v0.0.1, not as current.
 
 ## 1. Technical debt
 

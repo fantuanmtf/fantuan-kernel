@@ -399,12 +399,15 @@ than fish; job control and readline come late.)
 **Login shell (2026-10).** The interactive interface at boot is the
 embedded **login shell** — GNU bash 5.3 when built, else dash — running as a
 foreground user task on `/dev/console` with root's environment
-(`USER=root`, `HOME=/root`, `HOSTNAME=Fantuan-MTF`, `PATH=/bin:/usr/bin`, a
-`PS1` of `\u@\h:\w# `). The built-in shell above is **not** the daily
-interface any more; it keeps the rescue role and comes back when the login
-shell exits (`exit`) or when none is embedded (riscv/aarch64 are
-serial-only, a `CONFIG_BASH=n` build, or a tree whose artifact is missing) —
-the boot line says which one happened. Nothing is lost by landing in bash:
+(`USER=root`, `HOME=/root`, `HOSTNAME=Fantuan-MTF`, `PATH=/bin:/usr/bin`, and
+a `PS1` spelled out as `\u@Fantuan-MTF:\w# `, because bash's `\h` would go
+through `gethostname()`, whose libc stub still answers `fantuan`; M14's
+hostname syscall should make `\h` work again). The built-in shell above is
+**not** the daily interface any more; it keeps the rescue role and comes back
+when the login shell exits (`exit`) or when none is embedded (riscv/aarch64
+are serial-only, a `CONFIG_BASH=n` build, or a tree whose artifact is
+missing) — the boot line says which one happened. Nothing is lost by landing
+in bash:
 the same `/bin/sh`/`/bin/bash`/`/bin/dash` preference is used, `exit` drops
 to the built-in shell, and typing `sh` there re-enters it.
 

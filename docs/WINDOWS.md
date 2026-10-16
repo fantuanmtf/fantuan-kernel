@@ -20,8 +20,10 @@ responsibly. Windows entries seen on the ESP are reported by
   MFT/attribute/runlist and `$I30` reads only, no write path at all, and
   every write intent from the POSIX layer returns `EROFS`
   (`ROADMAP_v0.0.2+.md` §4).
-- The planned disk imager (M12) copies a whole disk to another disk or an
-  image file, but only behind the same repair gate and confirmation.
+- The disk imager (M12, shipped in v0.0.4) copies a whole disk to another
+  disk, but only behind the same repair gate and confirmation. An image-file
+  destination is planned, not implemented: the shell accepts the block
+  handles `blk0..blk3` and nothing else.
 
 ## If a Windows machine does not boot
 

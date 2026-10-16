@@ -10,7 +10,9 @@ authoritative design), then this file.
 1. **English-only artifacts**: code, comments, docs, commit messages.
 2. **Docs before code**: change `docs/DESIGN.md` (and the milestone plan)
    before changing behavior; the doc is the record of intent.
-3. **300-line limit**: no source file over 300 lines. Split by
+3. **300-line limit**: no source file over 300 lines, scoped to `kernel*`,
+   `abi`, `user`, `boot`, `boot-bios` and `drivers` (`third_party/` exempt;
+   `tools/`, `libc-fantuan/` and `docs/` outside). Split by
    responsibility, not by accident. It is a ratchet now (`tools/check-lines.sh`,
    part of `make check`): the files that were over the line when the gate
    landed are listed in `tools/line-budget.txt` with a reason each, a new

@@ -7,8 +7,9 @@
 
 Four hardware-facing capabilities for field rescue:
 
-1. **Disk imager** — clone a whole disk to another disk or an image file,
-   verified by hash, write-gated like every repair action.
+1. **Disk imager** — clone a whole disk to another disk, verified by hash,
+   write-gated like every repair action. (Image-file output is listed in the
+   scope below but was never implemented; see §2.)
 2. **NTFS read-only** — inspect Windows files without touching them
    (boot-chain repair stays out of scope; WinPE is recommended).
 3. **AMD GPU probe** — report identity/link/thermal state conservatively,
@@ -20,8 +21,11 @@ Four hardware-facing capabilities for field rescue:
 
 - **Scope**: block-level copy, sector-aligned, with a fixed 1 MiB buffer
   (128 x 8 KiB bounce pages through `blk_ops`); source and destination may be
-  raw devices (`blk_open(0/1)`) or an image file on FAT32 (write path via
-  `RepairToken`).
+  raw devices (`blk_open(0/1)`, surfaced to the shell as `blk0..blk3`; the
+  write path is gated by `RepairToken`). **An image-file destination on FAT32
+  is planned, not implemented** — `parse_path` in
+  `kernel-core/src/shell/imager.rs` accepts block handles only, and rejects
+  anything else with "source and destination must be raw block devices".
 - **Safety**: requires `RepairToken` + an explicit `YES`; refuses when the
   destination is smaller than the source; refuses to overwrite the mounted
   source; prints a plan (source/destination/size) before starting.

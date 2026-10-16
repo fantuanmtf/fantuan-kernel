@@ -17,9 +17,13 @@ GNU bash (the default `sh` and the login shell), ships as a separate,
 source-provided program
 whose sources are deliberately **not** tracked here — `main` carries only
 the pins and `tools/fetch-bash-src.sh` obtains the verified tarball
-([THIRD_PARTY.md](THIRD_PARTY.md)). The Live profile
-wipes RAM on clean shutdown (`CONFIG_SECURE_WIPE`) as a best-effort
-cold-boot (RAM-freezing) mitigation, with the limitations documented.
+([THIRD_PARTY.md](THIRD_PARTY.md)). The Live profile is **designed** to wipe
+RAM on clean shutdown (`CONFIG_SECURE_WIPE`, default `n`) as a best-effort
+cold-boot (RAM-freezing) mitigation, with the limitations documented — it is
+**not implemented**: the symbol gates no code, and the kernel has no
+shutdown, reboot or power path at all. The wipe is therefore a design intent
+with a named prerequisite on the route (see [HANDOVER.md](docs/HANDOVER.md)),
+not a capability this build has.
 Tools and packages are developed on the `fantuan-apps` and `package`
 branches and vendored into `apps/` per configuration
 ([docs/APPS.md](docs/APPS.md)); mirror roles are in
@@ -54,7 +58,10 @@ All repository artifacts are in English. The authoritative design lives in
 | [THIRD_PARTY.md](THIRD_PARTY.md) | third-party components, licenses and origin register |
 | [docs/PROGRESS.md](docs/PROGRESS.md) | live progress tracker for v0.0.2 -> v0.1.5 |
 
-## Current state: v0.0.4 — M12 complete (disk tools + NTFS + GPU + virt detect)
+## Current state: v0.0.4 shipped; v0.0.5 (M13) in progress
+
+[docs/PROGRESS.md](docs/PROGRESS.md) is the authority for milestone state and
+for what is verified; this section does not restate its numbers.
 
 M12 adds the disk imager and the hardware-facing field tools: `clone`
 (copy a raw disk to another, hash-verified, with a `--continue` bad-sector

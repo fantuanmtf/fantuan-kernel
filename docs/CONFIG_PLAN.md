@@ -10,8 +10,8 @@ a `menuconfig`-style configuration instead of being pre-linked.
 - One `menuconfig` entry point; profiles for the common combinations.
 - Nothing optional is linked unless selected (no dead weight, no
   pre-baked virtualization/graphics in the minimal kernel).
-- The selected configuration is visible in the boot banner and in the
-  generated config header; smokes run per profile.
+- The selected configuration is visible through `make config-text`; the boot
+  banner does not print it. Smokes run per profile.
 - No GPL build tools: implement the configurator on top of the existing
   tooling (bmake/ninja are allowed later for the base image; GNU make is
   not). The configurator itself is small and self-written.
@@ -51,15 +51,18 @@ catalog home is `apps/{ping,nslookup,wget}` from M14 (APPS.md). M12-2 adds
 1. `config/Kconfig`-style TOML or text schema (symbol, type, depends,
    default, prompt) read by `tools/kconfig.py` (Python stdlib, menu UI
    with a fallback `--text`/`--olddefconfig`/`--profile` mode).
-2. Output `.config` at the repo root plus a generated
-   `build/config/features.rs` with `pub const CONFIG_*` values.
-3. Crates consume it through their `build.rs`: emit `cargo:rustc-cfg=`
-   for each `y` bool (e.g. `cfg(kconfig_net)`) and/or Cargo features
-   wired to the same names. Optional crates (`kernel-net`) are only
-   added as dependencies when the feature is on.
-4. Boot banner prints the profile and the enabled feature list; smokes
-   assert the minimal profile has no `net:`/`rump:` lines and the net
-   profile does.
+2. Output `.config` at the repo root. (An early design also emitted
+   `build/config/features.rs` with `pub const CONFIG_*` values; that file is
+   produced by `--emit` but **nothing consumes it** — the build reads
+   `.config` directly.)
+3. Crates consume `.config` through their `build.rs`, which `include!`s
+   `tools/kconfig_emit.rs`: that emits `cargo:rustc-cfg=kconfig_<lower>` and
+   the matching `rustc-check-cfg` for each `y` bool (e.g. `cfg(kconfig_net)`),
+   plus `cargo:rerun-if-changed=.config` — the rebuild-incrementality hook.
+   Optional crates (`kernel-net`) are only added as dependencies when the
+   matching Cargo feature is on.
+4. Smokes assert the minimal profile has no `net:`/`rump:` lines and the
+   net profile does.
 5. CI matrix: `minimal`, `net`, `all` (graphics/hypervisor land as their
    code arrives). `tools/smoke-config.sh` builds each profile and checks
    the presence/absence invariants.
@@ -281,12 +284,16 @@ Owner direction 2026-09, additional constraints:
   becoming the kernel for a Live environment (RAM-first operation, clean
   boot/shutdown, no persistent writes by default, optional persistence).
   Rescue stays a profile, not the identity.
-- **Shutdown RAM wipe**: a `CONFIG_SECURE_WIPE` (default y in the Live
-  profile) overwrites kernel memory, page caches, framebuffer and free
-  RAM on clean shutdown/reboot as a mitigation against cold-boot (RAM
-  freezing) attacks. Honest limits documented: a crash or power loss
-  cannot be wiped, so suspend/hibernation stay disabled and the wipe is
-  best-effort defence-in-depth, not a guarantee.
+- **Shutdown RAM wipe** — *design intent; no consumer code.* A
+  `CONFIG_SECURE_WIPE` (default `n`, and no profile turns it on) would
+  overwrite kernel memory, page caches, framebuffer and free RAM on clean
+  shutdown/reboot as a mitigation against cold-boot (RAM freezing) attacks.
+  **This does not exist yet**: the symbol gates no code, and the kernel has
+  no shutdown, reboot or power path at all to hang a wipe on — the accurate
+  note is "Still ungated and why" above. Honest limits if it were built: a
+  crash or power loss cannot be wiped, so suspend/hibernation would stay
+  disabled and the wipe would be best-effort defence-in-depth, not a
+  guarantee.
 - **Tools as add-ons (licence firewall)**: userland tools and any GPL
   programs ship as separate, configuration-selected programs; nothing
   GPL is ever linked into the kernel or base. The default kernel stays
